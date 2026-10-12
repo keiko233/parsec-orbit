@@ -96,7 +96,11 @@ unsafe extern "system" fn init(host: *const ParsecOrbitHost) -> i32 {
 
     let script = std::fs::read_to_string(Path::new(&dir).join("fixture.cfg")).unwrap_or_default();
     let mut result = 0;
-    for line in script.lines().map(str::trim).filter(|line| !line.is_empty()) {
+    for line in script
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+    {
         let Some((action, argument)) = line.split_once('=') else {
             continue;
         };

@@ -91,7 +91,15 @@ fn abi_constants_are_stable() {
     assert_eq!(EXPORT_SHUTDOWN, "ParsecOrbitPluginShutdown");
     assert_eq!(EXPORT_LEGACY_INIT, "ParsecPluginInit");
     assert_eq!(
-        [OK, ERR_INVALID, ERR_EXISTS, ERR_NOT_FOUND, ERR_NOT_READY, ERR_TIMEOUT, ERR_EXCEPTION],
+        [
+            OK,
+            ERR_INVALID,
+            ERR_EXISTS,
+            ERR_NOT_FOUND,
+            ERR_NOT_READY,
+            ERR_TIMEOUT,
+            ERR_EXCEPTION
+        ],
         [0, -1, -2, -3, -4, -5, -6]
     );
     assert_eq!(INTERFACE_KIND_PREFIX, "parsec-orbit.kind.");
@@ -174,7 +182,10 @@ fn abi_document_matches_the_definitions() {
         INTERFACE_CONFIG,
         INTERFACE_MARKET,
     ] {
-        assert!(doc.contains(name), "docs/spec/plugin-abi.md never mentions {name}");
+        assert!(
+            doc.contains(name),
+            "docs/spec/plugin-abi.md never mentions {name}"
+        );
     }
 }
 

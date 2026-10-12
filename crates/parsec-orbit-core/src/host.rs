@@ -135,7 +135,10 @@ impl Registry {
     }
 
     pub fn names(&self) -> Vec<String> {
-        self.entries.iter().map(|entry| entry.name.clone()).collect()
+        self.entries
+            .iter()
+            .map(|entry| entry.name.clone())
+            .collect()
     }
 }
 
@@ -144,7 +147,9 @@ static REGISTRY: Mutex<Registry> = Mutex::new(Registry::new());
 fn registry() -> MutexGuard<'static, Registry> {
     // A plugin that panicked while holding the lock must not take the whole
     // registry down with it.
-    REGISTRY.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    REGISTRY
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 /// Registers an interface in the process wide registry.
@@ -328,7 +333,9 @@ pub fn host_for(
         loader_version: leak_c_string(loader_version),
         plugin_id: leak_c_string(id),
         plugin_dir: leak_c_string(&dir.to_string_lossy()),
-        data_dir: data_dir.map_or(std::ptr::null(), |dir| leak_c_string(&dir.to_string_lossy())),
+        data_dir: data_dir.map_or(std::ptr::null(), |dir| {
+            leak_c_string(&dir.to_string_lossy())
+        }),
         log_ex: Some(host_log_ex),
         register_interface: Some(host_register_interface),
         unregister_interface: Some(host_unregister_interface),
@@ -386,7 +393,10 @@ mod tests {
     fn a_registered_table_is_found_with_its_owner() {
         let mut registry = Registry::new();
         assert!(registry.find("com.example.svc").is_null());
-        assert_eq!(registry.register("com.example.a", "com.example.svc", table()), OK);
+        assert_eq!(
+            registry.register("com.example.a", "com.example.svc", table()),
+            OK
+        );
         assert_eq!(registry.find("com.example.svc"), table());
         assert_eq!(registry.owner("com.example.svc"), Some("com.example.a"));
         assert_eq!(registry.names(), ["com.example.svc"]);
@@ -396,7 +406,10 @@ mod tests {
     fn a_name_can_only_be_registered_once() {
         let mut registry = Registry::new();
         assert_eq!(registry.register("a", "com.example.svc", table()), OK);
-        assert_eq!(registry.register("b", "com.example.svc", table()), ERR_EXISTS);
+        assert_eq!(
+            registry.register("b", "com.example.svc", table()),
+            ERR_EXISTS
+        );
         assert_eq!(registry.owner("com.example.svc"), Some("a"));
     }
 
@@ -408,7 +421,10 @@ mod tests {
             registry.register("a", "com.example.svc", std::ptr::null()),
             ERR_INVALID
         );
-        assert_eq!(registry.register("a", "com.example.svc", &TINY), ERR_INVALID);
+        assert_eq!(
+            registry.register("a", "com.example.svc", &TINY),
+            ERR_INVALID
+        );
         let misaligned = (table() as usize + 1) as *const ParsecOrbitInterfaceHeader;
         assert_eq!(
             registry.register("a", "com.example.svc", misaligned),
@@ -425,7 +441,11 @@ mod tests {
             ERR_INVALID
         );
         assert_eq!(
-            registry.register("com.parsec-orbit.webview-bridge", "parsec-orbit.webview", table()),
+            registry.register(
+                "com.parsec-orbit.webview-bridge",
+                "parsec-orbit.webview",
+                table()
+            ),
             OK
         );
         // A third party that implements a kind registers its handler.
@@ -460,10 +480,7 @@ mod tests {
         assert_eq!(data_dir_for(root, "a/b:c d"), root.join("a_b_c_d"));
         assert_eq!(data_dir_for(root, ".."), root.join("_.."));
         assert_eq!(data_dir_for(root, ""), root.join("_"));
-        assert_eq!(
-            data_dir_for(root, "C:\\x\\y.dll"),
-            root.join("C__x_y.dll")
-        );
+        assert_eq!(data_dir_for(root, "C:\\x\\y.dll"), root.join("C__x_y.dll"));
     }
 
     // ---- host tables ----
@@ -521,7 +538,10 @@ mod tests {
     static RECORDER: Recorder = Recorder;
 
     fn seen(text: &str) -> bool {
-        SEEN.lock().unwrap().iter().any(|(_, line)| line.contains(text))
+        SEEN.lock()
+            .unwrap()
+            .iter()
+            .any(|(_, line)| line.contains(text))
     }
 
     #[test]
@@ -539,7 +559,9 @@ mod tests {
         assert_eq!((found.major(), found.minor()), (1, 2));
         assert!(unsafe { other.interface(c"com.example.cb.svc") }.is_some());
         assert!(unsafe { other.interface(c"com.example.cb.missing") }.is_none());
-        assert!(seen("com.example.cb-owner registered interface com.example.cb.svc 1.2"));
+        assert!(seen(
+            "com.example.cb-owner registered interface com.example.cb.svc 1.2"
+        ));
 
         assert_eq!(other.register(c"com.example.cb.svc", &HEADER), ERR_EXISTS);
 
@@ -587,10 +609,10 @@ mod tests {
         host.log_with_target(3, "com.example.logger", "line with a target");
         host.log_with_target(3, "", "line without a target");
         assert!(seen("plain line"));
-        assert!(SEEN.lock().unwrap().contains(&(
-            3,
-            "com.example.logger: line with a target".to_string()
-        )));
+        assert!(SEEN
+            .lock()
+            .unwrap()
+            .contains(&(3, "com.example.logger: line with a target".to_string())));
         assert!(SEEN
             .lock()
             .unwrap()

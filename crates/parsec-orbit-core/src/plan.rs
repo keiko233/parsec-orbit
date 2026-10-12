@@ -56,7 +56,10 @@ pub fn plan(nodes: &[Node]) -> Plan {
     let mut names: Vec<(String, usize)> = Vec::new();
     for (index, node) in nodes.iter().enumerate() {
         for name in std::iter::once(&node.id).chain(&node.provides) {
-            if !names.iter().any(|(known, owner)| known == name && *owner == index) {
+            if !names
+                .iter()
+                .any(|(known, owner)| known == name && *owner == index)
+            {
                 names.push((name.clone(), index));
             }
         }
@@ -78,8 +81,7 @@ pub fn plan(nodes: &[Node]) -> Plan {
         {
             let found = plan.providers(name);
             if found.is_empty() && required && plan.verdicts[index].is_none() {
-                plan.verdicts[index] =
-                    Some(Verdict::Skip(format!("needs {name}, not installed")));
+                plan.verdicts[index] = Some(Verdict::Skip(format!("needs {name}, not installed")));
             }
             for provider in found {
                 if !dependencies[index].contains(&provider) {
@@ -151,7 +153,11 @@ mod tests {
 
     #[test]
     fn independent_plugins_keep_discovery_order() {
-        let nodes = [node("c", &[], &[], &[]), node("a", &[], &[], &[]), node("b", &[], &[], &[])];
+        let nodes = [
+            node("c", &[], &[], &[]),
+            node("a", &[], &[], &[]),
+            node("b", &[], &[], &[]),
+        ];
         let plan = plan(&nodes);
         assert_eq!(ids(&nodes, &plan), ["c", "a", "b"]);
         assert!(plan.verdicts.iter().all(Option::is_none));
@@ -171,7 +177,10 @@ mod tests {
 
     #[test]
     fn optional_dependencies_only_order() {
-        let nodes = [node("app", &[], &["lib", "absent"], &[]), node("lib", &[], &[], &[])];
+        let nodes = [
+            node("app", &[], &["lib", "absent"], &[]),
+            node("lib", &[], &[], &[]),
+        ];
         let plan = plan(&nodes);
         assert_eq!(ids(&nodes, &plan), ["lib", "app"]);
         assert!(plan.verdicts[0].is_none(), "a missing optional is ignored");
@@ -255,7 +264,10 @@ mod tests {
             node("d", &["c"], &[], &[]),
         ];
         let plan = plan(&nodes);
-        assert!(plan.verdicts.iter().all(|verdict| matches!(verdict, Some(Verdict::Fail(_)))));
+        assert!(plan
+            .verdicts
+            .iter()
+            .all(|verdict| matches!(verdict, Some(Verdict::Fail(_)))));
         assert_eq!(plan.order.len(), 4);
     }
 

@@ -248,7 +248,9 @@ fn only_official_plugins_register_official_names_and_only_owners_unregister() {
     run.assert_success()
         .assert_log_contains("fixture[fx.owner]: register parsec-orbit.webview -> -1")
         .assert_log_contains("fixture[fx.owner]: register com.example.mine -> 0")
-        .assert_log_contains("fixture[com.parsec-orbit.fixture]: register parsec-orbit.webview -> 0")
+        .assert_log_contains(
+            "fixture[com.parsec-orbit.fixture]: register parsec-orbit.webview -> 0",
+        )
         .assert_log_contains("fixture[com.parsec-orbit.fixture]: unregister com.example.mine -> -3")
         .assert_log_contains("fixture[fx.other]: unregister com.example.mine -> -3");
 }

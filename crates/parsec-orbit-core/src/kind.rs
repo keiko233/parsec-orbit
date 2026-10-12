@@ -118,7 +118,11 @@ mod tests {
             info.size as usize,
             std::mem::size_of::<ParsecOrbitPluginLoadInfo>()
         );
-        let text = |p: *const u8| unsafe { CStr::from_ptr(p as *const _) }.to_string_lossy().into_owned();
+        let text = |p: *const u8| {
+            unsafe { CStr::from_ptr(p as *const _) }
+                .to_string_lossy()
+                .into_owned()
+        };
         let manifest = unsafe { std::slice::from_raw_parts(info.manifest, info.manifest_len) };
         let id = text(info.id);
         LOADED.lock().unwrap().push((
@@ -136,24 +140,39 @@ mod tests {
     }
 
     static GOOD: ParsecOrbitKindHandlerV1 = ParsecOrbitKindHandlerV1 {
-        header: ParsecOrbitInterfaceHeader::new(std::mem::size_of::<ParsecOrbitKindHandlerV1>(), 1, 0),
+        header: ParsecOrbitInterfaceHeader::new(
+            std::mem::size_of::<ParsecOrbitKindHandlerV1>(),
+            1,
+            0,
+        ),
         load_plugin: Some(record),
         unload_plugin: None,
     };
     static NEW_MAJOR: ParsecOrbitKindHandlerV1 = ParsecOrbitKindHandlerV1 {
-        header: ParsecOrbitInterfaceHeader::new(std::mem::size_of::<ParsecOrbitKindHandlerV1>(), 2, 0),
+        header: ParsecOrbitInterfaceHeader::new(
+            std::mem::size_of::<ParsecOrbitKindHandlerV1>(),
+            2,
+            0,
+        ),
         load_plugin: Some(record),
         unload_plugin: None,
     };
     static NO_LOAD: ParsecOrbitKindHandlerV1 = ParsecOrbitKindHandlerV1 {
-        header: ParsecOrbitInterfaceHeader::new(std::mem::size_of::<ParsecOrbitKindHandlerV1>(), 1, 0),
+        header: ParsecOrbitInterfaceHeader::new(
+            std::mem::size_of::<ParsecOrbitKindHandlerV1>(),
+            1,
+            0,
+        ),
         load_plugin: None,
         unload_plugin: None,
     };
     static SHORT: ParsecOrbitInterfaceHeader = ParsecOrbitInterfaceHeader::new(8, 1, 0);
 
     fn put(kind: &str, table: *const ParsecOrbitInterfaceHeader) {
-        assert_eq!(register("com.example.kind-test", &interface_name(kind), table), 0);
+        assert_eq!(
+            register("com.example.kind-test", &interface_name(kind), table),
+            0
+        );
     }
 
     #[test]
@@ -187,7 +206,10 @@ mod tests {
         )
         .unwrap();
         let loaded = LOADED.lock().unwrap();
-        let call = loaded.iter().find(|call| call.0 == "com.example.kt-good").unwrap();
+        let call = loaded
+            .iter()
+            .find(|call| call.0 == "com.example.kt-good")
+            .unwrap();
         assert_eq!(call.1, dir.to_string_lossy());
         assert_eq!(call.2, entry.to_string_lossy());
         assert_eq!(call.3.as_deref(), Some(&*data.to_string_lossy()));
@@ -213,7 +235,10 @@ mod tests {
         .unwrap_err();
         assert_eq!(error, "kind handler returned 9");
         let loaded = LOADED.lock().unwrap();
-        let call = loaded.iter().find(|call| call.0 == "com.example.fails").unwrap();
+        let call = loaded
+            .iter()
+            .find(|call| call.0 == "com.example.fails")
+            .unwrap();
         assert_eq!(call.3, None, "no data directory is passed on as null");
     }
 

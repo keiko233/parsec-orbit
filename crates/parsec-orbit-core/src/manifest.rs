@@ -54,18 +54,16 @@ fn bare_id(entry: &str) -> (&str, bool) {
 /// Reads an array of ids, dropping junk with a warning. One copy for all four
 /// lists: the loader is size sensitive (ADR 0004).
 #[inline(never)]
-fn id_list(
-    table: &toml::de::DeTable<'_>,
-    key: &str,
-    warnings: &mut Vec<String>,
-) -> Vec<String> {
+fn id_list(table: &toml::de::DeTable<'_>, key: &str, warnings: &mut Vec<String>) -> Vec<String> {
     let Some(items) = table.get(key).and_then(|value| value.get_ref().as_array()) else {
         return Vec::new();
     };
     let mut out: Vec<String> = Vec::new();
     for item in items.iter() {
         let Some(entry) = item.get_ref().as_str() else {
-            warnings.push(format!("`{key}` holds a value that is not a string, ignored"));
+            warnings.push(format!(
+                "`{key}` holds a value that is not a string, ignored"
+            ));
             continue;
         };
         let (id, constrained) = bare_id(entry);
@@ -282,8 +280,11 @@ mod tests {
 
     #[test]
     fn manifest_lists_default_to_empty() {
-        let manifest = manifest_of("id = \"x\"
-").unwrap();
+        let manifest = manifest_of(
+            "id = \"x\"
+",
+        )
+        .unwrap();
         assert!(manifest.requires.is_empty());
         assert!(manifest.optional.is_empty());
         assert!(manifest.provides.is_empty());
