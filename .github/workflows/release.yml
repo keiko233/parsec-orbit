@@ -21,6 +21,9 @@ on:
 
 permissions:
   contents: write
+  # git-cliff reads pull request metadata from the API while building the
+  # changelog; contents: write alone leaves that call unauthorized.
+  pull-requests: read
 
 jobs:
   release:
@@ -50,8 +53,21 @@ jobs:
           }
           Write-Host "releasing $version"
 
+      # Downloads the pinned git-cliff release and puts it on PATH. The
+      # git-cliff-action wrapper keeps its copy inside the action cache and
+      # never exports it, so it cannot be called from later steps.
       - name: Install git-cliff
-        uses: orhun/git-cliff-action@v4
+        shell: pwsh
+        run: |
+          $version = 'v2.14.2'
+          $name = "git-cliff-$($version.TrimStart('v'))-x86_64-pc-windows-msvc.zip"
+          $dir = Join-Path $env:RUNNER_TEMP 'git-cliff'
+          $archive = Join-Path $env:RUNNER_TEMP $name
+          Invoke-WebRequest -Uri "https://github.com/orhun/git-cliff/releases/download/$version/$name" -OutFile $archive
+          Expand-Archive -LiteralPath $archive -DestinationPath $dir -Force
+          $bin = (Get-ChildItem -LiteralPath $dir -Recurse -Filter git-cliff.exe | Select-Object -First 1).DirectoryName
+          Add-Content -LiteralPath $env:GITHUB_PATH -Value $bin
+          & (Join-Path $bin 'git-cliff.exe') --version
 
       # Builds the release notes from conventional commits. On a tag this is
       # the current version section; on a manual branch run it previews
@@ -59,6 +75,10 @@ jobs:
       # so it ships as a release asset.
       - name: Build the changelog with git-cliff
         shell: pwsh
+        env:
+          # git-cliff reads PR metadata from the GitHub API; without a token
+          # the anonymous call from a shared runner IP can be rate limited.
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           if ('${{ github.ref_type }}' -eq 'tag') {
             git-cliff --latest --strip all --output RELEASE_NOTES.md
