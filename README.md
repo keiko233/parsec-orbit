@@ -9,7 +9,8 @@ client. It uses a `bcrypt.dll` proxy and does not modify Parsec files.
   the real `bcrypt.dll`, opens the WebView2 DevTools endpoint and hosts the
   plugin system.
 * `parsec-orbit-plugin-sdk/` - the plugin ABI; see the
-  [plugin ABI reference](docs/plugin-abi.md).
+  [plugin ABI reference](docs/spec/plugin-abi.md). Specifications, design
+  notes and the SDK roadmap are indexed in [docs/](docs/README.md).
 * `plugins/parsec-orbit-plugin-webview/` - official plugin that widens the
   "Bandwidth Limit" choices in the WebView2 UI; see its
   [README](plugins/parsec-orbit-plugin-webview/README.md).

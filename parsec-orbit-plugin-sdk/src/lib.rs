@@ -8,7 +8,7 @@
 //!
 //! The crate is `no_std` on purpose: a plugin does not have to link the Rust
 //! standard library to talk to the loader, and the C header equivalent in
-//! `docs/plugin-abi.md` is generated from these definitions.
+//! `docs/spec/plugin-abi.md` is generated from these definitions.
 
 #![no_std]
 

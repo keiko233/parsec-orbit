@@ -62,11 +62,11 @@ fn abi_constants_are_stable() {
     assert_eq!(EXPORT_LEGACY_INIT, "ParsecPluginInit");
 }
 
-/// `docs/plugin-abi.md` is the reference other languages implement against, so
+/// `docs/spec/plugin-abi.md` is the reference other languages implement against, so
 /// it must not drift from the constants.
 #[test]
 fn abi_document_matches_the_sdk() {
-    let doc = include_str!("../../docs/plugin-abi.md");
+    let doc = include_str!("../../docs/spec/plugin-abi.md");
     for export in [
         EXPORT_QUERY,
         EXPORT_INIT,
@@ -75,7 +75,7 @@ fn abi_document_matches_the_sdk() {
     ] {
         assert!(
             doc.contains(export),
-            "docs/plugin-abi.md never mentions {export}"
+            "docs/spec/plugin-abi.md never mentions {export}"
         );
     }
     let version_line = std::format!("#define PARSEC_ORBIT_ABI_VERSION {ABI_VERSION}");
