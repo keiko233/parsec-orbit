@@ -1,8 +1,8 @@
 # Builds and publishes a release when a version tag is pushed.
 # Preferred entry point is Actions -> Publish -> Run workflow: it bumps the
-# workspace version, commits, tags, and pushes with PUBLISH_TOKEN; the tag
-# push triggers this workflow. Two separate workflows so this job always
-# checks out the bump commit behind the tag.
+# workspace version, commits, tags, and pushes; the tag push triggers this
+# workflow. Two separate workflows so this job always checks out the bump
+# commit behind the tag.
 # Manual tagging still works:
 #
 #   git tag v0.1.0
