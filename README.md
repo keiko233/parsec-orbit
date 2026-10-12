@@ -25,9 +25,16 @@ client. It uses a `bcrypt.dll` proxy and does not modify Parsec files.
 ```powershell
 cargo build --release
 scripts\package.ps1        # stages dist\ with bcrypt.dll, plugin zips, SHA256SUMS
+powershell -ExecutionPolicy Bypass -File scripts\install.ps1   # from an elevated prompt
 ```
 
-Install by copying `bcrypt.dll` next to `parsecd.exe` (typically
-`C:\Program Files\Parsec`) and the plugin folder into
-`C:\Program Files\Parsec\plugins\`. The client loads the proxy at start-up;
-everything it logs goes to `%APPDATA%\ParsecOrbit\parsec-orbit.log`.
+`scripts\install.ps1` stops the Parsec service, backs up the previous
+`bcrypt.dll`, copies the loader and the official plugins into
+`C:\Program Files\Parsec\plugins\` and starts the service again
+(`-EnableWebViewUi` also switches the client to the WebView2 UI). To install by
+hand, copy `bcrypt.dll` next to `parsecd.exe` (typically
+`C:\Program Files\Parsec`) and the plugin folders into `<client>\plugins\`.
+
+The client loads the proxy at start-up. It appends to the first writable path
+of `PARSEC_ORBIT_LOG`, `%APPDATA%\ParsecOrbit\parsec-orbit.log`, the client
+directory and `%TEMP%`, and mirrors every line to the debugger output.
