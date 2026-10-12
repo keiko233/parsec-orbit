@@ -300,3 +300,23 @@ fn a_javascript_plugin_keeps_its_settings_in_the_config_store() {
         .join("ParsecOrbit/data/com.parsec-orbit.config/com.example.js-counter.json");
     assert_eq!(std::fs::read_to_string(file).unwrap(), "{\"runs\":2}");
 }
+
+// ---- hooks ---------------------------------------------------------------------------
+
+#[test]
+fn a_native_plugin_hooks_a_system_function_through_the_hooks_service() {
+    let sandbox = client("hooks");
+    sandbox.install_plugin("hooks", Plugin::Hooks);
+    sandbox.install_fixture(
+        "hooker",
+        "id = \"fx.hooker\"\nrequires = [\"com.parsec-orbit.hooks\"]",
+        "hook_processor=\n",
+    );
+
+    let run = run_client(&sandbox);
+    run.assert_success()
+        .assert_log_contains(
+            "fixture[fx.hooker]: hook_processor -> hooked=777 trampoline=true restored=true",
+        )
+        .assert_log_contains("ready: 2 loaded, 0 skipped, 0 failed");
+}

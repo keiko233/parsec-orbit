@@ -1,0 +1,13 @@
+# Metadata for the loader. Official plugin that provides `parsec-orbit.hooks`:
+# inline hooks on functions of the client process. Native code with full
+# access to the process; install it only for plugins that need it.
+id = "com.parsec-orbit.hooks"
+name = "Hooks"
+version = "0.1.0"
+kind = "dll"
+entry = "parsec_orbit_plugin_hooks.dll"
+author = "Parsec Orbit contributors"
+description = "Provides parsec-orbit.hooks: inline hooks on functions of the client process"
+license = "MIT"
+api = 1
+enabled = true
