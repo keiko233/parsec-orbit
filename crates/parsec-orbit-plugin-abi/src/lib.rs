@@ -366,7 +366,9 @@ pub type MessageCallback =
 /// `parsec-orbit.webview` 1.0, provided by the webview-bridge plugin: the
 /// client's WebView2 UI. All strings are UTF-8 `(pointer, length)` pairs.
 ///
-/// Every function is thread-safe. Callbacks run on the bridge's own thread.
+/// Every function is thread-safe. A `subscribe` callback runs on the bridge's
+/// delivery thread; `evaluate`'s result callback runs on the caller's thread,
+/// before `evaluate` returns.
 #[repr(C)]
 pub struct ParsecOrbitWebViewV1 {
     pub header: ParsecOrbitInterfaceHeader,

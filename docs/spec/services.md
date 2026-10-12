@@ -74,7 +74,7 @@ The page talks to the bridge through a CDP binding (`Runtime.addBinding` named `
 
 ### `parsec-orbit.js` (provided by the JS runtime plugin), version 1.0
 
-For native plugins that want to evaluate script. `create_context(name)` makes a context of its own (`-2` if the name is taken), `eval(context, source, out, user)` evaluates a script and passes the result as JSON, `destroy_context(context)` drops it. Contexts are independent of those of JavaScript plugins, run on a thread of their own and have no `host` object; they have the timers and nothing else.
+For native plugins that want to evaluate script. `create_context(name)` makes a context of its own: the name is 1 to 64 bytes with no control characters and no path separators (`-1` otherwise), `-2` if the name is taken. `eval(context, source, out, user)` evaluates a script of at most 4 MiB (`-1` when the source is larger) and passes the result as JSON; `destroy_context(context)` drops it. Contexts are independent of those of JavaScript plugins, run on a thread of their own and have no `host` object; they have the timers and nothing else.
 
 ### Reserved
 

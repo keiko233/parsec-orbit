@@ -23,14 +23,16 @@ import { definePlugin } from "@parsec-orbit/sdk";
 export default definePlugin({
   async setup(host) {
     host.log.info("loaded", host.plugin.version);
-    await host.webview.injectFile("ui.js");            // persistent: every new document + current one
-    host.webview.on("bandwidth:applied", (payload) => host.log.info("applied", payload));
+    const { webview } = host;
+    if (!webview) throw new Error('this plugin needs permissions = ["webview"]');
+    await webview.injectFile("ui.js");                 // persistent: every new document + current one
+    webview.on("bandwidth:applied", (payload) => host.log.info("applied", payload));
   },
   teardown() {},
 });
 ```
 
-* The entry is an ES module whose default export is the result of `definePlugin` (an identity function that fixes the types). Bundlers produce a single file (`esbuild`/`tsup` recipe in the template), target ES2020.
+* The entry is an ES module whose default export is the result of `definePlugin` (an identity function that fixes the types). Bundlers produce a single file (`esbuild`/`tsup` recipe in the template), target ES2020. An entry larger than 8 MiB is refused before it is read, and the plugin fails to load.
 * `setup(host)` may be async; the runtime waits for it before the plugin counts as *loaded*, for 30 seconds at most. A throw, a rejection or the timeout marks the plugin *failed* (`kind handler returned 1`) and the error is logged under the plugin id. The loader waits too, so `setup` registers things and returns: `inject` works before the page exists (the bridge installs the script when it attaches), while `await host.webview.ready` may wait forever.
 * `teardown()` is reserved for the future unload (never called today).
 * Unhandled rejections and exceptions in callbacks and timers are caught by the runtime and logged under the plugin id (`unhandled promise rejection: ...`, `uncaught error in a timer: ...`); they never reach the client. A loop of more than 20 million iterations or a recursion deeper than 400 calls throws a `RangeError`.
@@ -41,8 +43,8 @@ export default definePlugin({
 interface Host {
   plugin: { id: string; version: string; dir: string; dataDir: string };
   log: { trace(...a: unknown[]): void; debug(...): void; info(...): void; warn(...): void; error(...): void };
-  config: Config;             // requires permission "config"; JSON in <dataDir>/config.json until the config service exists
-  webview: WebView;           // requires permission "webview"
+  config?: Config;            // requires permission "config"; JSON in <dataDir>/config.json until the config service exists
+  webview?: WebView;          // requires permission "webview"
   setTimeout/clearTimeout/setInterval/clearInterval;   // runtime-provided timers (also global, with console.*)
 }
 
@@ -84,7 +86,7 @@ Versioning: the SDK's major tracks the `parsec-orbit.js` / `.webview` interface 
 
 ## Runtime (JS runtime plugin)
 
-* Boa 0.22, one `Context` per plugin, each on a dedicated thread (contexts are not `Send`) that owns an inbox of commands (`Load`, `Eval`, `Settled`, `Message`, `Stop`), the timers and the promise job queue - an actor, without `ractor` or an async runtime ([ADR 0004](../design/decisions/0004-loader-stays-light.md)). Blocking work (`evaluate`, `post`, `ready`) runs on short-lived helper threads and settles its promise through the inbox, so a context never blocks on the page.
+* Boa 0.22, one `Context` per plugin, each on a dedicated thread (contexts are not `Send`) that owns an inbox of commands (`Load`, `Eval`, `Settled`, `Message`, `Stop`), the timers and the promise job queue - an actor, without `ractor` or an async runtime ([ADR 0004](../design/decisions/0004-loader-stays-light.md)). Blocking work (`evaluate`, `post`, `ready`) runs on short-lived helper threads and settles its promise through the inbox, so a context never blocks on the page; at most 32 such calls may be in flight per context, and further calls are rejected with `too many webview calls in flight` until one finishes.
 * Registers `parsec-orbit.kind.js` (load: read `entry`, evaluate as module, call `setup`) and `parsec-orbit.js`.
 * Gets WebView access from the `parsec-orbit.webview` service when a plugin is loaded (the runtime lists the bridge as `optional`, so it is initialised first when installed; a JS plugin that needs it lists it in `requires`).
 * No fs/net/process access in the plugin realm: no `require`, `process`, `fetch`, `window`. `injectFile` reads below the plugin directory only (canonicalised; `..` and absolute paths are refused). `permissions` in the manifest are default-deny and enforced by the runtime.

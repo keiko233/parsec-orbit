@@ -9,7 +9,9 @@ import { definePlugin } from "@parsec-orbit/sdk";
 export default definePlugin({
   async setup(host) {
     host.log.info("loaded", host.plugin.version);
-    await host.webview.injectFile("dist/ui.js"); // needs permissions = ["webview"]
+    const { webview } = host;
+    if (!webview) throw new Error('this plugin needs permissions = ["webview"]');
+    await webview.injectFile("dist/ui.js");
   },
 });
 ```
