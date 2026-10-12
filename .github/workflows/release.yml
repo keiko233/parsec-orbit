@@ -1,8 +1,8 @@
 # Builds and publishes a release when a version tag is pushed.
 # Preferred entry point is Actions -> Publish -> Run workflow: it bumps the
-# workspace version, tags, pushes, then calls this workflow directly via
-# workflow_call (a tag pushed with GITHUB_TOKEN would NOT trigger this
-# workflow on its own, so Publish invokes it explicitly).
+# workspace version, commits, tags, and pushes with PUBLISH_TOKEN; the tag
+# push triggers this workflow. Two separate workflows so this job always
+# checks out the bump commit behind the tag.
 # Manual tagging still works:
 #
 #   git tag v0.1.0
@@ -18,12 +18,6 @@ on:
     tags:
       - 'v*'
   workflow_dispatch:
-  workflow_call:
-    inputs:
-      tag:
-        description: 'Tag to release (e.g. v0.2.0). Defaults to github.ref_name when run via tag push.'
-        required: false
-        type: string
 
 permissions:
   contents: write
@@ -36,51 +30,37 @@ jobs:
         with:
           # Full history and tags so git-cliff can diff against the previous tag.
           fetch-depth: 0
-          # When called from Publish, check out the tag that was just pushed.
-          ref: ${{ inputs.tag || github.ref }}
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-pc-windows-msvc
 
-      # Resolves which tag is being released: the workflow_call input when
-      # invoked from Publish, otherwise the pushed tag. Empty on a manual
-      # branch run (preview only, no GitHub release).
-      - name: Resolve the release tag
-        id: tag
-        shell: pwsh
-        run: |
-          $tag = '${{ inputs.tag }}'
-          if ((-not $tag) -and ('${{ github.ref_type }}' -eq 'tag')) { $tag = '${{ github.ref_name }}' }
-          "tag=$tag" >> $env:GITHUB_OUTPUT
-          Write-Host "tag=$tag"
-
       # A tag that disagrees with Cargo.toml would publish a mislabelled
       # release, so fail before spending time on the build.
       - name: Check the tag against the workspace version
-        if: steps.tag.outputs.tag != ''
+        if: startsWith(github.ref, 'refs/tags/')
         shell: pwsh
         run: |
           $match = Select-String -Path Cargo.toml -Pattern '^version = "(.+)"' | Select-Object -First 1
           if (-not $match) { throw 'could not read the workspace version from Cargo.toml' }
           $version = 'v' + $match.Matches[0].Groups[1].Value
-          if ('${{ steps.tag.outputs.tag }}' -ne $version) {
-            throw "tag ${{ steps.tag.outputs.tag }} does not match the workspace version $version"
+          if ('${{ github.ref_name }}' -ne $version) {
+            throw "tag ${{ github.ref_name }} does not match the workspace version $version"
           }
           Write-Host "releasing $version"
 
       - name: Install git-cliff
         uses: orhun/git-cliff-action@v4
 
-      # Builds the release notes from conventional commits. With a tag this is
-      # the current version section; without one (manual branch run) it
-      # previews unreleased commits. The full CHANGELOG.md is staged into
-      # dist/ below so it ships as a release asset.
+      # Builds the release notes from conventional commits. On a tag this is
+      # the current version section; on a manual branch run it previews
+      # unreleased commits. The full CHANGELOG.md is staged into dist/ below
+      # so it ships as a release asset.
       - name: Build the changelog with git-cliff
         shell: pwsh
         run: |
-          if ('${{ steps.tag.outputs.tag }}' -ne '') {
+          if ('${{ github.ref_type }}' -eq 'tag') {
             git cliff --latest --strip all --output RELEASE_NOTES.md
           } else {
             git cliff --unreleased --strip all --output RELEASE_NOTES.md
@@ -120,14 +100,12 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: parsec-orbit-${{ steps.tag.outputs.tag || github.ref_name }}
+          name: parsec-orbit-${{ github.ref_name }}
           path: dist/*
 
       - name: Publish the GitHub release
-        if: steps.tag.outputs.tag != ''
+        if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.tag.outputs.tag }}
           files: dist/*
           body_path: RELEASE_NOTES.md
-
