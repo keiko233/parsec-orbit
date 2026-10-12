@@ -34,7 +34,9 @@ unsafe fn utf8<'a>(pointer: *const u8, len: usize) -> Option<&'a str> {
 }
 
 unsafe extern "system" fn is_ready() -> i32 {
-    bridge().is_ready() as i32
+    // Asking is what starts the session, as `host.webview.ready` documents:
+    // a plugin that only waits for the page must not wait forever.
+    busy().is_ready() as i32
 }
 
 unsafe extern "system" fn add_script(

@@ -8,11 +8,12 @@
 //! the page was recreated, the client restarted its UI - the thread attaches
 //! again and replays the scripts, so a plugin registers a script once.
 
+use std::cell::Cell;
 use std::collections::HashMap;
 use std::ffi::c_void;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
-use std::sync::{Mutex, MutexGuard};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock};
 use std::time::{Duration, Instant};
 
 use parsec_orbit_plugin_sdk_std::{
@@ -51,6 +52,78 @@ struct Subscription {
     channel: String,
     callback: MessageCallback,
     user: usize,
+    /// Set by `unsubscribe`; a delivery that sees it does nothing.
+    cancelled: Arc<AtomicBool>,
+}
+
+/// One page message on its way to one subscriber.
+struct Delivery {
+    callback: MessageCallback,
+    user: usize,
+    payload: String,
+    cancelled: Arc<AtomicBool>,
+}
+
+/// What the delivery thread and `unsubscribe` share: the queue callbacks run
+/// from, and how many of them are running right now.
+struct Dispatcher {
+    /// Set once the delivery thread runs; without it nothing is delivered.
+    /// (`mpsc::Sender` is not `Sync`, so it lives behind the mutex.)
+    queue: Mutex<Option<Sender<Delivery>>>,
+    in_flight: AtomicUsize,
+    idle: Mutex<()>,
+    idle_signal: Condvar,
+}
+
+impl Dispatcher {
+    fn new() -> Dispatcher {
+        Dispatcher {
+            queue: Mutex::new(None),
+            in_flight: AtomicUsize::new(0),
+            idle: Mutex::new(()),
+            idle_signal: Condvar::new(),
+        }
+    }
+}
+
+thread_local! {
+    /// Whether this thread is inside a subscriber callback. `unsubscribe`
+    /// called from one must not wait for the callback it is running in.
+    static DISPATCHING: Cell<bool> = const { Cell::new(false) };
+}
+
+/// Runs the subscriber callbacks of a bridge, in the order the messages
+/// arrived, away from the session thread.
+fn delivery_loop(dispatcher: Arc<Dispatcher>, inbox: Receiver<Delivery>) {
+    while let Ok(delivery) = inbox.recv() {
+        if delivery.cancelled.load(Ordering::SeqCst) {
+            continue;
+        }
+        // Counted before the second look at `cancelled`, so `unsubscribe`
+        // that sees no callback running can rely on this one not starting.
+        dispatcher.in_flight.fetch_add(1, Ordering::SeqCst);
+        if !delivery.cancelled.load(Ordering::SeqCst) {
+            DISPATCHING.with(|flag| flag.set(true));
+            // Safety: the subscriber promised the callback and its user
+            // pointer stay valid until it unsubscribes; `unsubscribe` does not
+            // return while a callback of that subscription is running.
+            unsafe {
+                (delivery.callback)(
+                    delivery.user as *mut c_void,
+                    delivery.payload.as_ptr(),
+                    delivery.payload.len(),
+                )
+            };
+            DISPATCHING.with(|flag| flag.set(false));
+        }
+        if dispatcher.in_flight.fetch_sub(1, Ordering::SeqCst) == 1 {
+            let _idle = dispatcher
+                .idle
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            dispatcher.idle_signal.notify_all();
+        }
+    }
 }
 
 #[derive(Default)]
@@ -91,6 +164,7 @@ pub struct Bridge {
     state: Mutex<State>,
     commands: Mutex<Option<Sender<Command>>>,
     launch: Mutex<Option<Launch>>,
+    dispatcher: OnceLock<Arc<Dispatcher>>,
 }
 
 impl Default for Bridge {
@@ -112,6 +186,7 @@ impl Bridge {
             }),
             commands: Mutex::new(None),
             launch: Mutex::new(None),
+            dispatcher: OnceLock::new(),
         }
     }
 
@@ -136,6 +211,50 @@ impl Bridge {
         guard
             .as_ref()
             .is_some_and(|commands| commands.send(command).is_ok())
+    }
+
+    /// The thread that runs subscriber callbacks, started on first use. It is
+    /// a thread of its own so a callback may call back into the bridge
+    /// (`evaluate`, `post`) without stalling the session thread.
+    fn dispatcher(&self) -> Arc<Dispatcher> {
+        Arc::clone(self.dispatcher.get_or_init(|| {
+            let dispatcher = Arc::new(Dispatcher::new());
+            let (queue, inbox) = mpsc::channel();
+            let worker = Arc::clone(&dispatcher);
+            let running = std::thread::Builder::new()
+                .name("orbit-bridge:deliveries".to_string())
+                .spawn(move || delivery_loop(worker, inbox))
+                .is_ok();
+            if running {
+                *dispatcher
+                    .queue
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(queue);
+            }
+            dispatcher
+        }))
+    }
+
+    /// Waits until no subscriber callback is running. Called from a callback
+    /// it returns at once: the subscription is already gone, so no further
+    /// callback starts, and the callback that is running is the caller.
+    fn wait_for_deliveries(&self) {
+        if DISPATCHING.with(Cell::get) {
+            return;
+        }
+        let Some(dispatcher) = self.dispatcher.get() else {
+            return;
+        };
+        let mut idle = dispatcher
+            .idle
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        while dispatcher.in_flight.load(Ordering::SeqCst) != 0 {
+            idle = dispatcher
+                .idle_signal
+                .wait(idle)
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+        }
     }
 
     /// Remembers how to reach the endpoint. The session only starts when
@@ -297,42 +416,83 @@ impl Bridge {
             channel: channel.to_string(),
             callback,
             user: user as usize,
+            cancelled: Arc::new(AtomicBool::new(false)),
         });
         id
     }
 
+    /// Removes a subscription. It returns only once the callbacks that
+    /// already started have returned, so the subscriber can free its `user`
+    /// pointer as soon as this returns. From inside a callback it does not
+    /// wait for that callback; after it returns no further callback starts.
     pub fn unsubscribe(&self, id: i64) -> i32 {
-        let mut state = self.state();
-        match state
-            .subscriptions
-            .iter()
-            .position(|subscription| subscription.id == id)
-        {
-            Some(index) => {
-                state.subscriptions.remove(index);
-                0
+        let cancelled = {
+            let mut state = self.state();
+            match state
+                .subscriptions
+                .iter()
+                .position(|subscription| subscription.id == id)
+            {
+                Some(index) => {
+                    let subscription = state.subscriptions.remove(index);
+                    // Set under the lock: a delivery that reads it after this
+                    // point must not call the callback.
+                    subscription.cancelled.store(true, Ordering::SeqCst);
+                    Some(subscription.cancelled)
+                }
+                None => None,
             }
-            None => ERR_NOT_FOUND,
+        };
+        if cancelled.is_none() {
+            return ERR_NOT_FOUND;
         }
+        self.wait_for_deliveries();
+        0
     }
 
-    /// Delivers a page message to the subscribers of its channel. The
-    /// callbacks run without the lock held, so they may call back in.
+    /// Hands a page message to the subscribers of its channel. The callbacks
+    /// run on the delivery thread, never on the session thread, so a callback
+    /// may call back in without stalling the session it is answering for.
     fn dispatch(&self, channel: &str, payload: &str) -> usize {
-        let targets: Vec<(MessageCallback, usize)> = self
+        let targets: Vec<(MessageCallback, usize, Arc<AtomicBool>)> = self
             .state()
             .subscriptions
             .iter()
             .filter(|subscription| subscription.channel == channel)
-            .map(|subscription| (subscription.callback, subscription.user))
+            .map(|subscription| {
+                (
+                    subscription.callback,
+                    subscription.user,
+                    Arc::clone(&subscription.cancelled),
+                )
+            })
             .collect();
-        for (callback, user) in &targets {
-            // Safety: the subscriber promised the callback and its user
-            // pointer stay valid until it unsubscribes.
-            unsafe { callback(*user as *mut c_void, payload.as_ptr(), payload.len()) };
+        let count = targets.len();
+        if count == 0 {
+            return 0;
         }
-        targets.len()
+        let dispatcher = self.dispatcher();
+        let queue = dispatcher
+            .queue
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone();
+        let Some(queue) = queue else {
+            // The delivery thread never started; nothing can run the callbacks.
+            return 0;
+        };
+        for (callback, user, cancelled) in targets {
+            let _ = queue.send(Delivery {
+                callback,
+                user,
+                payload: payload.to_string(),
+                cancelled,
+            });
+        }
+        count
     }
+
+    // ---- the delivery thread -----------------------------------------------------
 
     // ---- the session thread ------------------------------------------------------
 
@@ -731,11 +891,72 @@ mod tests {
 
         assert_eq!(bridge.dispatch("news", "{\"x\":1}"), 1);
         assert_eq!(bridge.dispatch("nobody", "{}"), 0);
-        assert_eq!(SEEN.load(Ordering::SeqCst), 1);
+        // The callbacks run on the delivery thread.
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while SEEN.load(Ordering::SeqCst) != 1 {
+            assert!(Instant::now() < deadline, "the callback never ran");
+            std::thread::sleep(Duration::from_millis(10));
+        }
 
         assert_eq!(bridge.unsubscribe(subscription), 0);
         assert_eq!(bridge.unsubscribe(subscription), ERR_NOT_FOUND);
         assert_eq!(bridge.dispatch("news", "{\"x\":1}"), 0);
+        std::thread::sleep(Duration::from_millis(50));
+        assert_eq!(SEEN.load(Ordering::SeqCst), 1, "one delivery, then stopped");
+    }
+
+    #[test]
+    fn unsubscribe_waits_for_a_callback_that_is_already_running() {
+        use std::sync::atomic::AtomicBool;
+        static STARTED: AtomicBool = AtomicBool::new(false);
+        static FINISHED: AtomicBool = AtomicBool::new(false);
+        unsafe extern "system" fn slow(_: *mut c_void, _: *const u8, _: usize) {
+            STARTED.store(true, Ordering::SeqCst);
+            std::thread::sleep(Duration::from_millis(200));
+            FINISHED.store(true, Ordering::SeqCst);
+        }
+        let bridge = Bridge::new();
+        let subscription = bridge.subscribe("slow", slow, std::ptr::null_mut());
+        assert_eq!(bridge.dispatch("slow", "{}"), 1);
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !STARTED.load(Ordering::SeqCst) {
+            assert!(Instant::now() < deadline, "the callback never started");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+
+        // A subscriber frees what `user` points to once this returns, so it
+        // has to wait for the callback that already started.
+        assert_eq!(bridge.unsubscribe(subscription), 0);
+        assert!(
+            FINISHED.load(Ordering::SeqCst),
+            "the callback was left behind"
+        );
+    }
+
+    #[test]
+    fn a_callback_may_unsubscribe_itself() {
+        use std::sync::atomic::AtomicUsize;
+        static BRIDGE: Bridge = Bridge::new();
+        static ID: AtomicUsize = AtomicUsize::new(0);
+        static SEEN: AtomicUsize = AtomicUsize::new(0);
+        unsafe extern "system" fn once(_: *mut c_void, _: *const u8, _: usize) {
+            let id = ID.load(Ordering::SeqCst) as i64;
+            assert_eq!(
+                BRIDGE.unsubscribe(id),
+                0,
+                "a callback unsubscribing itself must not wait for itself"
+            );
+            SEEN.fetch_add(1, Ordering::SeqCst);
+        }
+        let id = BRIDGE.subscribe("self", once, std::ptr::null_mut());
+        ID.store(id as usize, Ordering::SeqCst);
+        assert_eq!(BRIDGE.dispatch("self", "{}"), 1);
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while SEEN.load(Ordering::SeqCst) != 1 {
+            assert!(Instant::now() < deadline, "the callback never ran");
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert_eq!(BRIDGE.unsubscribe(id), ERR_NOT_FOUND, "it is gone already");
     }
 
     #[test]
