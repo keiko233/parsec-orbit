@@ -52,7 +52,7 @@ sdk/js/     @parsec-orbit/sdk (TypeScript)                                      
 tests/      parsec-orbit-e2e;  verify/  verification tools
 ```
 
-Directory layout: the loader and the SDK live under `crates/` (done); the SDK is split into `-abi` and `-sdk` (done); `-core` is next (Phase 1).
+Directory layout: the loader and the SDK live under `crates/` (done); the SDK is split into `-abi` and `-sdk` (done); `-core` holds the Win32-free loading logic (done).
 
 ## Size policy
 

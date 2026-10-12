@@ -21,10 +21,8 @@ default = []
 diagnostics = []
 
 [dependencies]
+parsec-orbit-core = { path = "../parsec-orbit-core" }
 parsec-orbit-plugin-sdk = { path = "../parsec-orbit-plugin-sdk" }
-# Parse-only: the manifest is read through `toml::de::DeTable`, so serde and the
-# writer stay out of the proxy DLL.
-toml = { version = "1", default-features = false, features = ["parse", "std"] }
 windows-sys = { version = "0.61", features = [
     "Win32_Foundation",
     "Win32_Security",
@@ -36,3 +34,6 @@ windows-sys = { version = "0.61", features = [
     "Win32_System_SystemInformation",
     "Win32_System_Threading",
 ] }
+
+[dev-dependencies]
+parsec-orbit-core = { path = "../parsec-orbit-core", features = ["testutil"] }
