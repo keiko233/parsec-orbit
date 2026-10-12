@@ -90,7 +90,7 @@ Versioning: the SDK's major tracks the `parsec-orbit.js` / `.webview` interface 
 ## Testing and baselines
 
 * Unit tests of plugin logic run on Node with `@parsec-orbit/sdk/testing` (mock `Host`).
-* Page-realm scripts keep the existing approach: run in a fake browser under Node (see `plugins/parsec-orbit-plugin-webview/tests/bandwidth.test.js`).
+* Page-realm scripts keep the existing approach: run in a fake browser under Node (see `plugins/parsec-orbit-plugin-high-bitrate-webview/tests/bandwidth.test.js`).
 * End-to-end: the e2e host loads the runtime plugin plus the TS port of the bandwidth sample; the native `native` plugin and this JS sample are the two baselines the SDKs are validated against.
 
 ## Open questions

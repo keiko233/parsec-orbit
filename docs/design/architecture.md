@@ -45,7 +45,7 @@ parsec-orbit-plugin-abi      no_std, zero deps. repr(C) types, constants, servic
                 ^
                 +-- parsec-orbit-loader   cdylib named `bcrypt`
 
-plugins/    parsec-orbit-plugin-native, parsec-orbit-plugin-webview (official)   -> sdk
+plugins/    parsec-orbit-plugin-high-bitrate-native, parsec-orbit-plugin-high-bitrate-webview (official)   -> sdk
             (Phase 4) js-runtime, webview-bridge                                  -> sdk + heavy deps
 examples/   parsec-orbit-plugin-hello  (+ nostd variant)                          -> sdk
 sdk/js/     @parsec-orbit/sdk (TypeScript)                                        [npm]

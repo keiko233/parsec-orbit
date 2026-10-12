@@ -348,6 +348,9 @@ mod tests {
         assert_eq!(text(desc.author), manifest_value("author"));
         assert_eq!(manifest_value("kind"), "dll");
         assert_eq!(manifest_value("api"), desc.abi_version.to_string());
-        assert_eq!(manifest_value("entry"), "parsec_orbit_plugin_webview.dll");
+        assert_eq!(
+            manifest_value("entry"),
+            "parsec_orbit_plugin_high_bitrate_webview.dll"
+        );
     }
 }

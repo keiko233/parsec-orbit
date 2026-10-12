@@ -45,8 +45,8 @@ pub fn artifacts() -> &'static Artifacts {
                 "parsec-orbit-loader/diagnostics",
             ])
             .args(["-p", "parsec-orbit-plugin-hello"])
-            .args(["-p", "parsec-orbit-plugin-webview"])
-            .args(["-p", "parsec-orbit-plugin-native"])
+            .args(["-p", "parsec-orbit-plugin-high-bitrate-webview"])
+            .args(["-p", "parsec-orbit-plugin-high-bitrate-native"])
             .args(["-p", "parsec-orbit-verify-callpaths"])
             .args(["-p", "parsec-orbit-verify-roundtrip"])
             .output()
@@ -61,8 +61,8 @@ pub fn artifacts() -> &'static Artifacts {
         let artifacts = Artifacts {
             loader: debug.join("bcrypt.dll"),
             hello: debug.join("parsec_orbit_plugin_hello.dll"),
-            webview: debug.join("parsec_orbit_plugin_webview.dll"),
-            native: debug.join("parsec_orbit_plugin_native.dll"),
+            webview: debug.join("parsec_orbit_plugin_high_bitrate_webview.dll"),
+            native: debug.join("parsec_orbit_plugin_high_bitrate_native.dll"),
             callpaths: debug.join("callpaths.exe"),
             roundtrip: debug.join("roundtrip.exe"),
         };
@@ -85,8 +85,10 @@ pub fn plugin_manifest(kind: Plugin) -> PathBuf {
     let root = workspace_root();
     match kind {
         Plugin::Hello => root.join("examples/parsec-orbit-plugin-hello/plugin.toml"),
-        Plugin::Webview => root.join("plugins/parsec-orbit-plugin-webview/plugin.toml"),
-        Plugin::Native => root.join("plugins/parsec-orbit-plugin-native/plugin.toml"),
+        Plugin::Webview => {
+            root.join("plugins/parsec-orbit-plugin-high-bitrate-webview/plugin.toml")
+        }
+        Plugin::Native => root.join("plugins/parsec-orbit-plugin-high-bitrate-native/plugin.toml"),
     }
 }
 

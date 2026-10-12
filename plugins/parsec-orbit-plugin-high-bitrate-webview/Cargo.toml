@@ -1,5 +1,5 @@
 [package]
-name = "parsec-orbit-plugin-webview"
+name = "parsec-orbit-plugin-high-bitrate-webview"
 description = "Parsec Orbit plugin that patches the WebView2 client UI at runtime"
 version.workspace = true
 edition.workspace = true
@@ -10,7 +10,7 @@ publish = false
 # The loader maps the cdylib; the rlib exists so the verification tools can
 # drive the same DevTools client without a second copy of the code.
 [lib]
-name = "parsec_orbit_plugin_webview"
+name = "parsec_orbit_plugin_high_bitrate_webview"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]

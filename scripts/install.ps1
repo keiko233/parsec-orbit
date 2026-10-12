@@ -45,14 +45,14 @@ if (-not (Test-Path -LiteralPath $loader)) {
 
 $plugins = @(
     @{
-        Name = 'parsec-orbit-plugin-webview'
-        Source = Join-Path $root 'plugins\parsec-orbit-plugin-webview'
-        Dll = 'parsec_orbit_plugin_webview.dll'
+        Name = 'parsec-orbit-plugin-high-bitrate-webview'
+        Source = Join-Path $root 'plugins\parsec-orbit-plugin-high-bitrate-webview'
+        Dll = 'parsec_orbit_plugin_high_bitrate_webview.dll'
     },
     @{
-        Name = 'parsec-orbit-plugin-native'
-        Source = Join-Path $root 'plugins\parsec-orbit-plugin-native'
-        Dll = 'parsec_orbit_plugin_native.dll'
+        Name = 'parsec-orbit-plugin-high-bitrate-native'
+        Source = Join-Path $root 'plugins\parsec-orbit-plugin-high-bitrate-native'
+        Dll = 'parsec_orbit_plugin_high_bitrate_native.dll'
     }
 )
 foreach ($plugin in $plugins) {

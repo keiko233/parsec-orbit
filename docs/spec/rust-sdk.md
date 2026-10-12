@@ -75,8 +75,8 @@ A `testing` module (`std` builds only): `MockHost` builds a per-plugin host tabl
 ## Samples
 
 * `examples/parsec-orbit-plugin-hello` - the canonical sample; `no_std` if the spike confirms it, plus an `std` sibling showing the opt-in.
-* `plugins/parsec-orbit-plugin-native` - real-world `std` plugin (signature scan on a worker thread).
-* `plugins/parsec-orbit-plugin-webview` - real-world `std` plugin; once the webview bridge exists it shrinks to an `add_script` caller (see [js-sdk.md](js-sdk.md)).
+* `plugins/parsec-orbit-plugin-high-bitrate-native` - real-world `std` plugin (signature scan on a worker thread).
+* `plugins/parsec-orbit-plugin-high-bitrate-webview` - real-world `std` plugin; once the webview bridge exists it shrinks to an `add_script` caller (see [js-sdk.md](js-sdk.md)).
 
 The two official plugins are the SDK's regression baseline: their unit and e2e tests must pass unchanged after migration.
 

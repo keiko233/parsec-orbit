@@ -11,7 +11,7 @@ ladder `3, 5, 7, 10, 15, 20, 25, 30, 35, 40, 45, 50 Mbps`. The plugin widens
 it to `60, 75, 100, 125, 150, 200, 250, 300, 400, 500 Mbps`.
 
 The native (libmatoya) UI is patched by the separate
-[`parsec-orbit-plugin-native`](../parsec-orbit-plugin-native/README.md) plugin.
+[`parsec-orbit-plugin-high-bitrate-native`](../parsec-orbit-plugin-high-bitrate-native/README.md) plugin.
 
 ## Files
 
@@ -24,9 +24,9 @@ The native (libmatoya) UI is patched by the separate
 
 ## Install
 
-Copy this folder (or extract `parsec-orbit-plugin-webview.zip`) into the
+Copy this folder (or extract `parsec-orbit-plugin-high-bitrate-webview.zip`) into the
 client's plugin directory, so that the loader finds
-`plugins\parsec-orbit-plugin-webview\plugin.toml` next to `parsecd.exe`.
+`plugins\parsec-orbit-plugin-high-bitrate-webview\plugin.toml` next to `parsecd.exe`.
 
 ## Disable
 
@@ -74,4 +74,4 @@ webview bandwidth list extended: installed
 The extra options live in two places and must stay in sync:
 
 * `assets/bandwidth.js` - `EXTRA_MBPS`
-* `../parsec-orbit-plugin-native/src/lib.rs` - `EXTRA_BANDWIDTH_MBPS`
+* `../parsec-orbit-plugin-high-bitrate-native/src/lib.rs` - `EXTRA_BANDWIDTH_MBPS`

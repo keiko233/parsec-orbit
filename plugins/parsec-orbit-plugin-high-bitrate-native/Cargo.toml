@@ -1,5 +1,5 @@
 [package]
-name = "parsec-orbit-plugin-native"
+name = "parsec-orbit-plugin-high-bitrate-native"
 description = "Parsec Orbit plugin that patches the native (libmatoya) client UI in memory"
 version.workspace = true
 edition.workspace = true
@@ -8,7 +8,7 @@ repository.workspace = true
 publish = false
 
 [lib]
-name = "parsec_orbit_plugin_native"
+name = "parsec_orbit_plugin_high_bitrate_native"
 crate-type = ["cdylib"]
 
 [dependencies]

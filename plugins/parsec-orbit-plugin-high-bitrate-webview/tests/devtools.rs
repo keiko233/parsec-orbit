@@ -11,7 +11,9 @@ use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use parsec_orbit_plugin_webview::webview::{inject_once, inject_script_forever, BITRATE_SCRIPT};
+use parsec_orbit_plugin_high_bitrate_webview::webview::{
+    inject_once, inject_script_forever, BITRATE_SCRIPT,
+};
 use serde_json::Value;
 
 // ---- wire helpers -----------------------------------------------------------

@@ -11,7 +11,7 @@ ladder `3, 5, 7, 10, 15, 20, 25, 30, 35, 40, 45, 50 Mbps`. The plugin widens
 it to `60, 75, 100, 125, 150, 200, 250, 300, 400, 500 Mbps`.
 
 The WebView2 UI is patched by the separate
-[`parsec-orbit-plugin-webview`](../parsec-orbit-plugin-webview/README.md)
+[`parsec-orbit-plugin-high-bitrate-webview`](../parsec-orbit-plugin-high-bitrate-webview/README.md)
 plugin.
 
 ## Files
@@ -22,9 +22,9 @@ plugin.
 
 ## Install
 
-Copy this folder (or extract `parsec-orbit-plugin-native.zip`) into the
+Copy this folder (or extract `parsec-orbit-plugin-high-bitrate-native.zip`) into the
 client's plugin directory, so that the loader finds
-`plugins\parsec-orbit-plugin-native\plugin.toml` next to `parsecd.exe`.
+`plugins\parsec-orbit-plugin-high-bitrate-native\plugin.toml` next to `parsecd.exe`.
 
 ## Disable
 
@@ -69,4 +69,4 @@ legacy ui patch: 12 -> 22 options, 2 references and 2 count immediates patched
 The extra options live in two places and must stay in sync:
 
 * `src/lib.rs` - `EXTRA_BANDWIDTH_MBPS`
-* `../parsec-orbit-plugin-webview/assets/bandwidth.js` - `EXTRA_MBPS`
+* `../parsec-orbit-plugin-high-bitrate-webview/assets/bandwidth.js` - `EXTRA_MBPS`

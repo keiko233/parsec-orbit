@@ -547,7 +547,8 @@ fn serve(
 
 fn bandwidth_script() -> String {
     std::fs::read_to_string(
-        common::workspace_root().join("plugins/parsec-orbit-plugin-webview/assets/bandwidth.js"),
+        common::workspace_root()
+            .join("plugins/parsec-orbit-plugin-high-bitrate-webview/assets/bandwidth.js"),
     )
     .unwrap()
 }

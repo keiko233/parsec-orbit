@@ -125,7 +125,7 @@ mod tests {
     fn webview_script_offers_the_same_options() {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("..")
-            .join("parsec-orbit-plugin-webview")
+            .join("parsec-orbit-plugin-high-bitrate-webview")
             .join("assets")
             .join("bandwidth.js");
         let script =
@@ -237,7 +237,10 @@ mod tests {
         assert_eq!(text(desc.author), manifest_value("author"));
         assert_eq!(manifest_value("kind"), "dll");
         assert_eq!(manifest_value("api"), desc.abi_version.to_string());
-        assert_eq!(manifest_value("entry"), "parsec_orbit_plugin_native.dll");
+        assert_eq!(
+            manifest_value("entry"),
+            "parsec_orbit_plugin_high_bitrate_native.dll"
+        );
     }
 
     #[test]

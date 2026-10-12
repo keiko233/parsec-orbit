@@ -73,7 +73,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "parsec-orbit-plugin-native"
+name = "parsec-orbit-plugin-high-bitrate-native"
 version = "0.1.0"
 dependencies = [
  "parsec-orbit-plugin-sdk",
@@ -81,18 +81,18 @@ dependencies = [
 ]
 
 [[package]]
-name = "parsec-orbit-plugin-sdk"
-version = "0.1.0"
-dependencies = [
- "parsec-orbit-plugin-abi",
-]
-
-[[package]]
-name = "parsec-orbit-plugin-webview"
+name = "parsec-orbit-plugin-high-bitrate-webview"
 version = "0.1.0"
 dependencies = [
  "parsec-orbit-plugin-sdk",
  "serde_json",
+]
+
+[[package]]
+name = "parsec-orbit-plugin-sdk"
+version = "0.1.0"
+dependencies = [
+ "parsec-orbit-plugin-abi",
 ]
 
 [[package]]
@@ -113,7 +113,7 @@ dependencies = [
 name = "parsec-orbit-verify-webview-inject"
 version = "0.1.0"
 dependencies = [
- "parsec-orbit-plugin-webview",
+ "parsec-orbit-plugin-high-bitrate-webview",
 ]
 
 [[package]]

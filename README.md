@@ -11,12 +11,12 @@ client. It uses a `bcrypt.dll` proxy and does not modify Parsec files.
 * `crates/parsec-orbit-plugin-sdk/` - the plugin ABI; see the
   [plugin ABI reference](docs/spec/plugin-abi.md). Specifications, design
   notes and the SDK roadmap are indexed in [docs/](docs/README.md).
-* `plugins/parsec-orbit-plugin-webview/` - official plugin that widens the
+* `plugins/parsec-orbit-plugin-high-bitrate-webview/` - official plugin that widens the
   "Bandwidth Limit" choices in the WebView2 UI; see its
-  [README](plugins/parsec-orbit-plugin-webview/README.md).
-* `plugins/parsec-orbit-plugin-native/` - official plugin for the same options
+  [README](plugins/parsec-orbit-plugin-high-bitrate-webview/README.md).
+* `plugins/parsec-orbit-plugin-high-bitrate-native/` - official plugin for the same options
   in the native (libmatoya) UI; see its
-  [README](plugins/parsec-orbit-plugin-native/README.md).
+  [README](plugins/parsec-orbit-plugin-high-bitrate-native/README.md).
 * `examples/parsec-orbit-plugin-hello/` - smallest useful sample plugin.
 * `verify/parsec-orbit-verify-*` - verification tools for the loader and the
   WebView patch delivery.
@@ -56,7 +56,7 @@ test is skipped (set `PARSEC_ORBIT_REQUIRE_NODE=1` to make it fail instead).
   manifests, plugin discovery and the descriptor checks, logging and the
   forwarding thunks (`loader`), the DevTools client (`webview`) and the
   signature scan and in-memory patch, run against a fake PE image (`native`).
-* **Integration tests** in `plugins/parsec-orbit-plugin-webview/tests/` drive
+* **Integration tests** in `plugins/parsec-orbit-plugin-high-bitrate-webview/tests/` drive
   the DevTools client against a fake endpoint and run `assets/bandwidth.js` in
   a fake browser under Node.
 * **End-to-end tests** in `tests/parsec-orbit-e2e/` build the loader and the
