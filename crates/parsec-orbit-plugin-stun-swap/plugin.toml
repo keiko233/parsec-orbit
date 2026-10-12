@@ -1,0 +1,13 @@
+# Native plugin that hooks ws2_32!getaddrinfo. It needs the hooks plugin to
+# install the detour; the loader skips this plugin when hooks is absent.
+id = "com.keiko233.stun-swap"
+name = "CN STUN Swap"
+version = "0.1.0"
+kind = "dll"
+entry = "parsec_orbit_plugin_stun_swap.dll"
+author = "keiko"
+description = "Redirects stun.parsec.app to healthy mainland-China STUN servers"
+license = "MIT"
+api = 1
+enabled = true
+requires = ["com.parsec-orbit.hooks"]

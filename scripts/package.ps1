@@ -8,6 +8,7 @@
 #   parsec-orbit-plugin-js-runtime.zip             official plugin, runs kind = "js" plugins (optional download)
 #   parsec-orbit-plugin-high-bitrate-webview.zip   official plugin, extract into <client>\plugins\
 #   parsec-orbit-plugin-high-bitrate-native.zip    official plugin, same layout
+#   parsec-orbit-plugin-stun-swap.zip  experimental plugin, same layout
 #   parsec-orbit-plugin-hello.zip     example plugin, same layout
 #   SHA256SUMS.txt
 #
@@ -73,6 +74,11 @@ try {
             Name = 'parsec-orbit-plugin-high-bitrate-native'
             Source = 'crates\parsec-orbit-plugin-high-bitrate-native'
             Dll = 'parsec_orbit_plugin_high_bitrate_native.dll'
+        },
+        @{
+            Name = 'parsec-orbit-plugin-stun-swap'
+            Source = 'crates\parsec-orbit-plugin-stun-swap'
+            Dll = 'parsec_orbit_plugin_stun_swap.dll'
         },
         @{
             Name = 'parsec-orbit-plugin-hello'

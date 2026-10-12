@@ -3,7 +3,7 @@
 # client session), replaces bcrypt.dll, deploys the plugin folders and starts
 # the service again.
 #
-#   powershell -ExecutionPolicy Bypass -File scripts\install.ps1 [-EnableWebViewUi]
+#   powershell -ExecutionPolicy Bypass -File scripts\install.ps1 [-EnableWebViewUi] [-EnableStunSwap]
 #
 # It has to run elevated: it writes into the client directory and controls the
 # Parsec service. The previous bcrypt.dll is copied to
@@ -12,7 +12,8 @@
 param(
     [string]$ClientDir = 'C:\Program Files\Parsec',
     [string]$ServiceName = 'Parsec',
-    [switch]$EnableWebViewUi
+    [switch]$EnableWebViewUi,
+    [switch]$EnableStunSwap
 )
 
 $ErrorActionPreference = 'Stop'
@@ -60,6 +61,20 @@ $plugins = @(
         Dll = 'parsec_orbit_plugin_high_bitrate_native.dll'
     }
 )
+if ($EnableStunSwap) {
+    $plugins += @(
+        @{
+            Name = 'parsec-orbit-plugin-hooks'
+            Source = Join-Path $root 'crates\parsec-orbit-plugin-hooks'
+            Dll = 'parsec_orbit_plugin_hooks.dll'
+        },
+        @{
+            Name = 'parsec-orbit-plugin-stun-swap'
+            Source = Join-Path $root 'crates\parsec-orbit-plugin-stun-swap'
+            Dll = 'parsec_orbit_plugin_stun_swap.dll'
+        }
+    )
+}
 foreach ($plugin in $plugins) {
     $dll = Join-Path $release $plugin.Dll
     if (-not (Test-Path -LiteralPath $dll)) {

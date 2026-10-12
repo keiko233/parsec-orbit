@@ -1108,6 +1108,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "parsec-orbit-plugin-stun-swap"
+version = "0.1.0"
+dependencies = [
+ "parsec-orbit-plugin-sdk-std",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "parsec-orbit-plugin-webview-bridge"
 version = "0.1.0"
 dependencies = [

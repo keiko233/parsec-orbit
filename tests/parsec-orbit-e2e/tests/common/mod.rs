@@ -19,6 +19,7 @@ pub struct Artifacts {
     pub config: PathBuf,
     pub hooks: PathBuf,
     pub native: PathBuf,
+    pub stun_swap: PathBuf,
     pub fixture: PathBuf,
     pub fixture_nostd: PathBuf,
     pub hello_nostd: PathBuf,
@@ -62,6 +63,7 @@ pub fn artifacts() -> &'static Artifacts {
             .args(["-p", "parsec-orbit-plugin-config"])
             .args(["-p", "parsec-orbit-plugin-hooks"])
             .args(["-p", "parsec-orbit-plugin-high-bitrate-native"])
+            .args(["-p", "parsec-orbit-plugin-stun-swap"])
             .args(["-p", "parsec-orbit-fixture-plugin"])
             .args(["-p", "parsec-orbit-fixture-nostd"])
             .args(["-p", "parsec-orbit-plugin-hello-nostd"])
@@ -85,6 +87,7 @@ pub fn artifacts() -> &'static Artifacts {
             config: debug.join("parsec_orbit_plugin_config.dll"),
             hooks: debug.join("parsec_orbit_plugin_hooks.dll"),
             native: debug.join("parsec_orbit_plugin_high_bitrate_native.dll"),
+            stun_swap: debug.join("parsec_orbit_plugin_stun_swap.dll"),
             fixture: debug.join("parsec_orbit_fixture_plugin.dll"),
             fixture_nostd: debug.join("parsec_orbit_fixture_nostd.dll"),
             hello_nostd: debug.join("parsec_orbit_plugin_hello_nostd.dll"),
@@ -100,6 +103,7 @@ pub fn artifacts() -> &'static Artifacts {
             &artifacts.config,
             &artifacts.hooks,
             &artifacts.native,
+            &artifacts.stun_swap,
             &artifacts.fixture,
             &artifacts.fixture_nostd,
             &artifacts.hello_nostd,
@@ -119,6 +123,7 @@ pub fn plugin_manifest(kind: Plugin) -> PathBuf {
         Plugin::Hello => root.join("examples/parsec-orbit-plugin-hello/plugin.toml"),
         Plugin::Webview => root.join("crates/parsec-orbit-plugin-high-bitrate-webview/plugin.toml"),
         Plugin::Native => root.join("crates/parsec-orbit-plugin-high-bitrate-native/plugin.toml"),
+        Plugin::StunSwap => root.join("crates/parsec-orbit-plugin-stun-swap/plugin.toml"),
         Plugin::Hooks => root.join("crates/parsec-orbit-plugin-hooks/plugin.toml"),
         Plugin::Config => root.join("crates/parsec-orbit-plugin-config/plugin.toml"),
         Plugin::JsRuntime => root.join("crates/parsec-orbit-plugin-js-runtime/plugin.toml"),
@@ -138,6 +143,7 @@ pub enum Plugin {
     Config,
     Hooks,
     Native,
+    StunSwap,
     Fixture,
     FixtureNostd,
     HelloNostd,
@@ -153,6 +159,7 @@ impl Plugin {
             Plugin::Config => &artifacts().config,
             Plugin::Hooks => &artifacts().hooks,
             Plugin::Native => &artifacts().native,
+            Plugin::StunSwap => &artifacts().stun_swap,
             Plugin::Fixture => &artifacts().fixture,
             Plugin::FixtureNostd => &artifacts().fixture_nostd,
             Plugin::HelloNostd => &artifacts().hello_nostd,
