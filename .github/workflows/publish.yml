@@ -84,7 +84,9 @@ jobs:
 
           # Refreshes the workspace member versions inside Cargo.lock without
           # compiling anything, so this step also works on ubuntu-latest.
-          cargo metadata --no-deps --format-version 1 >/dev/null
+          # NOTE: --no-deps must NOT be used here; it skips the lockfile
+          # update and Release's `cargo build --locked` would then fail.
+          cargo metadata --format-version 1 >/dev/null
 
           git diff --stat
           git config user.name "github-actions[bot]"
