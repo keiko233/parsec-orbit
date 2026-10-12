@@ -4,6 +4,7 @@ members = [
     "crates/parsec-orbit-loader",
     "crates/parsec-orbit-plugin-abi",
     "crates/parsec-orbit-plugin-sdk",
+    "crates/parsec-orbit-core",
     "plugins/parsec-orbit-plugin-webview",
     "plugins/parsec-orbit-plugin-native",
     "examples/parsec-orbit-plugin-hello",
