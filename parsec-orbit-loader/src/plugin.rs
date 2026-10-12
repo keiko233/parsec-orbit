@@ -154,12 +154,13 @@ unsafe fn text(pointer: *const u8) -> Option<String> {
 /// Parses `plugin.toml`.
 pub fn read_manifest(path: &Path) -> Result<Manifest, String> {
     let source = std::fs::read_to_string(path).map_err(|error| error.to_string())?;
-    let table: toml::Table = toml::from_str(&source).map_err(|error| error.to_string())?;
+    let document = toml::de::DeTable::parse(&source).map_err(|error| error.to_string())?;
+    let table = document.get_ref();
 
     let string = |key: &str| {
         table
             .get(key)
-            .and_then(|value| value.as_str())
+            .and_then(|value| value.get_ref().as_str())
             .map(str::to_string)
     };
 
@@ -174,11 +175,12 @@ pub fn read_manifest(path: &Path) -> Result<Manifest, String> {
         license: string("license"),
         api: table
             .get("api")
-            .and_then(|value| value.as_integer())
+            .and_then(|value| value.get_ref().as_integer())
+            .and_then(|value| value.as_str().parse::<i64>().ok())
             .unwrap_or(ABI_VERSION as i64) as u32,
         enabled: table
             .get("enabled")
-            .and_then(|value| value.as_bool())
+            .and_then(|value| value.get_ref().as_bool())
             .unwrap_or(true),
     })
 }

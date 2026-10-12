@@ -20,5 +20,9 @@ repository = "https://github.com/keiko233/parsec-orbit"
 
 [profile.release]
 panic = "abort"
-lto = "thin"
+# Size matters more than speed here: the loader is a proxy DLL sitting in
+# front of a foreign process, and the hot path is a plain jump.
+opt-level = "z"
+lto = "fat"
 codegen-units = 1
+strip = "symbols"
