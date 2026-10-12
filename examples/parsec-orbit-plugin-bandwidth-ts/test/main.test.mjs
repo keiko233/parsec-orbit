@@ -32,7 +32,10 @@ test("what the page reports ends up in the log", async () => {
 });
 
 test("without the webview permission setup fails clearly instead of half working", async () => {
-  await assert.rejects(loadPlugin(plugin, { permissions: [] }), TypeError);
+  await assert.rejects(
+    loadPlugin(plugin, { permissions: [] }),
+    /needs permissions = \["webview"\]/,
+  );
 });
 
 test("the manifest matches the build", () => {

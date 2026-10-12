@@ -51,6 +51,12 @@ export interface MockOptions {
   evaluate?: (expression: string) => unknown | Promise<unknown>;
   /** Whether `host.webview.ready` is already resolved. Default `true`. */
   pageAttached?: boolean;
+  /**
+   * Whether the webview bridge is installed. `"missing"` behaves like a
+   * client without the bridge plugin: every webview call rejects, and so does
+   * `ready`. Default `"installed"`.
+   */
+  bridge?: "installed" | "missing";
   /** Initial contents of `host.config`. */
   config?: Record<string, unknown>;
 }
@@ -92,24 +98,47 @@ function show(value: unknown): string {
   return String(value);
 }
 
+/** The message the runtime uses when `requires` is missing the bridge. */
+const NO_BRIDGE =
+  "parsec-orbit.webview is not available (is the webview bridge installed?)";
+
+/** FNV-1a 64, the same default script key the runtime derives. */
+function fingerprint(text: string): string {
+  let hash = 0xcbf29ce484222325n;
+  for (const byte of new TextEncoder().encode(text)) {
+    hash = BigInt.asUintN(64, (hash ^ BigInt(byte)) * 0x100000001b3n);
+  }
+  return hash.toString(16).padStart(16, "0");
+}
+
 /** Builds a mock host. */
 export function createMockHost(options: MockOptions = {}): MockHost {
   const permissions = options.permissions ?? ["webview", "config"];
+  const bridged = (options.bridge ?? "installed") === "installed";
   const logs: LogLine[] = [];
   const scripts: MockScript[] = [];
   const files = options.files ?? {};
   const store = new Map<string, unknown>(Object.entries(options.config ?? {}));
-  const timers = new Set<ReturnType<typeof setTimeout>>();
+  const timers = new Map<number, ReturnType<typeof setTimeout>>();
   const handlers = new Map<string, Set<(payload: unknown) => void>>();
   const posted: MockPage["posted"] = [];
   const evaluated: string[] = [];
   let nextScript = 0;
+  let nextTimer = 0;
   let attached = options.pageAttached ?? true;
   let resolveReady: () => void = () => {};
   const ready = new Promise<void>((resolve) => {
     resolveReady = resolve;
   });
   if (attached) resolveReady();
+
+  const requireBridge = (): void => {
+    if (!bridged) throw new Error(NO_BRIDGE);
+  };
+  const requirePage = (): void => {
+    requireBridge();
+    if (!attached) throw new Error("the page is not ready");
+  };
 
   const log = Object.fromEntries(
     LEVELS.map((level) => [
@@ -140,17 +169,25 @@ export function createMockHost(options: MockOptions = {}): MockHost {
   const handleFor = (script: MockScript): ScriptHandle => ({
     id: script.id,
     remove: async () => {
+      requireBridge();
       script.removed = true;
     },
   });
-  let anonymous = 0;
   const keyOf = (opts: ScriptOptions | undefined, fallback: string) =>
-    opts?.key ?? fallback;
+    opts?.key ? opts.key : fallback;
 
   const webview: WebView = {
-    ready,
-    inject: async (source, opts) => add(source, keyOf(opts, `inline-${++anonymous}`)),
+    // A rejected promise only when asked for: a mock nothing reads must not
+    // report an unhandled rejection.
+    get ready() {
+      return bridged ? ready : Promise.reject(new Error(NO_BRIDGE));
+    },
+    inject: async (source, opts) => {
+      requireBridge();
+      return add(source, keyOf(opts, `inline-${fingerprint(source)}`));
+    },
     injectFile: async (path, opts) => {
+      requireBridge();
       const normalised = path.replace(/\\/g, "/");
       if (!(normalised in files)) {
         throw new Error(`${path}: no such file in the plugin directory`);
@@ -158,24 +195,32 @@ export function createMockHost(options: MockOptions = {}): MockHost {
       return add(files[normalised], keyOf(opts, normalised), normalised);
     },
     evaluate: async <T>(expression: string) => {
+      requirePage();
       evaluated.push(expression);
-      await ready;
       const answer = options.evaluate ? await options.evaluate(expression) : expression;
       return JSON.parse(JSON.stringify(answer === undefined ? null : answer)) as T;
     },
     on: (channel, handler): Unsubscribe => {
+      requireBridge();
       if (!handlers.has(channel)) handlers.set(channel, new Set());
       handlers.get(channel)!.add(handler);
       return () => handlers.get(channel)?.delete(handler);
     },
     post: async (channel, payload) => {
-      await ready;
+      requirePage();
       posted.push({ channel, payload: payload === undefined ? null : payload });
     },
   };
 
   const config: Config = {
-    get: async <T>(key: string) => store.get(key) as T | undefined,
+    get: async <T>(key: string) => {
+      const value = store.get(key);
+      // The runtime reads its file afresh: a caller that mutates what it got
+      // does not change what is stored.
+      return (value === undefined
+        ? undefined
+        : JSON.parse(JSON.stringify(value))) as T | undefined;
+    },
     set: async (key, value) => {
       if (value === undefined) store.delete(key);
       else store.set(key, JSON.parse(JSON.stringify(value)));
@@ -185,10 +230,16 @@ export function createMockHost(options: MockOptions = {}): MockHost {
   const track =
     (original: typeof setTimeout | typeof setInterval) =>
     (callback: (...args: any[]) => void, delay?: number, ...args: any[]): number => {
-      const timer = (original as typeof setTimeout)(callback, delay, ...args);
-      timers.add(timer);
-      return timer as unknown as number;
+      const id = ++nextTimer;
+      timers.set(id, (original as typeof setTimeout)(callback, delay, ...args));
+      return id;
     };
+  const clear = (id: number, original: typeof clearTimeout | typeof clearInterval) => {
+    const timer = timers.get(id);
+    if (timer === undefined) return;
+    timers.delete(id);
+    original(timer);
+  };
 
   const host: Host = {
     plugin,
@@ -197,8 +248,8 @@ export function createMockHost(options: MockOptions = {}): MockHost {
     webview: (permissions.includes("webview") ? webview : undefined) as unknown as WebView,
     setTimeout: track(setTimeout),
     setInterval: track(setInterval),
-    clearTimeout: (id) => clearTimeout(id as unknown as ReturnType<typeof setTimeout>),
-    clearInterval: (id) => clearInterval(id as unknown as ReturnType<typeof setInterval>),
+    clearTimeout: (id) => clear(id, clearTimeout),
+    clearInterval: (id) => clear(id, clearInterval),
   };
 
   const page: MockPage = {
@@ -222,12 +273,11 @@ export function createMockHost(options: MockOptions = {}): MockHost {
     page,
     config: store,
     dispose() {
-      for (const timer of timers) {
+      for (const timer of timers.values()) {
         clearTimeout(timer);
         clearInterval(timer);
       }
       timers.clear();
-      void attached;
     },
   };
 }

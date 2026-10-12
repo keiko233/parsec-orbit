@@ -5,6 +5,12 @@ import { definePlugin } from "../src/index.js";
 import { createMockHost, loadPlugin } from "../src/testing.js";
 import { orbit, rpc } from "../src/ui.js";
 
+/** The tests grant the capabilities they exercise. */
+function granted<T>(value: T | undefined): T {
+  assert.ok(value !== undefined, "the mock grants this capability");
+  return value;
+}
+
 test("definePlugin returns what it is given", () => {
   const definition = { setup() {} };
   assert.equal(definePlugin(definition), definition);
@@ -27,15 +33,16 @@ test("capabilities are absent without their permission", async () => {
   const { host } = await loadPlugin({}, { permissions: [] });
   assert.equal(host.webview, undefined);
   assert.equal(host.config, undefined);
-  const granted = createMockHost({ permissions: ["webview"] });
-  assert.equal(typeof granted.host.webview, "object");
-  assert.equal(granted.host.config, undefined);
+  const allowed = createMockHost({ permissions: ["webview"] });
+  assert.equal(typeof allowed.host.webview, "object");
+  assert.equal(allowed.host.config, undefined);
 });
 
 test("inject registers a script once per key and remove marks it", async () => {
   const { mock, host } = await loadPlugin({});
-  const first = await host.webview.inject("a()", { key: "main" });
-  const again = await host.webview.inject("b()", { key: "main" });
+  const webview = granted(host.webview);
+  const first = await webview.inject("a()", { key: "main" });
+  const again = await webview.inject("b()", { key: "main" });
   assert.equal(first.id, again.id, "the same key replaces the script");
   assert.deepEqual(
     mock.scripts.map((script) => [script.key, script.source, script.removed]),
@@ -47,10 +54,11 @@ test("inject registers a script once per key and remove marks it", async () => {
 
 test("injectFile reads only what the plugin directory holds", async () => {
   const { mock, host } = await loadPlugin({}, { files: { "ui.js": "window.ui = 1;" } });
-  await host.webview.injectFile("ui.js");
+  const webview = granted(host.webview);
+  await webview.injectFile("ui.js");
   assert.equal(mock.scripts[0].source, "window.ui = 1;");
   assert.equal(mock.scripts[0].file, "ui.js");
-  await assert.rejects(host.webview.injectFile("../secret.js"), /no such file/);
+  await assert.rejects(webview.injectFile("../secret.js"), /no such file/);
 });
 
 test("evaluate answers with JSON and records the expression", async () => {
@@ -58,28 +66,58 @@ test("evaluate answers with JSON and records the expression", async () => {
     {},
     { evaluate: (expression) => (expression === "1+1" ? 2 : undefined) },
   );
-  assert.equal(await host.webview.evaluate<number>("1+1"), 2);
-  assert.equal(await host.webview.evaluate("nothing"), null);
+  const webview = granted(host.webview);
+  assert.equal(await webview.evaluate<number>("1+1"), 2);
+  assert.equal(await webview.evaluate("nothing"), null);
   assert.deepEqual(mock.page.evaluated, ["1+1", "nothing"]);
 });
 
-test("ready, post and evaluate wait for the page", async () => {
+test("a default key comes from the source, so injecting it again replaces it", async () => {
+  const { mock, host } = await loadPlugin({});
+  const webview = granted(host.webview);
+  const first = await webview.inject("window.a = 1;");
+  const again = await webview.inject("window.a = 1;");
+  assert.equal(first.id, again.id, "the same source keeps its script");
+  assert.deepEqual(
+    mock.scripts.map((script) => [script.key, script.source]),
+    [[mock.scripts[0].key, "window.a = 1;"]],
+    "one script, not two",
+  );
+  assert.match(mock.scripts[0].key, /^inline-[0-9a-f]{16}$/);
+});
+
+test("ready waits for the page; post and evaluate refuse without one", async () => {
   const mock = createMockHost({ pageAttached: false });
+  const webview = granted(mock.host.webview);
   let settled = false;
-  const posting = mock.host.webview.post("greeting", { hello: true }).then(() => {
+  const waiting = webview.ready.then(() => {
     settled = true;
   });
-  await new Promise((resolve) => setImmediate(resolve));
+  await assert.rejects(webview.post("greeting", { hello: true }), /page is not ready/);
+  await assert.rejects(webview.evaluate("1+1"), /page is not ready/);
   assert.equal(settled, false);
   mock.page.attach();
-  await posting;
+  await waiting;
+  assert.equal(settled, true);
+  await webview.post("greeting", { hello: true });
   assert.deepEqual(mock.page.posted, [{ channel: "greeting", payload: { hello: true } }]);
+});
+
+test("a client without the bridge rejects like the runtime does", async () => {
+  const mock = createMockHost({ bridge: "missing" });
+  const webview = granted(mock.host.webview);
+  await assert.rejects(webview.inject("a()"), /webview bridge installed/);
+  await assert.rejects(webview.post("c", {}), /webview bridge installed/);
+  await assert.rejects(webview.evaluate("1"), /webview bridge installed/);
+  await assert.rejects(webview.ready, /webview bridge installed/);
+  assert.throws(() => webview.on("c", () => {}), /webview bridge installed/);
 });
 
 test("page messages reach the handlers until they unsubscribe", async () => {
   const { mock, host } = await loadPlugin({});
+  const webview = granted(host.webview);
   const seen: unknown[] = [];
-  const off = host.webview.on("news", (payload) => seen.push(payload));
+  const off = webview.on("news", (payload) => seen.push(payload));
   mock.page.emit("news", { n: 1 });
   mock.page.emit("other", { n: 2 });
   off();
@@ -89,12 +127,33 @@ test("page messages reach the handlers until they unsubscribe", async () => {
 
 test("config keeps JSON values and removes keys set to undefined", async () => {
   const { mock, host } = await loadPlugin({}, { config: { start: 1 } });
-  await host.config.set("answer", { n: 42 });
-  assert.deepEqual(await host.config.get("answer"), { n: 42 });
-  assert.equal(await host.config.get("start"), 1);
-  await host.config.set("answer", undefined);
-  assert.equal(await host.config.get("answer"), undefined);
+  const config = granted(host.config);
+  await config.set("answer", { n: 42 });
+  assert.deepEqual(await config.get("answer"), { n: 42 });
+  assert.equal(await config.get("start"), 1);
+  await config.set("answer", undefined);
+  assert.equal(await config.get("answer"), undefined);
   assert.deepEqual([...mock.config.keys()], ["start"]);
+});
+
+test("config hands out copies, so changing one does not write it back", async () => {
+  const { host } = await loadPlugin({}, { config: { ladder: { max: 50 } } });
+  const config = granted(host.config);
+  const fetched = await config.get<{ max: number }>("ladder");
+  assert.deepEqual(fetched, { max: 50 });
+  fetched!.max = 999;
+  assert.deepEqual(await config.get("ladder"), { max: 50 });
+});
+
+test("timer ids are numbers, like the runtime's", () => {
+  const mock = createMockHost();
+  const timeout = mock.host.setTimeout(() => {}, 1);
+  const interval = mock.host.setInterval(() => {}, 1);
+  assert.equal(typeof timeout, "number");
+  assert.ok(timeout > 0 && interval > timeout);
+  mock.host.clearTimeout(timeout);
+  mock.host.clearInterval(interval);
+  mock.dispose();
 });
 
 test("timers can be disposed", async () => {

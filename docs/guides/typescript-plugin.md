@@ -46,7 +46,7 @@ requires = ["com.parsec-orbit.js-runtime", "com.parsec-orbit.webview-bridge"]
 permissions = ["webview"]
 ```
 
-`permissions` are default-deny: `host.webview` exists only with `"webview"`, `host.config` only with `"config"`. A plugin that needs the webview also requires the bridge (`com.parsec-orbit.webview-bridge`), which provides it.
+`permissions` are default-deny: `host.webview` exists only with `"webview"`, `host.config` only with `"config"`. Both are optional in the TypeScript types, so a plugin checks them once at the top of `setup` (below) instead of failing later with a `TypeError`. A plugin that needs the webview also requires the bridge (`com.parsec-orbit.webview-bridge`), which provides it.
 
 ## The plugin realm
 
@@ -57,8 +57,12 @@ export default definePlugin({
   async setup(host) {
     host.log.info("loaded", host.plugin.version);
 
-    host.webview.on("hello:from-page", (payload) => host.log.info("page says", payload));
-    await host.webview.injectFile("dist/ui.js", { key: "ui" });
+    const { webview } = host;
+    if (!webview) {
+      throw new Error('this plugin needs permissions = ["webview"]');
+    }
+    webview.on("hello:from-page", (payload) => host.log.info("page says", payload));
+    await webview.injectFile("dist/ui.js", { key: "ui" });
   },
 });
 ```

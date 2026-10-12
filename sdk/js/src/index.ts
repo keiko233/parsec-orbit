@@ -88,9 +88,9 @@ export interface Host {
   readonly plugin: PluginInfo;
   readonly log: Log;
   /** `undefined` without the `config` permission. */
-  readonly config: Config;
+  readonly config?: Config;
   /** `undefined` without the `webview` permission. */
-  readonly webview: WebView;
+  readonly webview?: WebView;
   setTimeout(callback: (...args: any[]) => void, delay?: number, ...args: any[]): number;
   clearTimeout(id: number): void;
   setInterval(callback: (...args: any[]) => void, delay?: number, ...args: any[]): number;
