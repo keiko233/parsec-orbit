@@ -201,7 +201,10 @@ impl Context {
         // Safety: the registry hands out tables that start with a header and
         // live for the whole process.
         let header = unsafe { self.host.interface(I::NAME) }?;
-        if header.major() != I::MAJOR || !header.covers(I::MIN_SIZE) {
+        if (header as *const _ as usize) % core::mem::align_of::<I::Table>() != 0
+            || header.major() != I::MAJOR
+            || !header.covers(I::MIN_SIZE)
+        {
             return None;
         }
         Some(unsafe { &*(header as *const ParsecOrbitInterfaceHeader as *const I::Table) })

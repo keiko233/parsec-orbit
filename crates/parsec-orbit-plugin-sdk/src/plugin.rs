@@ -13,11 +13,11 @@ use crate::runtime;
 /// The value is created with [`Default`] when the loader calls `init`, lives
 /// in a static for the rest of the process and is never moved. `init` and
 /// `shutdown` run on the loader's worker thread, one after the other.
-pub trait Plugin: Default + 'static {
+pub trait Plugin: Default + Send + 'static {
     /// Called once, after the plugin's dependencies finished their own
     /// `init`. Returning `Err` marks the plugin as failed. Do not block: the
     /// loader initialises plugins one by one; start a thread for long work
-    /// (`std` feature).
+    /// (`ContextExt::spawn` from `parsec-orbit-plugin-sdk-std`).
     fn init(&mut self, cx: &Context) -> Result;
 
     /// Called when the plugin is unloaded. Today nothing unloads plugins, so
@@ -36,10 +36,9 @@ pub struct Slot<T> {
     value: UnsafeCell<MaybeUninit<T>>,
 }
 
-// Safety: the loader calls `init` and `shutdown` one after the other on one
-// thread, and the state flag refuses a second `init`; the value itself is only
-// touched through `&mut` obtained there.
-unsafe impl<T> Sync for Slot<T> {}
+// Safety: the state flag keeps the `&mut` unique, and `T: Send` keeps the
+// value safe to move to the thread that calls `shutdown` in the future.
+unsafe impl<T: Send> Sync for Slot<T> {}
 
 impl<T: Default> Slot<T> {
     pub const fn new() -> Self {

@@ -120,6 +120,41 @@ impl Interface for EchoBig {
     }
 }
 
+/// A binding for a table whose Rust layout is more strongly aligned than the
+/// ABI header. The registry only promises pointer alignment, so the SDK must
+/// reject a valid header that cannot back this type.
+#[repr(C, align(16))]
+struct OverAlignedTable {
+    header: ParsecOrbitInterfaceHeader,
+}
+
+static OVER_ALIGNED: OverAlignedTable = OverAlignedTable {
+    header: ParsecOrbitInterfaceHeader::new(size_of::<OverAlignedTable>(), 1, 0),
+};
+
+/// Header deliberately placed at a 4-byte offset from the allocation start:
+/// it is a valid header reference but not aligned for `OverAlignedTable`.
+#[repr(C)]
+struct ShiftedHeader {
+    pad: [u8; 4],
+    header: ParsecOrbitInterfaceHeader,
+}
+
+static SHIFTED_HEADER: ShiftedHeader = ShiftedHeader {
+    pad: [0; 4],
+    header: ParsecOrbitInterfaceHeader::new(size_of::<OverAlignedTable>(), 1, 0),
+};
+
+struct OverAligned;
+impl Interface for OverAligned {
+    const NAME: &'static StdCStr = c"com.example.over-aligned";
+    const MAJOR: u16 = 1;
+    type Table = OverAlignedTable;
+    fn header(table: &OverAlignedTable) -> &ParsecOrbitInterfaceHeader {
+        &table.header
+    }
+}
+
 #[test]
 fn services_are_found_by_name_major_and_size() {
     let host = MockHost::new("com.example.consumer");
@@ -133,6 +168,21 @@ fn services_are_found_by_name_major_and_size() {
 
     assert!(cx.service::<EchoV3>().is_none(), "other major version");
     assert!(cx.service::<EchoBig>().is_none(), "table too small");
+}
+
+#[test]
+fn services_reject_tables_with_the_wrong_alignment() {
+    let host = MockHost::new("com.example.consumer");
+    let cx = host.context();
+
+    host.provide("com.example.over-aligned", &SHIFTED_HEADER.header);
+    assert!(
+        cx.service::<OverAligned>().is_none(),
+        "a header whose address cannot back the table type is unusable"
+    );
+
+    host.provide("com.example.over-aligned", &OVER_ALIGNED.header);
+    assert!(cx.service::<OverAligned>().is_some());
 }
 
 #[test]
@@ -194,25 +244,37 @@ fn a_kind_handler_is_registered_under_its_kind() {
 
 use core::sync::atomic::{AtomicU32, Ordering};
 
-static DROPS: AtomicU32 = AtomicU32::new(0);
+static SLOT_DROPS: AtomicU32 = AtomicU32::new(0);
 
 #[derive(Default)]
-struct Counted {
+struct SlotCounted {
     inits: u32,
 }
-impl Drop for Counted {
+impl Drop for SlotCounted {
     fn drop(&mut self) {
-        DROPS.fetch_add(1, Ordering::SeqCst);
+        SLOT_DROPS.fetch_add(1, Ordering::SeqCst);
     }
 }
-impl Plugin for Counted {
+impl Plugin for SlotCounted {
     fn init(&mut self, cx: &Context) -> Result {
         self.inits += 1;
         info!(cx, "counted init {}", self.inits);
         Ok(())
     }
     fn shutdown(&mut self) {
-        DROPS.fetch_add(100, Ordering::SeqCst);
+        SLOT_DROPS.fetch_add(100, Ordering::SeqCst);
+    }
+}
+
+#[derive(Default)]
+struct Counted {
+    inits: u32,
+}
+impl Plugin for Counted {
+    fn init(&mut self, cx: &Context) -> Result {
+        self.inits += 1;
+        info!(cx, "counted init {}", self.inits);
+        Ok(())
     }
 }
 
@@ -226,7 +288,7 @@ impl Plugin for Refuses {
 
 #[test]
 fn init_creates_the_plugin_once_and_shutdown_retires_it() {
-    static SLOT: plugin::Slot<Counted> = plugin::Slot::new();
+    static SLOT: plugin::Slot<SlotCounted> = plugin::Slot::new();
     let host = MockHost::new("com.example.slot");
 
     assert_eq!(unsafe { plugin::init(&SLOT, host.host()) }, 0);
@@ -237,9 +299,13 @@ fn init_creates_the_plugin_once_and_shutdown_retires_it() {
     assert!(!host.logged("counted init 2"));
 
     assert_eq!(plugin::shutdown(&SLOT), 0);
-    assert_eq!(DROPS.load(Ordering::SeqCst), 101, "shutdown, then drop");
+    assert_eq!(
+        SLOT_DROPS.load(Ordering::SeqCst),
+        101,
+        "shutdown, then drop"
+    );
     assert_ne!(plugin::shutdown(&SLOT), 0, "only once");
-    assert_eq!(DROPS.load(Ordering::SeqCst), 101);
+    assert_eq!(SLOT_DROPS.load(Ordering::SeqCst), 101);
     assert_eq!(
         unsafe { plugin::init(&SLOT, host.host()) },
         ERR_EXISTS,

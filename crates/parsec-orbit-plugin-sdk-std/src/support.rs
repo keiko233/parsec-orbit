@@ -36,8 +36,10 @@ impl ContextExt for Context {
 
     fn install_panic_hook(&self) {
         let cx = *self;
+        let previous = std::panic::take_hook();
         std::panic::set_hook(std::boxed::Box::new(move |info| {
             cx.log(Level::Error, format_args!("panic: {info}"));
+            previous(info);
         }));
     }
 }
