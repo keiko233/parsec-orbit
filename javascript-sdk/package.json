@@ -9,7 +9,7 @@
     "url": "git+https://github.com/keiko233/parsec-orbit.git",
     "directory": "javascript-sdk"
   },
-  "homepage": "https://github.com/keiko233/parsec-orbit#readme",
+  "homepage": "https://github.com/keiko233/parsec-orbit/tree/main/javascript-sdk#readme",
   "bugs": {
     "url": "https://github.com/keiko233/parsec-orbit/issues"
   },

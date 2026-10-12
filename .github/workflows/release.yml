@@ -155,6 +155,7 @@ jobs:
           cache: pnpm
 
       - name: Check the tag against the SDK version
+        id: sdk
         shell: bash
         run: |
           set -euo pipefail
@@ -162,6 +163,13 @@ jobs:
           if [ "v$VERSION" != "${{ github.ref_name }}" ]; then
             echo "tag ${{ github.ref_name }} does not match the SDK version $VERSION" >&2
             exit 1
+          fi
+          # A prerelease must not become the version plain `npm install`
+          # resolves to, so it goes out under the next dist-tag instead.
+          if [[ "$VERSION" == *-* ]]; then
+            echo "dist_tag=next" >> "$GITHUB_OUTPUT"
+          else
+            echo "dist_tag=latest" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Build and test the SDK
@@ -171,6 +179,20 @@ jobs:
           pnpm --filter @parsec-orbit/sdk test
 
       - name: Publish to npm
-        run: pnpm --filter @parsec-orbit/sdk publish --access public --provenance --no-git-checks
+        shell: bash
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          set -euo pipefail
+          VERSION="$(node -p "require('./javascript-sdk/package.json').version")"
+          # Re-running a release for a tag that is already on npm (for
+          # example to replace a failed build) must not fail here.
+          if npm view "@parsec-orbit/sdk@$VERSION" version >/dev/null 2>&1; then
+            echo "@parsec-orbit/sdk@$VERSION is already published; nothing to do"
+            exit 0
+          fi
+          pnpm --filter @parsec-orbit/sdk publish \
+            --access public \
+            --provenance \
+            --no-git-checks \
+            --tag "${{ steps.sdk.outputs.dist_tag }}"

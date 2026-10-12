@@ -36,7 +36,9 @@ bumps `Cargo.toml`, `Cargo.lock` and this `package.json`, commits, tags
 release and runs `pnpm publish --provenance` for `@parsec-orbit/sdk`. The
 repository needs an npm automation token with publish rights on the
 `@parsec-orbit` scope in the `NPM_TOKEN` secret; npm trusted publishing can
-replace the secret once the package exists.
+replace the secret once the package exists. Prerelease versions are published
+under the `next` dist-tag instead of `latest`, and re-running a release whose
+version is already on npm skips the publish step.
 
 To test the tarball locally:
 

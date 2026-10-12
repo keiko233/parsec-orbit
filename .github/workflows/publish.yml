@@ -99,7 +99,10 @@ jobs:
           cargo metadata --format-version 1 >/dev/null
 
           # The npm package and the workspace release share the version, so
-          # the Release workflow can check the tag against it.
+          # the Release workflow can check the tag against it. The SDK
+          # manifest is rewritten textually to keep the commit to one changed
+          # line; the guards make a reformatted or extended file fail loudly
+          # instead of being silently misparsed.
           python3 - "$VERSION" <<'EOF'
           import re
           import sys
@@ -107,9 +110,11 @@ jobs:
           path = "javascript-sdk/package.json"
           with open(path, encoding="utf-8") as f:
               src = f.read()
-          out, n = re.subn(r'(?m)^  "version": "[^"]+",$', '  "version": "' + version + '",', src, count=1)
+          if src.count('"version"') != 1:
+              raise SystemExit("javascript-sdk/package.json must hold exactly one version entry")
+          out, n = re.subn(r'("version"\s*:\s*")[^"]+(")', lambda m: m.group(1) + version + m.group(2), src, count=1)
           if n != 1:
-              raise SystemExit("version line not found in javascript-sdk/package.json")
+              raise SystemExit("version entry not found in javascript-sdk/package.json")
           with open(path, "w", encoding="utf-8", newline="") as f:
               f.write(out)
           EOF
