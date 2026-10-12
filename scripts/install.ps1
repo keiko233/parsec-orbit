@@ -45,13 +45,18 @@ if (-not (Test-Path -LiteralPath $loader)) {
 
 $plugins = @(
     @{
+        Name = 'parsec-orbit-plugin-webview-bridge'
+        Source = Join-Path $root 'crates\parsec-orbit-plugin-webview-bridge'
+        Dll = 'parsec_orbit_plugin_webview_bridge.dll'
+    },
+    @{
         Name = 'parsec-orbit-plugin-high-bitrate-webview'
-        Source = Join-Path $root 'plugins\parsec-orbit-plugin-high-bitrate-webview'
+        Source = Join-Path $root 'crates\parsec-orbit-plugin-high-bitrate-webview'
         Dll = 'parsec_orbit_plugin_high_bitrate_webview.dll'
     },
     @{
         Name = 'parsec-orbit-plugin-high-bitrate-native'
-        Source = Join-Path $root 'plugins\parsec-orbit-plugin-high-bitrate-native'
+        Source = Join-Path $root 'crates\parsec-orbit-plugin-high-bitrate-native'
         Dll = 'parsec_orbit_plugin_high_bitrate_native.dll'
     }
 )

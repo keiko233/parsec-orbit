@@ -9,6 +9,7 @@ use std::os::windows::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
+use parsec_orbit_core::Level;
 use windows_sys::Win32::Foundation::{
     CloseHandle, GetLastError, GENERIC_WRITE, HANDLE, INVALID_HANDLE_VALUE, SYSTEMTIME,
 };
@@ -188,40 +189,35 @@ fn format_line(
     )
 }
 
+/// Writes one log line with the level's tag to the log file and the debugger
+/// output.
+pub fn log(level: Level, message: &str) {
+    write_line(
+        LOG_PATH.get().map(PathBuf::as_path),
+        &format_line(
+            timestamp(),
+            level.as_str(),
+            process_name(),
+            std::process::id(),
+            message,
+        ),
+    );
+}
+
 macro_rules! level_fn {
-    ($name:ident, $tag:literal) => {
+    ($name:ident, $level:expr) => {
         /// Writes one log line to the log file and the debugger output.
         pub fn $name(message: &str) {
-            write_line(
-                LOG_PATH.get().map(PathBuf::as_path),
-                &format_line(
-                    timestamp(),
-                    $tag,
-                    process_name(),
-                    std::process::id(),
-                    message,
-                ),
-            );
+            log($level, message);
         }
     };
 }
 
-level_fn!(trace, "trace");
-level_fn!(debug, "debug");
-level_fn!(info, "info");
-level_fn!(warn, "warn");
-level_fn!(error, "error");
-
-/// Maps the numeric levels used by the plugin ABI onto the log tags.
-pub fn by_level(level: u32, message: &str) {
-    match level {
-        0 => trace(message),
-        1 => debug(message),
-        3 => warn(message),
-        4 => error(message),
-        _ => info(message),
-    }
-}
+level_fn!(trace, Level::Trace);
+level_fn!(debug, Level::Debug);
+level_fn!(info, Level::Info);
+level_fn!(warn, Level::Warn);
+level_fn!(error, Level::Error);
 
 #[cfg(test)]
 mod tests {
@@ -371,12 +367,12 @@ mod tests {
             "candidates after the winner are never touched"
         );
 
-        by_level(0, "level-test trace");
-        by_level(1, "level-test debug");
-        by_level(2, "level-test info");
-        by_level(3, "level-test warn");
-        by_level(4, "level-test error");
-        by_level(99, "level-test unknown");
+        log(Level::from_abi(0), "level-test trace");
+        log(Level::from_abi(1), "level-test debug");
+        log(Level::from_abi(2), "level-test info");
+        log(Level::from_abi(3), "level-test warn");
+        log(Level::from_abi(4), "level-test error");
+        log(Level::from_abi(99), "level-test unknown");
         trace("direct trace");
 
         let content = std::fs::read_to_string(&good).unwrap();

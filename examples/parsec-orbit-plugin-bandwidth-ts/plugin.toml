@@ -1,0 +1,14 @@
+# A JavaScript plugin: the runtime evaluates `entry` (built from src/main.ts by
+# `pnpm run build`) and calls its setup. The webview permission gives
+# `host.webview`; the bridge provides the service behind it.
+id = "com.example.bandwidth-ts"
+name = "Bandwidth Ladder (TypeScript)"
+version = "0.1.0"
+kind = "js"
+entry = "dist/main.js"
+author = "Parsec Orbit contributors"
+description = "Widens the Bandwidth Limit choices in the WebView UI; the TypeScript port of the official patch"
+license = "MIT"
+requires = ["com.parsec-orbit.js-runtime", "com.parsec-orbit.webview-bridge"]
+permissions = ["webview"]
+api = 1

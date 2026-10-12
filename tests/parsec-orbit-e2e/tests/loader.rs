@@ -7,12 +7,11 @@
 
 mod common;
 
-use std::io::{Read, Write};
-use std::net::{TcpListener, TcpStream};
+use std::net::TcpListener;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use common::{Plugin, Run, Sandbox, LOADER_VERSION};
+use common::{FakeDevTools, Plugin, Run, Sandbox, LOADER_VERSION};
 
 const CLIENT: &str = "parsecd.exe";
 
@@ -84,6 +83,7 @@ fn log_lines_have_the_documented_shape() {
 #[test]
 fn the_official_plugins_load_with_their_shipped_manifests() {
     let sandbox = client("official");
+    sandbox.install_plugin("webview-bridge", Plugin::WebviewBridge);
     sandbox.install_plugin("webview", Plugin::Webview);
     sandbox.install_plugin("native", Plugin::Native);
 
@@ -99,7 +99,7 @@ fn the_official_plugins_load_with_their_shipped_manifests() {
         ))
         .assert_log_contains(&format!("webview ui patches {v} starting"))
         .assert_log_contains(&format!("native ui patches {v} starting"))
-        .assert_log_contains("ready: 2 loaded, 0 skipped, 0 failed");
+        .assert_log_contains("ready: 3 loaded, 0 skipped, 0 failed");
 }
 
 #[test]
@@ -366,13 +366,14 @@ fn a_plugin_of_a_kind_nobody_serves_is_skipped_with_a_hint() {
 fn the_official_plugins_agree_with_their_manifests() {
     let sandbox = client("manifest-agreement");
     sandbox.install_plugin("native", Plugin::Native);
+    sandbox.install_plugin("webview-bridge", Plugin::WebviewBridge);
     sandbox.install_plugin("webview", Plugin::Webview);
     sandbox.install_plugin("hello", Plugin::Hello);
 
     let run = run_client(&sandbox);
     run.assert_success()
         .assert_log_lacks("disagree on")
-        .assert_log_contains("ready: 3 loaded, 0 skipped, 0 failed");
+        .assert_log_contains("ready: 4 loaded, 0 skipped, 0 failed");
 }
 
 #[test]
@@ -641,138 +642,10 @@ fn the_users_own_browser_arguments_are_left_untouched() {
 
 // ---- the webview plugin against a fake DevTools endpoint -----------------------------------------
 
-/// Just enough of a DevTools endpoint to receive the plugin's commands.
-struct FakeDevTools {
-    port: u16,
-    commands: Arc<Mutex<Vec<serde_json::Value>>>,
-    requests: Arc<Mutex<Vec<String>>>,
-}
-
-impl FakeDevTools {
-    fn start() -> FakeDevTools {
-        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
-        let port = listener.local_addr().unwrap().port();
-        let commands = Arc::new(Mutex::new(Vec::new()));
-        let requests = Arc::new(Mutex::new(Vec::new()));
-        let (shared_commands, shared_requests) = (commands.clone(), requests.clone());
-        std::thread::spawn(move || {
-            for stream in listener.incoming().flatten() {
-                let (commands, requests) = (shared_commands.clone(), shared_requests.clone());
-                std::thread::spawn(move || serve(stream, port, commands, requests));
-            }
-        });
-        FakeDevTools {
-            port,
-            commands,
-            requests,
-        }
-    }
-
-    fn wait_for_commands(&self, count: usize) -> Vec<serde_json::Value> {
-        let deadline = Instant::now() + Duration::from_secs(20);
-        while Instant::now() < deadline {
-            let commands = self.commands.lock().unwrap().clone();
-            if commands.len() >= count {
-                return commands;
-            }
-            std::thread::sleep(Duration::from_millis(25));
-        }
-        panic!(
-            "only {} commands arrived",
-            self.commands.lock().unwrap().len()
-        );
-    }
-}
-
-fn serve(
-    mut stream: TcpStream,
-    port: u16,
-    commands: Arc<Mutex<Vec<serde_json::Value>>>,
-    requests: Arc<Mutex<Vec<String>>>,
-) {
-    let mut head = Vec::new();
-    let mut byte = [0u8; 1];
-    while !head.ends_with(b"\r\n\r\n") {
-        if stream.read_exact(&mut byte).is_err() {
-            return;
-        }
-        head.push(byte[0]);
-    }
-    let head = String::from_utf8_lossy(&head).into_owned();
-    requests
-        .lock()
-        .unwrap()
-        .push(head.lines().next().unwrap_or("").to_string());
-
-    if head.starts_with("GET /json") {
-        let body = format!(
-            "[{{\"type\":\"page\",\"url\":\"https://web.parsec.test/\",\"webSocketDebuggerUrl\":\"ws://127.0.0.1:{port}/devtools/page/P\"}}]"
-        );
-        let _ = stream.write_all(
-            format!(
-                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n{body}",
-                body.len()
-            )
-            .as_bytes(),
-        );
-        return;
-    }
-
-    let _ = stream.write_all(
-        b"HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n",
-    );
-    loop {
-        let mut header = [0u8; 2];
-        if stream.read_exact(&mut header).is_err() {
-            return;
-        }
-        let length = match header[1] & 0x7F {
-            126 => {
-                let mut bytes = [0u8; 2];
-                stream.read_exact(&mut bytes).unwrap();
-                u16::from_be_bytes(bytes) as usize
-            }
-            127 => {
-                let mut bytes = [0u8; 8];
-                stream.read_exact(&mut bytes).unwrap();
-                u64::from_be_bytes(bytes) as usize
-            }
-            length => length as usize,
-        };
-        let mut mask = [0u8; 4];
-        stream.read_exact(&mut mask).unwrap();
-        let mut payload = vec![0u8; length];
-        stream.read_exact(&mut payload).unwrap();
-        for (index, byte) in payload.iter_mut().enumerate() {
-            *byte ^= mask[index % 4];
-        }
-        if header[0] & 0x0F != 0x1 {
-            continue;
-        }
-        let command: serde_json::Value = serde_json::from_slice(&payload).unwrap();
-        let id = command["id"].as_u64().unwrap();
-        let reply = if command["method"] == "Runtime.evaluate" {
-            format!("{{\"id\":{id},\"result\":{{\"result\":{{\"type\":\"string\",\"value\":\"installed\"}}}}}}")
-        } else {
-            format!("{{\"id\":{id},\"result\":{{\"identifier\":\"1\"}}}}")
-        };
-        commands.lock().unwrap().push(command);
-        let mut frame = vec![0x81];
-        if reply.len() < 126 {
-            frame.push(reply.len() as u8);
-        } else {
-            frame.push(126);
-            frame.extend_from_slice(&(reply.len() as u16).to_be_bytes());
-        }
-        frame.extend_from_slice(reply.as_bytes());
-        let _ = stream.write_all(&frame);
-    }
-}
-
 fn bandwidth_script() -> String {
     std::fs::read_to_string(
         common::workspace_root()
-            .join("plugins/parsec-orbit-plugin-high-bitrate-webview/assets/bandwidth.js"),
+            .join("crates/parsec-orbit-plugin-high-bitrate-webview/assets/bandwidth.js"),
     )
     .unwrap()
 }
@@ -784,11 +657,12 @@ fn bandwidth_script() -> String {
 fn the_webview_plugin_delivers_the_script_through_the_endpoint_the_loader_opened() {
     let devtools = FakeDevTools::start();
     let sandbox = client("webview-inject");
+    sandbox.install_plugin("webview-bridge", Plugin::WebviewBridge);
     sandbox.install_plugin("webview", Plugin::Webview);
 
     let run = sandbox.run(
         CLIENT,
-        "webview bandwidth list extended: installed",
+        "script com.parsec-orbit.webview/bandwidth installed",
         |command| {
             command
                 .env_remove("PARSEC_ORBIT_DEVTOOLS")
@@ -800,9 +674,8 @@ fn the_webview_plugin_delivers_the_script_through_the_endpoint_the_loader_opened
             "devtools enabled: http://127.0.0.1:{}/json",
             devtools.port
         ))
-        .assert_log_contains(
-            "webview patch registered for future documents (https://web.parsec.test/)",
-        );
+        .assert_log_contains("devtools session attached (https://web.parsec.test/)")
+        .assert_log_contains("webview bandwidth patch handed to the bridge");
     assert_eq!(
         run.value("webview2_args").unwrap(),
         format!(
@@ -811,21 +684,83 @@ fn the_webview_plugin_delivers_the_script_through_the_endpoint_the_loader_opened
         )
     );
 
-    let commands = devtools.wait_for_commands(2);
+    // The bridge sets up the session (events, the binding, the page helper)
+    // and then installs the plugin's script like any other.
+    let commands = devtools.wait_for_commands(6);
     let script = bandwidth_script();
+    let methods: Vec<&str> = commands
+        .iter()
+        .map(|command| command["method"].as_str().unwrap())
+        .collect();
     assert_eq!(
-        commands[0]["method"],
-        "Page.addScriptToEvaluateOnNewDocument"
+        methods,
+        [
+            "Runtime.enable",
+            "Runtime.addBinding",
+            "Page.addScriptToEvaluateOnNewDocument",
+            "Runtime.evaluate",
+            "Page.addScriptToEvaluateOnNewDocument",
+            "Runtime.evaluate"
+        ]
     );
-    assert_eq!(commands[0]["params"]["source"], script.as_str());
-    assert_eq!(commands[1]["method"], "Runtime.evaluate");
-    assert_eq!(commands[1]["params"]["expression"], script.as_str());
+    assert_eq!(commands[1]["params"]["name"], "__orbitSend");
+    assert!(commands[2]["params"]["source"]
+        .as_str()
+        .unwrap()
+        .contains("window.__orbit"));
+    assert_eq!(commands[4]["params"]["source"], script.as_str());
+    assert_eq!(commands[5]["params"]["expression"], script.as_str());
+}
+
+/// A native plugin uses `parsec-orbit.webview` through the SDK client: the
+/// bridge starts its session on the first call and serves script, evaluate and
+/// post from there.
+#[test]
+fn a_native_plugin_uses_the_webview_service_of_the_bridge() {
+    let devtools = FakeDevTools::start();
+    let sandbox = client("webview-native-consumer");
+    sandbox.install_plugin("webview-bridge", Plugin::WebviewBridge);
+    sandbox.install_fixture(
+        "consumer",
+        &fixture_manifest("fx.ui", "requires = [\"com.parsec-orbit.webview-bridge\"]"),
+        "webview_script=hello|window.hello = 1;\nwebview_eval=1+1\nwebview_post=greeting|{\"x\":1}\n",
+    );
+
+    let run = sandbox.run(CLIENT, "webview_post greeting -> ok", |command| {
+        command
+            .env_remove("PARSEC_ORBIT_DEVTOOLS")
+            .env("PARSEC_ORBIT_DEVTOOLS_PORT", devtools.port.to_string());
+    });
+    run.assert_success()
+        .assert_log_contains("fixture: webview_script hello -> id 1")
+        .assert_log_contains("fixture: webview_eval 1+1 -> \"installed\"")
+        .assert_log_contains("fixture: webview_post greeting -> ok")
+        .assert_log_contains("script fx.ui/hello installed");
+
+    let commands = devtools.wait_for_commands(8);
+    let expressions: Vec<&str> = commands
+        .iter()
+        .filter(|command| command["method"] == "Runtime.evaluate")
+        .map(|command| command["params"]["expression"].as_str().unwrap())
+        .collect();
+    assert!(
+        expressions.contains(&"window.hello = 1;"),
+        "{expressions:?}"
+    );
+    assert!(expressions.contains(&"1+1"), "{expressions:?}");
+    assert!(
+        expressions
+            .iter()
+            .any(|e| e.contains("__deliver(\"greeting\", {\"x\":1})")),
+        "{expressions:?}"
+    );
 }
 
 #[test]
 fn the_webview_plugin_stays_away_when_patches_are_switched_off() {
     let devtools = FakeDevTools::start();
     let sandbox = client("webview-off");
+    sandbox.install_plugin("webview-bridge", Plugin::WebviewBridge);
     sandbox.install_plugin("webview", Plugin::Webview);
 
     let run = sandbox.run(CLIENT, "ready:", |command| {
@@ -838,10 +773,11 @@ fn the_webview_plugin_stays_away_when_patches_are_switched_off() {
         .assert_log_contains("the webview plugin stays idle")
         .assert_log_contains("loaded com.parsec-orbit.webview");
 
+    // The bridge connects only when somebody needs the page.
     std::thread::sleep(Duration::from_millis(1500));
     assert!(
         devtools.requests.lock().unwrap().is_empty(),
-        "the plugin must not connect"
+        "nothing must connect"
     );
     assert!(devtools.commands.lock().unwrap().is_empty());
 }
@@ -850,6 +786,7 @@ fn the_webview_plugin_stays_away_when_patches_are_switched_off() {
 fn the_webview_plugin_leaves_the_ui_alone_when_the_user_set_their_own_browser_arguments() {
     let devtools = FakeDevTools::start();
     let sandbox = client("webview-custom-args");
+    sandbox.install_plugin("webview-bridge", Plugin::WebviewBridge);
     sandbox.install_plugin("webview", Plugin::Webview);
 
     let run = sandbox.run(CLIENT, "ready:", |command| {
@@ -873,6 +810,7 @@ fn the_webview_plugin_keeps_retrying_until_the_endpoint_appears() {
         listener.local_addr().unwrap().port()
     };
     let sandbox = client("webview-late");
+    sandbox.install_plugin("webview-bridge", Plugin::WebviewBridge);
     sandbox.install_plugin("webview", Plugin::Webview);
 
     let starter = {
@@ -882,7 +820,7 @@ fn the_webview_plugin_keeps_retrying_until_the_endpoint_appears() {
         command
             .arg(loader)
             .arg(log)
-            .arg("webview bandwidth list extended: installed")
+            .arg("script com.parsec-orbit.webview/bandwidth installed")
             .arg("30");
         sandbox.base_environment(&mut command);
         command
@@ -912,7 +850,7 @@ fn the_webview_plugin_keeps_retrying_until_the_endpoint_appears() {
     std::thread::spawn(move || {
         for stream in listener.incoming().flatten() {
             let (commands, requests) = (shared_commands.clone(), shared_requests.clone());
-            std::thread::spawn(move || serve(stream, port, commands, requests));
+            std::thread::spawn(move || common::serve(stream, port, commands, requests));
         }
     });
 
@@ -922,5 +860,5 @@ fn the_webview_plugin_keeps_retrying_until_the_endpoint_appears() {
         "{}",
         String::from_utf8_lossy(&output.stdout)
     );
-    assert_eq!(commands.lock().unwrap().len(), 2);
+    assert_eq!(commands.lock().unwrap().len(), 6);
 }

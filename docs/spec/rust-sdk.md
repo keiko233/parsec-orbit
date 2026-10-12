@@ -97,8 +97,8 @@ host.provide("com.example.svc", &TABLE.header);   // a service some other plugin
 
 * `examples/parsec-orbit-plugin-hello-nostd` - the canonical sample: 10 KB, no imports.
 * `examples/parsec-orbit-plugin-hello` - the `std` sibling (writes a report file).
-* `plugins/parsec-orbit-plugin-high-bitrate-native` - real-world `std` plugin (signature scan on a worker thread).
-* `plugins/parsec-orbit-plugin-high-bitrate-webview` - real-world `std` plugin; once the webview bridge exists it shrinks to an `add_script` caller (see [js-sdk.md](js-sdk.md)).
+* `crates/parsec-orbit-plugin-high-bitrate-native` - real-world `std` plugin (signature scan on a worker thread).
+* `crates/parsec-orbit-plugin-high-bitrate-webview` - real-world `std` plugin; once the webview bridge exists it shrinks to an `add_script` caller (see [js-sdk.md](js-sdk.md)).
 * `tests/parsec-orbit-fixture-nostd`, `tests/parsec-orbit-fixture-plugin` - test fixtures that exercise the runtime and the raw ABI inside a real process.
 
 The two official plugins are the SDK's regression baseline: their unit and end-to-end tests pass with the same assertions after the migration; only the way `init` is driven changed (through `MockHost`).

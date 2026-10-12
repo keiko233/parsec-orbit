@@ -6,3 +6,8 @@ __pycache__/
 /.vs/
 /.vscode/
 *.user
+
+node_modules/
+/javascript-sdk/dist/
+/examples/*-ts/dist/
+/javascript-sdk/dist-test/

@@ -12,10 +12,10 @@ use std::sync::{Mutex, MutexGuard, OnceLock};
 
 use parsec_orbit_plugin_abi::{
     ParsecOrbitHost, ParsecOrbitInterfaceHeader, ERR_EXISTS, ERR_INVALID, ERR_NOT_FOUND,
-    INTERFACE_KIND_PREFIX, LOG_DEBUG, LOG_INFO, OK,
+    INTERFACE_KIND_PREFIX, OK,
 };
 
-use crate::Logger;
+use crate::{Level, Logger};
 
 /// Prefix of the ids of plugins that ship with the loader. Only they may
 /// register names under [`RESERVED_PREFIX`].
@@ -190,7 +190,7 @@ pub fn register(owner: &str, name: &str, table: *const ParsecOrbitInterfaceHeade
             // Safety: `register` accepted the table, so the header is readable.
             let header = unsafe { *table };
             log(
-                LOG_INFO,
+                Level::Info,
                 &format!(
                     "{owner} registered interface {name} {}.{} ({} bytes)",
                     header.major(),
@@ -200,7 +200,7 @@ pub fn register(owner: &str, name: &str, table: *const ParsecOrbitInterfaceHeade
             );
         }
         code => log(
-            LOG_DEBUG,
+            Level::Debug,
             &format!("{owner} could not register interface {name}: error {code}"),
         ),
     }
@@ -231,7 +231,7 @@ pub fn install_logger(logger: &'static (dyn Logger + Sync)) {
     let _ = LOGGER.set(logger);
 }
 
-fn log(level: u32, message: &str) {
+fn log(level: Level, message: &str) {
     if let Some(logger) = LOGGER.get() {
         logger.log(level, message);
     }
@@ -281,7 +281,7 @@ unsafe fn owner_of<'a>(host: *const ParsecOrbitHost) -> Option<&'a str> {
 /// `ParsecOrbitHost::log`.
 pub unsafe extern "system" fn host_log(level: u32, message: *const u8, len: usize) {
     if let Some(message) = unsafe { utf8(message, len) } {
-        log(level, &sanitize_log_text(message));
+        log(Level::from_abi(level), &sanitize_log_text(message));
     }
 }
 
@@ -301,12 +301,12 @@ pub unsafe extern "system" fn host_log_ex(
         Some(target) => {
             let target = sanitize_log_text(target);
             if !target.is_empty() {
-                log(level, &format!("{target}: {message}"));
+                log(Level::from_abi(level), &format!("{target}: {message}"));
             } else {
-                log(level, &message);
+                log(Level::from_abi(level), &message);
             }
         }
-        _ => log(level, &message),
+        _ => log(Level::from_abi(level), &message),
     }
 }
 
@@ -317,7 +317,7 @@ pub unsafe extern "system" fn host_query_interface(name: *const u8) -> *mut c_vo
     };
     let found = find(name);
     if found.is_null() {
-        log(LOG_DEBUG, &format!("interface {name} is not registered"));
+        log(Level::Debug, &format!("interface {name} is not registered"));
     }
     found as *mut c_void
 }
@@ -627,11 +627,11 @@ mod tests {
 
     // ---- the callbacks, through a table ----
 
-    static SEEN: StdMutex<Vec<(u32, String)>> = StdMutex::new(Vec::new());
+    static SEEN: StdMutex<Vec<(Level, String)>> = StdMutex::new(Vec::new());
 
     struct Recorder;
     impl Logger for Recorder {
-        fn log(&self, level: u32, message: &str) {
+        fn log(&self, level: Level, message: &str) {
             SEEN.lock().unwrap().push((level, message.to_string()));
         }
     }
@@ -718,14 +718,14 @@ mod tests {
         host.log_with_target(3, "com.example.logger", "line with a target");
         host.log_with_target(3, "", "line without a target");
         assert!(seen("plain line"));
+        assert!(SEEN.lock().unwrap().contains(&(
+            Level::Warn,
+            "com.example.logger: line with a target".to_string()
+        )));
         assert!(SEEN
             .lock()
             .unwrap()
-            .contains(&(3, "com.example.logger: line with a target".to_string())));
-        assert!(SEEN
-            .lock()
-            .unwrap()
-            .contains(&(3, "line without a target".to_string())));
+            .contains(&(Level::Warn, "line without a target".to_string())));
         // Not UTF-8: replaced, never a panic.
         unsafe { host_log(2, [0xffu8, 0xfe].as_ptr(), 2) };
     }
@@ -745,7 +745,7 @@ mod tests {
             );
         }
         let logged = SEEN.lock().unwrap();
-        assert!(logged.contains(&(2, "first  second?third".to_string())));
-        assert!(logged.contains(&(3, "target  : payload next".to_string())));
+        assert!(logged.contains(&(Level::Info, "first  second?third".to_string())));
+        assert!(logged.contains(&(Level::Warn, "target  : payload next".to_string())));
     }
 }

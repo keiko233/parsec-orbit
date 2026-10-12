@@ -142,6 +142,34 @@ typedef struct ParsecOrbitKindHandlerV1 {
 } ParsecOrbitKindHandlerV1;
 ```
 
+### Core service tables
+
+The behaviour of these is in [services.md](services.md); the layouts are frozen here and in `parsec-orbit-plugin-abi`.
+
+```c
+typedef void (*ParsecOrbitMessageCallback)(void *user, const uint8_t *msg, size_t len);
+
+/* parsec-orbit.webview, version 1.0 */
+typedef struct ParsecOrbitWebViewV1 {
+    ParsecOrbitInterfaceHeader header;
+    int32_t (*is_ready)(void);
+    int64_t (*add_script)(const uint8_t *key, size_t key_len, const uint8_t *script, size_t script_len);
+    int32_t (*remove_script)(int64_t script_id);
+    int32_t (*evaluate)(const uint8_t *expression, size_t len, ParsecOrbitMessageCallback out, void *user);
+    int64_t (*subscribe)(const uint8_t *channel, size_t channel_len, ParsecOrbitMessageCallback cb, void *user);
+    int32_t (*unsubscribe)(int64_t subscription);
+    int32_t (*post)(const uint8_t *channel, size_t channel_len, const uint8_t *payload, size_t len);
+} ParsecOrbitWebViewV1;
+
+/* parsec-orbit.js, version 1.0 */
+typedef struct ParsecOrbitJsV1 {
+    ParsecOrbitInterfaceHeader header;
+    int64_t (*create_context)(const uint8_t *name, size_t name_len);
+    int32_t (*eval)(int64_t context, const uint8_t *source, size_t len, ParsecOrbitMessageCallback out, void *user);
+    int32_t (*destroy_context)(int64_t context);
+} ParsecOrbitJsV1;
+```
+
 Error codes returned by the host and by interfaces:
 
 | Code | Name | Meaning |

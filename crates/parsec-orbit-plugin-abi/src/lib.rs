@@ -358,6 +358,97 @@ pub struct ParsecOrbitKindHandlerV1 {
     pub unload_plugin: Option<unsafe extern "system" fn(id: *const u8) -> i32>,
 }
 
+/// Callback that receives a UTF-8 message: the JSON result of an `evaluate`,
+/// or a message the page sent. The text is only valid during the call.
+pub type MessageCallback =
+    unsafe extern "system" fn(user: *mut c_void, message: *const u8, len: usize);
+
+/// `parsec-orbit.webview` 1.0, provided by the webview-bridge plugin: the
+/// client's WebView2 UI. All strings are UTF-8 `(pointer, length)` pairs.
+///
+/// Every function is thread-safe. A `subscribe` callback runs on the bridge's
+/// delivery thread; `evaluate`'s result callback runs on the caller's thread,
+/// before `evaluate` returns.
+#[repr(C)]
+pub struct ParsecOrbitWebViewV1 {
+    pub header: ParsecOrbitInterfaceHeader,
+    /// `1` when a page target is attached, `0` otherwise.
+    pub is_ready: Option<unsafe extern "system" fn() -> i32>,
+    /// Registers `script` to run in every new document (it survives reloads)
+    /// and also in the current one. Returns a script id greater than zero or
+    /// a negative error. Idempotent per `key`: registering a key again
+    /// replaces the script. Keys are global, so a wrapper prefixes its plugin
+    /// id.
+    pub add_script: Option<
+        unsafe extern "system" fn(
+            key: *const u8,
+            key_len: usize,
+            script: *const u8,
+            script_len: usize,
+        ) -> i64,
+    >,
+    /// Stops a script from running in new documents.
+    pub remove_script: Option<unsafe extern "system" fn(script_id: i64) -> i32>,
+    /// Evaluates `expression` in the current document and passes the JSON
+    /// result to `out` (valid only during the call). Returns `0` or
+    /// [`ERR_NOT_READY`], [`ERR_TIMEOUT`], [`ERR_EXCEPTION`].
+    pub evaluate: Option<
+        unsafe extern "system" fn(
+            expression: *const u8,
+            len: usize,
+            out: Option<MessageCallback>,
+            user: *mut c_void,
+        ) -> i32,
+    >,
+    /// Subscribes to messages the page sends with
+    /// `window.__orbit.emit(channel, payload)`; the callback gets the payload
+    /// as JSON. Returns a subscription id greater than zero or a negative
+    /// error.
+    pub subscribe: Option<
+        unsafe extern "system" fn(
+            channel: *const u8,
+            channel_len: usize,
+            callback: Option<MessageCallback>,
+            user: *mut c_void,
+        ) -> i64,
+    >,
+    pub unsubscribe: Option<unsafe extern "system" fn(subscription: i64) -> i32>,
+    /// Sends a message to the page, delivered to
+    /// `window.__orbit.on(channel, handler)`. `payload` is JSON.
+    pub post: Option<
+        unsafe extern "system" fn(
+            channel: *const u8,
+            channel_len: usize,
+            payload: *const u8,
+            len: usize,
+        ) -> i32,
+    >,
+}
+
+/// `parsec-orbit.js` 1.0, provided by the JavaScript runtime plugin: script
+/// evaluation for native plugins. Contexts are independent of those of the
+/// JavaScript plugins; each runs on a thread of its own.
+#[repr(C)]
+pub struct ParsecOrbitJsV1 {
+    pub header: ParsecOrbitInterfaceHeader,
+    /// Creates a named context. Returns a context id greater than zero or a
+    /// negative error ([`ERR_EXISTS`] if the name is taken).
+    pub create_context: Option<unsafe extern "system" fn(name: *const u8, name_len: usize) -> i64>,
+    /// Evaluates `source` in the context and passes the result, converted to
+    /// JSON, to `out`. Returns `0` or [`ERR_NOT_FOUND`], [`ERR_TIMEOUT`],
+    /// [`ERR_EXCEPTION`].
+    pub eval: Option<
+        unsafe extern "system" fn(
+            context: i64,
+            source: *const u8,
+            len: usize,
+            out: Option<MessageCallback>,
+            user: *mut c_void,
+        ) -> i32,
+    >,
+    pub destroy_context: Option<unsafe extern "system" fn(context: i64) -> i32>,
+}
+
 /// `ParsecOrbitPluginQuery(host_abi) -> *const ParsecOrbitPluginDesc`
 pub type QueryFn = unsafe extern "system" fn(host_abi: u32) -> *const ParsecOrbitPluginDesc;
 /// `ParsecOrbitPluginInit(host) -> 0 on success`

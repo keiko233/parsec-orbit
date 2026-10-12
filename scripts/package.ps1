@@ -1,6 +1,9 @@
 # Stages the release files into dist\:
 #
 #   bcrypt.dll                        the loader, goes next to parsecd.exe
+#   parsec-orbit-plugin-webview-bridge.zip         official plugin, provides parsec-orbit.webview
+#                                                  (the webview patch below needs it)
+#   parsec-orbit-plugin-js-runtime.zip             official plugin, runs kind = "js" plugins (optional download)
 #   parsec-orbit-plugin-high-bitrate-webview.zip   official plugin, extract into <client>\plugins\
 #   parsec-orbit-plugin-high-bitrate-native.zip    official plugin, same layout
 #   parsec-orbit-plugin-hello.zip     example plugin, same layout
@@ -40,13 +43,23 @@ try {
 
     $plugins = @(
         @{
+            Name = 'parsec-orbit-plugin-js-runtime'
+            Source = 'crates\parsec-orbit-plugin-js-runtime'
+            Dll = 'parsec_orbit_plugin_js_runtime.dll'
+        },
+        @{
+            Name = 'parsec-orbit-plugin-webview-bridge'
+            Source = 'crates\parsec-orbit-plugin-webview-bridge'
+            Dll = 'parsec_orbit_plugin_webview_bridge.dll'
+        },
+        @{
             Name = 'parsec-orbit-plugin-high-bitrate-webview'
-            Source = 'plugins\parsec-orbit-plugin-high-bitrate-webview'
+            Source = 'crates\parsec-orbit-plugin-high-bitrate-webview'
             Dll = 'parsec_orbit_plugin_high_bitrate_webview.dll'
         },
         @{
             Name = 'parsec-orbit-plugin-high-bitrate-native'
-            Source = 'plugins\parsec-orbit-plugin-high-bitrate-native'
+            Source = 'crates\parsec-orbit-plugin-high-bitrate-native'
             Dll = 'parsec_orbit_plugin_high_bitrate_native.dll'
         },
         @{

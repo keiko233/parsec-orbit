@@ -1,0 +1,14 @@
+# Metadata for the loader. Official plugin that patches the WebView2 UI: it
+# widens the "Bandwidth Limit" ladder at runtime. The script is installed by
+# the webview bridge, which speaks DevTools to the endpoint the loader opens.
+id = "com.parsec-orbit.webview"
+name = "WebView UI Patches"
+version = "0.1.0"
+kind = "dll"
+entry = "parsec_orbit_plugin_high_bitrate_webview.dll"
+author = "Parsec Orbit contributors"
+description = "Adds bandwidth limits above 50 Mbps to the WebView UI"
+license = "MIT"
+requires = ["com.parsec-orbit.webview-bridge"]
+api = 1
+enabled = true

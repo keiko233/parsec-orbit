@@ -1,8 +1,8 @@
-# Publishes a new version: bumps the workspace version, commits, tags, and
-# pushes. Pushing the tag triggers the Release workflow, which builds,
-# verifies, packages, and publishes the GitHub release with a git-cliff
-# changelog. Two separate workflows so Release always checks out the bump
-# commit behind the tag.
+# Publishes a new version: bumps the workspace version and the SDK version,
+# commits, tags, and pushes. Pushing the tag triggers the Release workflow,
+# which builds, verifies, packages, and publishes the GitHub release with a
+# git-cliff changelog, and publishes @parsec-orbit/sdk to npm. Two separate
+# workflows so Release always checks out the bump commit behind the tag.
 #
 # Requires Settings -> Actions -> General -> Workflow permissions set to
 # "Read and write permissions" so this workflow can push the bump commit
@@ -27,16 +27,17 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
-      # Bumps [workspace.package] version in Cargo.toml, refreshes Cargo.lock,
-      # commits both, and pushes the commit plus the version tag. The tag push
-      # is what triggers the Release workflow.
+      # Bumps [workspace.package] version in Cargo.toml and the version in
+      # javascript-sdk/package.json, refreshes Cargo.lock, commits, and
+      # pushes the commit plus the version tag. The tag push is what triggers
+      # the Release workflow (GitHub release + npm publish).
       - name: Bump the workspace version, commit, and tag
         shell: bash
         env:
@@ -97,10 +98,31 @@ jobs:
           # update and Release's `cargo build --locked` would then fail.
           cargo metadata --format-version 1 >/dev/null
 
+          # The npm package and the workspace release share the version, so
+          # the Release workflow can check the tag against it. The SDK
+          # manifest is rewritten textually to keep the commit to one changed
+          # line; the guards make a reformatted or extended file fail loudly
+          # instead of being silently misparsed.
+          python3 - "$VERSION" <<'EOF'
+          import re
+          import sys
+          version = sys.argv[1]
+          path = "javascript-sdk/package.json"
+          with open(path, encoding="utf-8") as f:
+              src = f.read()
+          if src.count('"version"') != 1:
+              raise SystemExit("javascript-sdk/package.json must hold exactly one version entry")
+          out, n = re.subn(r'("version"\s*:\s*")[^"]+(")', lambda m: m.group(1) + version + m.group(2), src, count=1)
+          if n != 1:
+              raise SystemExit("version entry not found in javascript-sdk/package.json")
+          with open(path, "w", encoding="utf-8", newline="") as f:
+              f.write(out)
+          EOF
+
           git diff --stat
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add Cargo.toml Cargo.lock
+          git add Cargo.toml Cargo.lock javascript-sdk/package.json
           git commit -m "chore(release): publish $TAG"
           git push origin "HEAD:$REF_NAME"
           git tag "$TAG"
