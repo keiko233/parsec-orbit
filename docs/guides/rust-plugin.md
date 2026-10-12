@@ -90,7 +90,10 @@ Build with `cargo build --release`. The DLL is `target/release/my_plugin.dll`.
 
 * `info!(cx, ...)`, `warn!`, `error!`, `debug!`, `trace!` - one line in the loader log, tagged with your plugin id. Formatting needs no allocator.
 * `cx.plugin_dir()`, `cx.data_dir()` - where you were loaded from, and where your data may go (`%APPDATA%\ParsecOrbit\data\<id>`; create it yourself).
-* `cx.service::<WebView>()` etc. - services other plugins offer; `None` if they are absent, so check. List the provider in `requires` in `plugin.toml` to have it initialised first.
+* `cx.service::<MyService>()` - look up an interface you bound with
+  `Interface`; `None` if it is absent or incompatible. Bindings for the core
+  `WebView` and `Js` services arrive with their providers in phase 4. List the
+  provider in `requires` in `plugin.toml` to have it initialised first.
 * `cx.register::<MyService>(&TABLE)` - offer a service to later plugins.
 * Return `Err(Error::with_message(code, "why"))` to fail; the loader skips plugins that depend on you.
 

@@ -14,7 +14,7 @@
 | [spec/plugin-manifest.md](spec/plugin-manifest.md) | Implemented | `plugin.toml` |
 | [spec/loading.md](spec/loading.md) | Implemented | Discovery, dependency ordering, failure semantics |
 | [spec/services.md](spec/services.md) | Registry and kind handlers implemented; core service tables draft | Host service registry, interface headers, kind handlers, core service definitions |
-| [spec/rust-sdk.md](spec/rust-sdk.md) | Implemented | `parsec-orbit-plugin-sdk` / `-abi` crates, features, size policy |
+| [spec/rust-sdk.md](spec/rust-sdk.md) | Implemented | `parsec-orbit-plugin-abi`, `-sdk` and `-sdk-std` crates, `freestanding!` runtime, size policy |
 | [spec/js-sdk.md](spec/js-sdk.md) | Draft | JS plugin model, `@parsec-orbit/sdk` TypeScript API, WebView operations |
 
 "Draft" means agreed direction, not yet implemented; each draft spec lists its

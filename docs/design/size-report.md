@@ -4,7 +4,7 @@ Measured on `x86_64-pc-windows-msvc`, release profile (`opt-level = "z"`, `lto =
 
 ## Plugin runtime spike (phase 3)
 
-The question of [ADR 0002](decisions/0002-sdk-is-no-std-by-default.md): how small can a plugin be, and is a C-runtime-free build practical? The same plugin (log one formatted line through the host) was built four ways.
+The question of [ADR 0002](decisions/0002-sdk-is-no-std-by-default.md): how small can a plugin be, and is a C-runtime-free build practical? The same plugin (log one formatted line through the host) was built across the variants below.
 
 | Variant | Size | Notes |
 | --- | ---: | --- |
@@ -14,7 +14,7 @@ The question of [ADR 0002](decisions/0002-sdk-is-no-std-by-default.md): how smal
 | `no_std`, `/NODEFAULTLIB`, one `log` call | 3,584 | compiler emits no `mem*` calls here |
 | `no_std`, `/NODEFAULTLIB`, `core::fmt` incl. floats, `memcpy`/`memset`/`strlen` | 28,672 | float formatting is most of it |
 | `hello-nostd` with the SDK (`freestanding!`), release | 10,752 | no imports at all, exports only the three ABI functions |
-| `hello-nostd` with the SDK, debug | 32,256 | |
+| `hello-nostd` with the SDK, debug | 33,280 | debug-info size depends on the build path |
 
 **Result: the CRT-free variant is practical and becomes the default recipe.** What it takes is small and lives in `freestanding!`:
 

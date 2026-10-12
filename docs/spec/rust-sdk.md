@@ -43,7 +43,7 @@ parsec_orbit_plugin_sdk::declare_plugin! {
     author = "Example",
     description = "Minimal plugin",
     license = "MIT",
-    plugin = Hello,          // any `Default` type; optional `capabilities = <u64>`
+    plugin = Hello,          // any `Default + Send` type; optional `capabilities = <u64>`
 }
 ```
 
@@ -105,7 +105,7 @@ The two official plugins are the SDK's regression baseline: their unit and end-t
 
 ## Publishing
 
-`-abi` first, then `-sdk`, then `-sdk-std`. Required metadata is in the manifests: `description`, `license`, `repository`, `readme`, `keywords`, `categories`, `rust-version`, and `[package.metadata.docs.rs] default-target = "x86_64-pc-windows-msvc"`. CI runs `cargo package` for the three crates (see `.github/workflows/test.yml`), which builds each one from its own tarball against a local registry holding the others. Actual publishing is a manual, explicit step by the owner, described in [releasing](../design/releasing.md). The three names were free on crates.io on 2026-10-12.
+`-abi` first, then `-sdk`, then `-sdk-std`. Required metadata is in the manifests: `description`, `license`, `repository`, `keywords`, `categories`, `rust-version`, and `[package.metadata.docs.rs] default-target = "x86_64-pc-windows-msvc"`. Each crate's `README.md` is inferred by Cargo as the package readme. CI runs `cargo package` for the three crates (see `.github/workflows/test.yml`), which builds each one from its own tarball against a local registry holding the others. Actual publishing is a manual, explicit step by the owner, described in [releasing](../design/releasing.md). The three names were free on crates.io on 2026-10-12.
 
 ## Open questions
 
