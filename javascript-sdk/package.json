@@ -9,9 +9,18 @@
     "url": "git+https://github.com/keiko233/parsec-orbit.git",
     "directory": "javascript-sdk"
   },
+  "homepage": "https://github.com/keiko233/parsec-orbit#readme",
+  "bugs": {
+    "url": "https://github.com/keiko233/parsec-orbit/issues"
+  },
   "type": "module",
   "sideEffects": false,
   "files": ["dist", "README.md"],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true,
+    "registry": "https://registry.npmjs.org"
+  },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
