@@ -142,13 +142,237 @@ fn a_mix_of_good_and_broken_plugins_never_stops_the_loader() {
     let run = run_client(&sandbox);
     run.assert_success()
         .assert_log_contains("loaded com.example.hello")
-        .assert_log_contains("ready: 1 loaded, 2 skipped, 5 failed");
+        .assert_log_contains("ready: 1 loaded, 3 skipped, 4 failed");
     run.assert_log_contains("disabled in the manifest, skipped")
-        .assert_log_contains("needs the JavaScript runtime")
+        .assert_log_contains("no handler for kind \"js\" (is the runtime plugin installed?)")
         .assert_log_contains("manifest asks for API 99")
-        .assert_log_contains("unknown kind \"lua\"")
+        .assert_log_contains("no handler for kind \"lua\"")
         .assert_log_contains("could not load")
         .assert_log_contains("[error]");
+}
+
+// ---- host revision 2: identity, ordering, services ---------------------------
+
+/// Where `text` first appears in the log.
+fn at(run: &Run, text: &str) -> usize {
+    run.log
+        .find(text)
+        .unwrap_or_else(|| panic!("log lacks {text:?}\n{}", run.describe()))
+}
+
+fn fixture_manifest(id: &str, extra: &str) -> String {
+    format!("id = \"{id}\"\n{extra}")
+}
+
+#[test]
+fn every_plugin_gets_a_host_table_that_knows_who_it_is() {
+    let sandbox = client("host-table");
+    sandbox.install_fixture("one", &fixture_manifest("fx.one", ""), "");
+    sandbox.install_fixture("two", &fixture_manifest("fx.two", ""), "");
+
+    let run = run_client(&sandbox);
+    run.assert_success()
+        .assert_log_contains("fixture[fx.one]: revision2=true dir=one data_dir=ends-with-id")
+        .assert_log_contains("fixture[fx.two]: revision2=true dir=two data_dir=ends-with-id")
+        // log_ex puts the target in front of the message.
+        .assert_log_contains("fx.one: fixture[fx.one]:")
+        .assert_log_contains("ready: 2 loaded, 0 skipped, 0 failed");
+}
+
+#[test]
+fn requires_decides_the_load_order_not_the_directory_name() {
+    let sandbox = client("requires-order");
+    // `a-app` is discovered first but needs `fx.base` from `z-base`.
+    sandbox.install_fixture(
+        "a-app",
+        &fixture_manifest("fx.app", "requires = [\"fx.base\"]"),
+        "",
+    );
+    sandbox.install_fixture("m-free", &fixture_manifest("fx.free", ""), "");
+    sandbox.install_fixture("z-base", &fixture_manifest("fx.base", ""), "");
+
+    let run = run_client(&sandbox);
+    run.assert_success()
+        .assert_log_contains("ready: 3 loaded, 0 skipped, 0 failed");
+    let free = at(&run, "fixture[fx.free]: revision2");
+    let base = at(&run, "fixture[fx.base]: revision2");
+    let app = at(&run, "fixture[fx.app]: revision2");
+    assert!(free < base && base < app, "{}", run.describe());
+}
+
+#[test]
+fn a_service_one_plugin_registers_is_found_by_the_plugin_that_requires_it() {
+    let sandbox = client("services");
+    sandbox.install_fixture(
+        "a-user",
+        &fixture_manifest("fx.user", "requires = [\"fx.provider\"]"),
+        "query=com.example.svc\nquery=com.example.absent\nregister=com.example.svc\n",
+    );
+    sandbox.install_fixture(
+        "b-provider",
+        &fixture_manifest("fx.provider", ""),
+        "register=com.example.svc\n",
+    );
+
+    let run = run_client(&sandbox);
+    run.assert_success()
+        .assert_log_contains("fixture[fx.provider]: register com.example.svc -> 0")
+        .assert_log_contains("fx.provider registered interface com.example.svc 1.2 (8 bytes)")
+        .assert_log_contains("fixture[fx.user]: query com.example.svc -> 1.2 (8 bytes)")
+        .assert_log_contains("fixture[fx.user]: query com.example.absent -> not found")
+        // A name can be registered once.
+        .assert_log_contains("fixture[fx.user]: register com.example.svc -> -2")
+        .assert_log_contains("ready: 2 loaded, 0 skipped, 0 failed");
+}
+
+#[test]
+fn only_official_plugins_register_official_names_and_only_owners_unregister() {
+    let sandbox = client("registry-rules");
+    sandbox.install_fixture(
+        "a-owner",
+        &fixture_manifest("fx.owner", ""),
+        "register=parsec-orbit.webview\nregister=com.example.mine\n",
+    );
+    sandbox.install_fixture(
+        "b-official",
+        &fixture_manifest("com.parsec-orbit.fixture", "requires = [\"fx.owner\"]"),
+        "register=parsec-orbit.webview\nunregister=com.example.mine\n",
+    );
+    sandbox.install_fixture(
+        "c-other",
+        &fixture_manifest("fx.other", "requires = [\"fx.owner\"]"),
+        "unregister=com.example.mine\n",
+    );
+
+    let run = run_client(&sandbox);
+    run.assert_success()
+        .assert_log_contains("fixture[fx.owner]: register parsec-orbit.webview -> -1")
+        .assert_log_contains("fixture[fx.owner]: register com.example.mine -> 0")
+        .assert_log_contains(
+            "fixture[com.parsec-orbit.fixture]: register parsec-orbit.webview -> 0",
+        )
+        .assert_log_contains("fixture[com.parsec-orbit.fixture]: unregister com.example.mine -> -3")
+        .assert_log_contains("fixture[fx.other]: unregister com.example.mine -> -3");
+}
+
+#[test]
+fn a_missing_requirement_skips_the_plugin_before_any_of_its_code_runs() {
+    let sandbox = client("missing-requirement");
+    sandbox.install_fixture(
+        "needs-runtime",
+        &fixture_manifest("fx.script", "requires = [\"com.parsec-orbit.js-runtime\"]"),
+        "",
+    );
+
+    let run = run_client(&sandbox);
+    run.assert_success()
+        .assert_log_contains(
+            "fx.script -: skipped, needs com.parsec-orbit.js-runtime, not installed",
+        )
+        .assert_log_lacks("fixture[fx.script]")
+        .assert_log_contains("ready: 0 loaded, 1 skipped, 0 failed");
+}
+
+#[test]
+fn a_dependency_cycle_fails_its_members_and_names_the_cycle() {
+    let sandbox = client("cycle");
+    sandbox.install_fixture("a", &fixture_manifest("fx.a", "requires = [\"fx.b\"]"), "");
+    sandbox.install_fixture("b", &fixture_manifest("fx.b", "requires = [\"fx.a\"]"), "");
+    sandbox.install_fixture("c", &fixture_manifest("fx.c", ""), "");
+
+    let run = run_client(&sandbox);
+    run.assert_success()
+        .assert_log_contains("dependency cycle: fx.a -> fx.b -> fx.a")
+        .assert_log_contains("fixture[fx.c]: revision2=true")
+        .assert_log_lacks("fixture[fx.a]")
+        .assert_log_contains("ready: 1 loaded, 0 skipped, 2 failed");
+}
+
+#[test]
+fn a_dependency_that_fails_its_init_takes_its_dependents_down_with_it() {
+    let sandbox = client("failed-dependency");
+    sandbox.install_fixture("a-base", &fixture_manifest("fx.base", ""), "fail=3\n");
+    sandbox.install_fixture(
+        "b-app",
+        &fixture_manifest("fx.app", "requires = [\"fx.base\"]"),
+        "",
+    );
+    sandbox.install_fixture(
+        "c-soft",
+        &fixture_manifest("fx.soft", "optional = [\"fx.base\"]"),
+        "",
+    );
+
+    let run = run_client(&sandbox);
+    run.assert_success()
+        .assert_log_contains("init returned 3")
+        .assert_log_contains("fx.app -: skipped, dependency fx.base did not load")
+        .assert_log_lacks("fixture[fx.app]")
+        // An optional dependency only orders.
+        .assert_log_contains("fixture[fx.soft]: revision2=true")
+        .assert_log_contains("ready: 1 loaded, 1 skipped, 1 failed");
+}
+
+#[test]
+fn a_kind_handler_plugin_loads_the_plugins_of_its_kind() {
+    let sandbox = client("kind-handler");
+    sandbox.write_plugin_file(
+        "a-toy/plugin.toml",
+        "id = \"fx.toy\"\nkind = \"toy\"\nentry = \"main.toy\"\nrequires = [\"fx.runtime\"]\n",
+    );
+    sandbox.write_plugin_file(
+        "b-rejected/plugin.toml",
+        "id = \"fx.rejected\"\nkind = \"toy\"\nentry = \"main.toy\"\nrequires = [\"fx.runtime\"]\n",
+    );
+    sandbox.install_fixture(
+        "c-runtime",
+        &fixture_manifest("fx.runtime", ""),
+        "handler=toy\n",
+    );
+
+    let run = run_client(&sandbox);
+    run.assert_success()
+        .assert_log_contains("fixture[fx.runtime]: handler toy -> 0")
+        .assert_log_contains(
+            "fixture-handler: load id=fx.toy entry=main.toy data_dir=set manifest_bytes=",
+        )
+        .assert_log_contains("loaded fx.toy through the \"toy\" handler")
+        .assert_log_contains("kind handler returned 7")
+        .assert_log_contains("ready: 2 loaded, 0 skipped, 1 failed");
+    assert!(
+        at(&run, "fixture[fx.runtime]: handler") < at(&run, "fixture-handler: load id=fx.toy"),
+        "{}",
+        run.describe()
+    );
+}
+
+#[test]
+fn a_plugin_of_a_kind_nobody_serves_is_skipped_with_a_hint() {
+    let sandbox = client("kind-unserved");
+    sandbox.write_plugin_file(
+        "toy/plugin.toml",
+        "id = \"fx.toy\"\nkind = \"toy\"\nentry = \"main.toy\"\n",
+    );
+
+    let run = run_client(&sandbox);
+    run.assert_success()
+        .assert_log_contains(
+            "fx.toy -: skipped, no handler for kind \"toy\" (is the runtime plugin installed?)",
+        )
+        .assert_log_contains("ready: 0 loaded, 1 skipped, 0 failed");
+}
+
+#[test]
+fn the_official_plugins_agree_with_their_manifests() {
+    let sandbox = client("manifest-agreement");
+    sandbox.install_plugin("native", Plugin::Native);
+    sandbox.install_plugin("webview", Plugin::Webview);
+    sandbox.install_plugin("hello", Plugin::Hello);
+
+    let run = run_client(&sandbox);
+    run.assert_success()
+        .assert_log_lacks("disagree on")
+        .assert_log_contains("ready: 3 loaded, 0 skipped, 0 failed");
 }
 
 #[test]

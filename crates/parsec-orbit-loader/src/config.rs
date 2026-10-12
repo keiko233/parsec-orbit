@@ -13,6 +13,8 @@ pub struct Config {
     /// Log destinations in priority order; the first writable one wins.
     pub log_candidates: Vec<PathBuf>,
     pub plugin_dirs: Vec<PathBuf>,
+    /// Parent of the per-plugin data directories; `None` without `%APPDATA%`.
+    pub data_root: Option<PathBuf>,
     /// `None` disables the devtools arguments.
     pub devtools_port: Option<u16>,
     /// Run the full plugin work even when the host is not the client.
@@ -48,6 +50,20 @@ impl Config {
         }
         if let Some(appdata) = env("APPDATA") {
             plugin_dirs.push(Path::new(&appdata).join("ParsecOrbit").join("plugins"));
+        }
+
+        // The same directory can arrive twice from the environment override
+        // and the default locations; loading it twice would call `init` twice.
+        let mut unique_dirs: Vec<PathBuf> = Vec::with_capacity(plugin_dirs.len());
+        for dir in plugin_dirs {
+            let duplicate = unique_dirs.iter().any(|existing| {
+                existing
+                    .to_string_lossy()
+                    .eq_ignore_ascii_case(&dir.to_string_lossy())
+            });
+            if !duplicate {
+                unique_dirs.push(dir);
+            }
         }
 
         // Every candidate is probed at start-up, so a path that cannot be
@@ -92,9 +108,13 @@ impl Config {
             ),
         };
 
+        let data_root =
+            env("APPDATA").map(|appdata| Path::new(&appdata).join("ParsecOrbit").join("data"));
+
         Config {
             log_candidates: unique,
-            plugin_dirs,
+            plugin_dirs: unique_dirs,
+            data_root,
             devtools_port,
             any_host: matches!(env("PARSEC_ORBIT_HOST").as_deref(), Some("any")),
         }
@@ -161,6 +181,41 @@ mod tests {
                 "C:\\Users\\me\\AppData\\Roaming\\ParsecOrbit\\plugins",
             ]
         );
+    }
+
+    #[test]
+    fn plugin_dirs_drop_duplicates_ignoring_case() {
+        let config = load(
+            Some("C:\\Parsec"),
+            &[
+                (
+                    "PARSEC_ORBIT_PLUGIN_DIR",
+                    "c:\\PARSEC\\plugins;D:\\other;d:\\OTHER",
+                ),
+                ("APPDATA", "C:\\Roaming"),
+            ],
+        );
+        assert_eq!(
+            paths(&config.plugin_dirs),
+            [
+                "c:\\PARSEC\\plugins",
+                "D:\\other",
+                "C:\\Roaming\\ParsecOrbit\\plugins",
+            ]
+        );
+    }
+
+    #[test]
+    fn plugin_data_lives_below_appdata() {
+        let config = load(None, &[("APPDATA", "C:\\Roaming")]);
+        assert_eq!(
+            config
+                .data_root
+                .map(|path| path.to_string_lossy().replace('/', "\\")),
+            Some("C:\\Roaming\\ParsecOrbit\\data".to_string())
+        );
+        assert_eq!(load(None, &[]).data_root, None);
+        assert_eq!(load(None, &[("APPDATA", "")]).data_root, None);
     }
 
     #[test]

@@ -3,17 +3,16 @@
 //! Which plugins to load, in what order and whether their descriptors are
 //! acceptable is decided in `parsec-orbit-core`. This module supplies what the
 //! core cannot: mapping a DLL ([`Win32Platform`]), the log sink ([`FileLogger`])
-//! and the host table handed to plugins.
+//! and the per-plugin host tables come from `parsec_orbit_core::host`.
 
-use std::ffi::{c_void, CStr};
 use std::os::windows::ffi::OsStrExt;
 use std::path::Path;
 use std::sync::{Mutex, OnceLock};
 
 use parsec_orbit_core::{Env, Exports, Loaded, Logger, Module, Platform};
 use parsec_orbit_plugin_abi::{
-    InitFn, LegacyInitFn, ParsecOrbitHost, QueryFn, ShutdownFn, ABI_VERSION, EXPORT_INIT,
-    EXPORT_LEGACY_INIT, EXPORT_QUERY, EXPORT_SHUTDOWN,
+    InitFn, LegacyInitFn, QueryFn, ShutdownFn, EXPORT_INIT, EXPORT_LEGACY_INIT, EXPORT_QUERY,
+    EXPORT_SHUTDOWN,
 };
 use windows_sys::Win32::System::LibraryLoader::{GetProcAddress, LoadLibraryExW, LoadLibraryW};
 
@@ -22,21 +21,7 @@ pub use parsec_orbit_core::Summary;
 use crate::config::Config;
 use crate::log;
 
-const LOADER_VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "\0");
-
-struct HostCell(ParsecOrbitHost);
-
-// Safety: the host table is immutable for the lifetime of the process.
-unsafe impl Sync for HostCell {}
-
-static HOST: HostCell = HostCell(ParsecOrbitHost {
-    abi_version: ABI_VERSION,
-    struct_size: std::mem::size_of::<ParsecOrbitHost>() as u32,
-    log: Some(host_log),
-    query_interface: Some(query_interface),
-    loader_version: LOADER_VERSION.as_ptr(),
-    reserved: [0; 8],
-});
+const LOADER_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 // Safety: the registry is only touched through its mutex, and a module handle
 // is valid process wide.
@@ -61,28 +46,6 @@ pub fn loaded() -> Vec<String> {
                 .map(|plugins| plugins.iter().map(|plugin| plugin.id.clone()).collect())
         })
         .unwrap_or_default()
-}
-
-unsafe extern "system" fn host_log(level: u32, message: *const u8, len: usize) {
-    if message.is_null() {
-        return;
-    }
-    let bytes = unsafe { std::slice::from_raw_parts(message, len) };
-    log::by_level(level, &String::from_utf8_lossy(bytes));
-}
-
-/// Extension point: plugins ask for optional host interfaces here. Nothing is
-/// served yet; the names are reserved for the WebView bridge, the hook API and
-/// the JavaScript runtime.
-unsafe extern "system" fn query_interface(name: *const u8) -> *mut c_void {
-    if !name.is_null() {
-        let name = unsafe { CStr::from_ptr(name as *const _) };
-        log::debug(&format!(
-            "plugin asked for the optional interface {:?} (reserved, not implemented yet)",
-            name.to_string_lossy()
-        ));
-    }
-    std::ptr::null_mut()
 }
 
 fn wide(path: &Path) -> Vec<u16> {
@@ -151,13 +114,17 @@ impl Logger for FileLogger {
     }
 }
 
+static FILE_LOGGER: FileLogger = FileLogger;
+
 /// Walks every configured plugin directory.
 pub fn scan(config: &Config) -> Summary {
+    parsec_orbit_core::host::install_logger(&FILE_LOGGER);
     let result = parsec_orbit_core::scan(
         Env {
             platform: &Win32Platform,
-            logger: &FileLogger,
-            host: &HOST.0,
+            logger: &FILE_LOGGER,
+            loader_version: LOADER_VERSION,
+            data_root: config.data_root.as_deref(),
         },
         &config.plugin_dirs,
     );
@@ -171,41 +138,6 @@ mod tests {
     use crate::testutil::TempDir;
     use parsec_orbit_core::{KIND_DLL, KIND_JS, MANIFEST};
     use std::path::PathBuf;
-
-    // ---- host table -------------------------------------------------------
-
-    #[test]
-    fn host_table_describes_this_loader() {
-        let host = &HOST.0;
-        assert_eq!(host.abi_version, ABI_VERSION);
-        assert_eq!(
-            host.struct_size as usize,
-            std::mem::size_of::<ParsecOrbitHost>()
-        );
-        assert!(host.log.is_some());
-        assert!(host.query_interface.is_some());
-        assert_eq!(host.reserved, [0; 8]);
-        assert_eq!(host.loader_version(), Some(env!("CARGO_PKG_VERSION")));
-    }
-
-    #[test]
-    fn host_log_tolerates_a_null_message_and_empty_text() {
-        unsafe {
-            host_log(2, std::ptr::null(), 10);
-            host_log(2, b"".as_ptr(), 0);
-            host_log(99, b"unknown level".as_ptr(), 13);
-            host_log(2, [0xffu8, 0xfe].as_ptr(), 2);
-        }
-    }
-
-    #[test]
-    fn query_interface_serves_nothing_yet() {
-        unsafe {
-            assert!(query_interface(std::ptr::null()).is_null());
-            assert!(query_interface(b"parsec-orbit.hooks\0".as_ptr()).is_null());
-            assert!(query_interface(b"\0".as_ptr()).is_null());
-        }
-    }
 
     // ---- Win32 platform ---------------------------------------------------
 
@@ -248,6 +180,7 @@ mod tests {
         Config {
             log_candidates: Vec::new(),
             plugin_dirs: dirs.iter().map(|dir| dir.to_path_buf()).collect(),
+            data_root: None,
             devtools_port: None,
             any_host: false,
         }

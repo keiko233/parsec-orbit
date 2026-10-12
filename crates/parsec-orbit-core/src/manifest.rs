@@ -1,5 +1,6 @@
 //! `plugin.toml`.
 
+use std::collections::HashSet;
 use std::path::Path;
 
 use parsec_orbit_plugin_abi::ABI_VERSION;
@@ -26,6 +27,80 @@ pub struct Manifest {
     pub license: Option<String>,
     pub api: u32,
     pub enabled: bool,
+    /// Plugin ids (or `provides` aliases) that have to be loaded before this
+    /// plugin; a missing or failed one means this plugin is skipped.
+    pub requires: Vec<String>,
+    /// Soft dependencies: they only influence the load order.
+    pub optional: Vec<String>,
+    /// Virtual ids this plugin satisfies besides its own `id`.
+    pub provides: Vec<String>,
+    /// Capabilities requested by sandboxed kinds; ignored for `dll`.
+    pub permissions: Vec<String>,
+    /// Things the loader tolerated but the author should know about, logged
+    /// once when the manifest is accepted.
+    pub warnings: Vec<String>,
+    /// The manifest text as read, handed to kind handlers verbatim.
+    pub source: String,
+}
+
+/// Splits `id@constraint` only when the constraint has a non-empty tail.
+/// Constraints are reserved syntax: the id is used and the caller is told the
+/// constraint was not applied.
+fn bare_id(entry: &str) -> Option<(&str, bool)> {
+    let (id, constraint) = entry.split_once('@')?;
+    if constraint.trim().is_empty() {
+        return None;
+    }
+    let id = id.trim();
+    Some((id, !id.is_empty()))
+}
+
+/// Reads an array of ids, dropping junk with a warning. One copy for all four
+/// lists: the loader is size sensitive (ADR 0004). Version constraints are
+/// only meaningful on dependency fields; other lists keep `@` verbatim.
+#[inline(never)]
+fn id_list(
+    table: &toml::de::DeTable<'_>,
+    key: &str,
+    allow_constraints: bool,
+    warnings: &mut Vec<String>,
+) -> Vec<String> {
+    let Some(items) = table.get(key).and_then(|value| value.get_ref().as_array()) else {
+        return Vec::new();
+    };
+    let mut out: Vec<String> = Vec::new();
+    let mut seen: HashSet<String> = HashSet::new();
+    for (index, item) in items.iter().enumerate() {
+        let Some(entry) = item.get_ref().as_str() else {
+            warnings.push(format!("`{key}` entry {index} is not a string, ignored"));
+            continue;
+        };
+        let mut id = entry.trim();
+        let mut constrained = false;
+        if allow_constraints {
+            if let Some((bare, found)) = bare_id(id) {
+                id = bare;
+                constrained = found;
+            }
+        }
+        if id.is_empty() {
+            warnings.push(format!("`{key}` entry {index} is empty, ignored"));
+            continue;
+        }
+        if !seen.insert(id.to_string()) {
+            warnings.push(format!(
+                "`{key}` entry {index} \"{entry}\" repeats \"{id}\", ignored"
+            ));
+            continue;
+        }
+        if constrained {
+            warnings.push(format!(
+                "`{key}` entry {index} \"{entry}\": version constraints are not supported yet, using \"{id}\""
+            ));
+        }
+        out.push(id.to_string());
+    }
+    out
 }
 
 /// Parses `plugin.toml`.
@@ -40,6 +115,12 @@ pub fn read_manifest(path: &Path) -> Result<Manifest, String> {
             .and_then(|value| value.get_ref().as_str())
             .map(str::to_string)
     };
+
+    let mut warnings = Vec::new();
+    let requires = id_list(table, "requires", true, &mut warnings);
+    let optional = id_list(table, "optional", true, &mut warnings);
+    let provides = id_list(table, "provides", false, &mut warnings);
+    let permissions = id_list(table, "permissions", false, &mut warnings);
 
     Ok(Manifest {
         id: string("id"),
@@ -66,6 +147,12 @@ pub fn read_manifest(path: &Path) -> Result<Manifest, String> {
             .get("enabled")
             .and_then(|value| value.get_ref().as_bool())
             .unwrap_or(true),
+        requires,
+        optional,
+        provides,
+        permissions,
+        warnings,
+        source,
     })
 }
 
@@ -187,5 +274,116 @@ mod tests {
         assert_eq!(KIND_DLL, "dll");
         assert_eq!(KIND_JS, "js");
         assert_eq!(MANIFEST, "plugin.toml");
+    }
+
+    #[test]
+    fn manifest_reads_the_dependency_lists() {
+        let manifest = manifest_of(
+            r#"
+            id = "com.example.js-thing"
+            requires = ["com.parsec-orbit.js-runtime", "com.example.base"]
+            optional = ["com.example.nice"]
+            provides = ["com.example.alias"]
+            permissions = ["webview", "config"]
+            "#,
+        )
+        .unwrap();
+        assert_eq!(
+            manifest.requires,
+            ["com.parsec-orbit.js-runtime", "com.example.base"]
+        );
+        assert_eq!(manifest.optional, ["com.example.nice"]);
+        assert_eq!(manifest.provides, ["com.example.alias"]);
+        assert_eq!(manifest.permissions, ["webview", "config"]);
+        assert!(manifest.warnings.is_empty());
+    }
+
+    #[test]
+    fn manifest_lists_default_to_empty() {
+        let manifest = manifest_of(
+            "id = \"x\"
+",
+        )
+        .unwrap();
+        assert!(manifest.requires.is_empty());
+        assert!(manifest.optional.is_empty());
+        assert!(manifest.provides.is_empty());
+        assert!(manifest.permissions.is_empty());
+        assert!(manifest.warnings.is_empty());
+    }
+
+    #[test]
+    fn version_constraints_are_reserved_and_fall_back_to_the_bare_id() {
+        let manifest =
+            manifest_of(r#"requires = ["com.example.base@^0.1", "com.example.other"]"#).unwrap();
+        assert_eq!(manifest.requires, ["com.example.base", "com.example.other"]);
+        assert_eq!(manifest.warnings.len(), 1);
+        assert!(
+            manifest.warnings[0].contains("version constraints are not supported"),
+            "{:?}",
+            manifest.warnings
+        );
+    }
+
+    #[test]
+    fn dependency_lists_drop_junk_and_duplicates_with_a_warning() {
+        let manifest = manifest_of(r#"requires = ["a", 5, "", " a ", "b"]"#).unwrap();
+        assert_eq!(manifest.requires, ["a", "b"]);
+        assert_eq!(manifest.warnings.len(), 3, "{:?}", manifest.warnings);
+        assert!(manifest
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("repeats \"a\"")));
+    }
+
+    #[test]
+    fn constraints_are_only_stripped_from_dependency_fields() {
+        let manifest = manifest_of(
+            r#"
+            requires = ["com.example.base@^1"]
+            optional = ["com.example.opt@2"]
+            provides = ["net@v2"]
+            permissions = ["net@v2", "webview"]
+            "#,
+        )
+        .unwrap();
+        assert_eq!(manifest.requires, ["com.example.base"]);
+        assert_eq!(manifest.optional, ["com.example.opt"]);
+        assert_eq!(manifest.provides, ["net@v2"]);
+        assert_eq!(manifest.permissions, ["net@v2", "webview"]);
+        assert_eq!(manifest.warnings.len(), 2, "{:?}", manifest.warnings);
+    }
+
+    #[test]
+    fn a_constraint_without_a_value_is_kept_as_part_of_the_id() {
+        let manifest = manifest_of(r#"requires = ["a@", "@v1"]"#).unwrap();
+        assert_eq!(manifest.requires, ["a@"]);
+        assert_eq!(manifest.warnings.len(), 1, "{:?}", manifest.warnings);
+        assert!(manifest.warnings[0].contains("empty"));
+    }
+
+    #[test]
+    fn constrained_duplicates_are_dropped_without_a_misleading_warning() {
+        let manifest = manifest_of(r#"requires = ["a@^1", "a@^2"]"#).unwrap();
+        assert_eq!(manifest.requires, ["a"]);
+        assert_eq!(manifest.warnings.len(), 2, "{:?}", manifest.warnings);
+        assert!(manifest
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("repeats \"a\"")));
+    }
+
+    #[test]
+    fn a_dependency_field_that_is_not_an_array_is_ignored() {
+        let manifest = manifest_of(r#"requires = "com.example.base""#).unwrap();
+        assert!(manifest.requires.is_empty());
+    }
+
+    #[test]
+    fn the_manifest_text_is_kept_for_kind_handlers() {
+        let text = "id = \"keep\"
+# a comment
+";
+        assert_eq!(manifest_of(text).unwrap().source, text);
     }
 }

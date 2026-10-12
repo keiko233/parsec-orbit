@@ -5,12 +5,9 @@ use std::sync::Mutex;
 
 fn host_with(log: Option<unsafe extern "system" fn(u32, *const u8, usize)>) -> ParsecOrbitHost {
     ParsecOrbitHost {
-        abi_version: ABI_VERSION,
-        struct_size: size_of::<ParsecOrbitHost>() as u32,
         log,
-        query_interface: None,
         loader_version: b"1.2.3\0".as_ptr(),
-        reserved: [0; 8],
+        ..ParsecOrbitHost::blank()
     }
 }
 

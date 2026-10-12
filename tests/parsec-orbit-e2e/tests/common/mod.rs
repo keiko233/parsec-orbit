@@ -11,6 +11,7 @@ pub struct Artifacts {
     pub hello: PathBuf,
     pub webview: PathBuf,
     pub native: PathBuf,
+    pub fixture: PathBuf,
     pub callpaths: PathBuf,
     pub roundtrip: PathBuf,
 }
@@ -47,6 +48,7 @@ pub fn artifacts() -> &'static Artifacts {
             .args(["-p", "parsec-orbit-plugin-hello"])
             .args(["-p", "parsec-orbit-plugin-high-bitrate-webview"])
             .args(["-p", "parsec-orbit-plugin-high-bitrate-native"])
+            .args(["-p", "parsec-orbit-fixture-plugin"])
             .args(["-p", "parsec-orbit-verify-callpaths"])
             .args(["-p", "parsec-orbit-verify-roundtrip"])
             .output()
@@ -63,6 +65,7 @@ pub fn artifacts() -> &'static Artifacts {
             hello: debug.join("parsec_orbit_plugin_hello.dll"),
             webview: debug.join("parsec_orbit_plugin_high_bitrate_webview.dll"),
             native: debug.join("parsec_orbit_plugin_high_bitrate_native.dll"),
+            fixture: debug.join("parsec_orbit_fixture_plugin.dll"),
             callpaths: debug.join("callpaths.exe"),
             roundtrip: debug.join("roundtrip.exe"),
         };
@@ -71,6 +74,7 @@ pub fn artifacts() -> &'static Artifacts {
             &artifacts.hello,
             &artifacts.webview,
             &artifacts.native,
+            &artifacts.fixture,
             &artifacts.callpaths,
             &artifacts.roundtrip,
         ] {
@@ -89,6 +93,7 @@ pub fn plugin_manifest(kind: Plugin) -> PathBuf {
             root.join("plugins/parsec-orbit-plugin-high-bitrate-webview/plugin.toml")
         }
         Plugin::Native => root.join("plugins/parsec-orbit-plugin-high-bitrate-native/plugin.toml"),
+        Plugin::Fixture => root.join("tests/parsec-orbit-fixture-plugin/plugin.toml"),
     }
 }
 
@@ -97,6 +102,7 @@ pub enum Plugin {
     Hello,
     Webview,
     Native,
+    Fixture,
 }
 
 impl Plugin {
@@ -105,6 +111,7 @@ impl Plugin {
             Plugin::Hello => &artifacts().hello,
             Plugin::Webview => &artifacts().webview,
             Plugin::Native => &artifacts().native,
+            Plugin::Fixture => &artifacts().fixture,
         }
     }
 }
@@ -166,6 +173,27 @@ impl Sandbox {
         std::fs::copy(plugin_manifest(plugin), target.join("plugin.toml")).unwrap();
         let dll = plugin.dll();
         std::fs::copy(dll, target.join(dll.file_name().unwrap())).unwrap();
+        target
+    }
+
+    /// A fixture plugin in `<client>\plugins\<dir>` with its own manifest
+    /// (`entry` is added) and the script it follows (`fixture.cfg`).
+    pub fn install_fixture(&self, dir: &str, manifest: &str, script: &str) -> PathBuf {
+        let target = self.client.join("plugins").join(dir);
+        std::fs::create_dir_all(&target).unwrap();
+        let dll = Plugin::Fixture.dll();
+        std::fs::copy(dll, target.join(dll.file_name().unwrap())).unwrap();
+        std::fs::write(
+            target.join("plugin.toml"),
+            format!(
+                "{manifest}
+entry = \"{}\"
+",
+                dll.file_name().unwrap().to_string_lossy()
+            ),
+        )
+        .unwrap();
+        std::fs::write(target.join("fixture.cfg"), script).unwrap();
         target
     }
 

@@ -266,12 +266,8 @@ mod tests {
 
     fn host(log: Option<unsafe extern "system" fn(u32, *const u8, usize)>) -> ParsecOrbitHost {
         ParsecOrbitHost {
-            abi_version: parsec_orbit_plugin_sdk::ABI_VERSION,
-            struct_size: std::mem::size_of::<ParsecOrbitHost>() as u32,
             log,
-            query_interface: None,
-            loader_version: std::ptr::null(),
-            reserved: [0; 8],
+            ..ParsecOrbitHost::blank()
         }
     }
 

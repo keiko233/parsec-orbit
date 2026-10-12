@@ -1,6 +1,6 @@
 # Plugin manifest (`plugin.toml`)
 
-Status: fields marked **(draft)** are specified but not yet implemented.
+Status: implemented. `permissions` is parsed and handed to kind handlers (inside the raw manifest text); the loader itself does not enforce it.
 
 A plugin lives in its own directory containing `plugin.toml` and the entry file. All fields are optional unless stated; unknown keys are ignored (forward compatibility).
 
@@ -14,14 +14,19 @@ A plugin lives in its own directory containing `plugin.toml` and the entry file.
 | `author`, `description`, `license` | string | empty | Metadata. |
 | `api` | integer | loader's `ABI_VERSION` | Required loader ABI version; newer than the loader means failed. |
 | `enabled` | bool | `true` | `false` disables the plugin without deleting it. |
-| `requires` **(draft)** | array of string | `[]` | Plugin ids (or ids in `provides`) that must be loaded *successfully before* this plugin. Missing or failed dependency => this plugin is skipped. |
-| `optional` **(draft)** | array of string | `[]` | Soft dependencies: only influence load order. |
-| `provides` **(draft)** | array of string | `[]` | Virtual ids this plugin satisfies in addition to its own `id` (lets alternative implementations of a service exist, e.g. another JS runtime). |
-| `permissions` **(draft)** | array of string | `[]` | Capabilities requested by sandboxed kinds (`webview`, `config`, `net`, `fs`). Ignored for `dll`, which is unrestricted native code. |
+| `requires` | array of string | `[]` | Plugin ids (or ids in `provides`) that must be loaded *successfully before* this plugin. Missing or failed dependency => this plugin is skipped. |
+| `optional` | array of string | `[]` | Soft dependencies: only influence load order. |
+| `provides` | array of string | `[]` | Virtual ids this plugin satisfies in addition to its own `id` (lets alternative implementations of a service exist, e.g. another JS runtime). |
+| `permissions` | array of string | `[]` | Capabilities requested by sandboxed kinds (`webview`, `config`, `net`, `fs`). Ignored for `dll`, which is unrestricted native code. |
 
 Rules:
 
-* Version constraints in `requires` (for example `"id@^0.1"`) are **reserved syntax**: the loader logs a warning and treats the entry as the bare id until constraint support is specified.
+* Version constraints in `requires` and `optional` (for example `"id@^0.1"`)
+  are **reserved syntax**: the loader logs a warning and treats the entry as
+  the bare id until constraint support is specified. Entries that are not
+  strings, are empty or repeat an earlier one are dropped with a warning; a
+  field that is not an array counts as absent. `@` in `provides` and
+  `permissions` is kept verbatim.
 * The manifest is authoritative for dependencies and ordering. The descriptor in a DLL is not consulted for them, because ordering must be decided before any plugin code runs.
 * For `dll` plugins the descriptor's `id`, `name`, `version`, `author`, `description`, `license` must equal the manifest values (a mismatch is logged as a warning; the descriptor wins for display).
 
