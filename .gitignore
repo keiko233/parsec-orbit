@@ -8,6 +8,6 @@ __pycache__/
 *.user
 
 node_modules/
-/sdk/js/dist/
+/javascript-sdk/dist/
 /examples/*-ts/dist/
-/sdk/js/dist-test/
+/javascript-sdk/dist-test/

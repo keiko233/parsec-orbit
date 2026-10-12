@@ -1,6 +1,6 @@
 # JavaScript / TypeScript SDK
 
-Status: implemented (`parsec-orbit-plugin-js-runtime`, `sdk/js`, `examples/parsec-orbit-plugin-bandwidth-ts`); `config` is runtime-local until the config service exists. Decisions: [ADR 0003](../design/decisions/0003-js-runtime-is-a-plugin.md), [ADR 0005](../design/decisions/0005-boa-as-js-engine.md).
+Status: implemented (`parsec-orbit-plugin-js-runtime`, `javascript-sdk`, `examples/parsec-orbit-plugin-bandwidth-ts`); `config` is runtime-local until the config service exists. Decisions: [ADR 0003](../design/decisions/0003-js-runtime-is-a-plugin.md), [ADR 0005](../design/decisions/0005-boa-as-js-engine.md).
 
 ## Model
 
@@ -79,7 +79,7 @@ await orbit.rpc("cfg_seti", { name: "encoder_bitrate", value: 100 });
 
 | Package | Content |
 | --- | --- |
-| `@parsec-orbit/sdk` | Types (`Host`, `WebView`, `Config`, `definePlugin`), `./ui` page helper (`orbit`, typed `rpc`), `./ui/events` (known Parsec UI events), `./testing` (`createMockHost`, `loadPlugin`: a mock `Host` with an in-memory webview, runnable under the Node test runner or Vitest). Published as ESM with `.d.ts`. Lives in `sdk/js/`; built with `tsc`. |
+| `@parsec-orbit/sdk` | Types (`Host`, `WebView`, `Config`, `definePlugin`), `./ui` page helper (`orbit`, typed `rpc`), `./ui/events` (known Parsec UI events), `./testing` (`createMockHost`, `loadPlugin`: a mock `Host` with an in-memory webview, runnable under the Node test runner or Vitest). Published as ESM with `.d.ts`. Lives in `javascript-sdk/`; built with `tsc`. |
 | `create-parsec-orbit-plugin` (later) | Template generator: `plugin.toml`, `main.ts`, `ui.ts`, bundler config, test, packaging script. |
 
 Versioning: the SDK's major tracks the `parsec-orbit.js` / `.webview` interface major. `plugin.toml` `api` and an `engines`-style field in the package state which runtime versions a plugin was built for.

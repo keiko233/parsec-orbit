@@ -24,7 +24,7 @@ client. It uses a `bcrypt.dll` proxy and does not modify Parsec files.
 * `crates/parsec-orbit-plugin-js-runtime/` - official plugin that runs JavaScript
   and TypeScript plugins (`kind = "js"`) on Boa; see its
   [README](crates/parsec-orbit-plugin-js-runtime/README.md).
-* `sdk/js/` - `@parsec-orbit/sdk` for JavaScript/TypeScript plugins;
+* `javascript-sdk/` - `@parsec-orbit/sdk` for JavaScript/TypeScript plugins;
   `examples/parsec-orbit-plugin-bandwidth-ts/` is the TypeScript sample (see
   [Write a TypeScript plugin](docs/guides/typescript-plugin.md)).
 * `crates/parsec-orbit-plugin-high-bitrate-webview/` - official plugin that widens the

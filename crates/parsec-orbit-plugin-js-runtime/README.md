@@ -18,7 +18,7 @@ install: without it the loader skips JavaScript plugins with
   plugin id and never reaches the client; runaway loops and recursion end with
   an error. An engine bug would still be a bug in the client process.
 
-Write plugins with [`@parsec-orbit/sdk`](../../sdk/js/README.md); the guide is
+Write plugins with [`@parsec-orbit/sdk`](../../javascript-sdk/README.md); the guide is
 [Write a TypeScript plugin](../../docs/guides/typescript-plugin.md), the
 specification [spec/js-sdk.md](../../docs/spec/js-sdk.md). The DLL is about
 4 MB, which is why it is a separate download.

@@ -1,5 +1,5 @@
 packages:
-  - sdk/js
+  - javascript-sdk
   - examples/*-ts
 allowBuilds:
   esbuild: true
