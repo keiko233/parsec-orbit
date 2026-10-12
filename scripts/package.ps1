@@ -3,6 +3,7 @@
 #   bcrypt.dll                        the loader, goes next to parsecd.exe
 #   parsec-orbit-plugin-webview-bridge.zip         official plugin, provides parsec-orbit.webview
 #                                                  (the webview patch below needs it)
+#   parsec-orbit-plugin-config.zip                 official plugin, provides parsec-orbit.config (optional download)
 #   parsec-orbit-plugin-js-runtime.zip             official plugin, runs kind = "js" plugins (optional download)
 #   parsec-orbit-plugin-high-bitrate-webview.zip   official plugin, extract into <client>\plugins\
 #   parsec-orbit-plugin-high-bitrate-native.zip    official plugin, same layout
@@ -42,6 +43,11 @@ try {
     Copy-Item -LiteralPath (Join-Path $release 'bcrypt.dll') -Destination $dist
 
     $plugins = @(
+        @{
+            Name = 'parsec-orbit-plugin-config'
+            Source = 'crates\parsec-orbit-plugin-config'
+            Dll = 'parsec_orbit_plugin_config.dll'
+        },
         @{
             Name = 'parsec-orbit-plugin-js-runtime'
             Source = 'crates\parsec-orbit-plugin-js-runtime'

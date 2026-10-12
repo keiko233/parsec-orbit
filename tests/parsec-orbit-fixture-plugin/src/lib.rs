@@ -14,6 +14,8 @@
 //! webview_eval=<expression>       evaluate in the page once it is attached
 //! webview_post=<channel>|<json>   post to the page once it is attached
 //! js_eval=<source>                evaluate in a context made through parsec-orbit.js
+//! config_set=<key>|<json>         store a setting through parsec-orbit.config
+//! config_get=<key>                read a setting back
 //! ```
 //!
 //! Every action logs one `fixture[<id>]: ...` line so a test can assert on it.
@@ -27,7 +29,7 @@
 use std::ffi::CString;
 use std::path::Path;
 
-use parsec_orbit_plugin_sdk::services::{JsClient, WebViewClient};
+use parsec_orbit_plugin_sdk::services::{ConfigClient, JsClient, WebViewClient};
 use parsec_orbit_plugin_sdk::{
     Context, ParsecOrbitHost, ParsecOrbitInterfaceHeader, ParsecOrbitKindHandlerV1,
     ParsecOrbitPluginLoadInfo, LOG_INFO,
@@ -195,6 +197,31 @@ unsafe extern "system" fn init(host: *const ParsecOrbitHost) -> i32 {
                     continue;
                 };
                 webview_action(cx, &id, action, argument);
+            }
+            "config_set" | "config_get" => {
+                let Some(cx) = (unsafe { Context::from_host(host) }) else {
+                    continue;
+                };
+                match ConfigClient::new(&cx) {
+                    None => say(format!("fixture[{id}]: {action} -> no config service")),
+                    Some(config) if action == "config_set" => {
+                        let (key, json) = argument.split_once('|').unwrap_or((argument, "null"));
+                        let outcome = match config.set(key, json) {
+                            Ok(()) => "ok".to_string(),
+                            Err(error) => format!("error {}", error.code()),
+                        };
+                        say(format!("fixture[{id}]: config_set {key} -> {outcome}"));
+                    }
+                    Some(config) => {
+                        let mut value = String::new();
+                        let outcome = match config.get(argument, |json| value = json.to_string()) {
+                            Ok(true) => value,
+                            Ok(false) => "unset".to_string(),
+                            Err(error) => format!("error {}", error.code()),
+                        };
+                        say(format!("fixture[{id}]: config_get {argument} -> {outcome}"));
+                    }
+                }
             }
             "js_eval" => {
                 let Some(cx) = (unsafe { Context::from_host(host) }) else {

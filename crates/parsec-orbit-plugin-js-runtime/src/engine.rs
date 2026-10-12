@@ -24,7 +24,7 @@ use boa_engine::context::{ContextBuilder, HostHooks};
 use boa_engine::object::builtins::{JsFunction, JsPromise};
 use boa_engine::object::JsObject;
 use boa_engine::{Context as JsContext, JsError, JsResult, JsValue, Module, Source};
-use parsec_orbit_plugin_sdk_std::services::WebViewClient;
+use parsec_orbit_plugin_sdk_std::services::{ConfigClient, WebViewClient};
 use parsec_orbit_plugin_sdk_std::{Level, ERR_EXCEPTION, ERR_TIMEOUT};
 
 /// Where a context reports what happens in it.
@@ -72,6 +72,9 @@ pub struct Spec {
     pub log: Logger,
     /// The `parsec-orbit.webview` service, if the bridge is loaded.
     pub webview: Option<WebViewClient>,
+    /// The `parsec-orbit.config` service, if the config plugin is loaded;
+    /// otherwise `host.config` keeps a file of its own.
+    pub config: Option<ConfigClient>,
 }
 
 /// Why an evaluation failed, with the ABI code that goes with it.

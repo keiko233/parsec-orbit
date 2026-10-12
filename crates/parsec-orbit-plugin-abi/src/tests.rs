@@ -92,6 +92,21 @@ fn service_table_layouts_are_frozen() {
     assert_eq!(offset_of!(ParsecOrbitJsV1, eval), 16);
     assert_eq!(offset_of!(ParsecOrbitJsV1, destroy_context), 24);
     assert_eq!(size_of::<ParsecOrbitJsV1>(), 32);
+
+    assert_eq!(offset_of!(ParsecOrbitConfigV1, header), 0);
+    assert_eq!(offset_of!(ParsecOrbitConfigV1, get), 8);
+    assert_eq!(offset_of!(ParsecOrbitConfigV1, set), 16);
+    assert_eq!(offset_of!(ParsecOrbitConfigV1, remove), 24);
+    assert_eq!(offset_of!(ParsecOrbitConfigV1, keys), 32);
+    assert_eq!(size_of::<ParsecOrbitConfigV1>(), 40);
+
+    assert_eq!(offset_of!(ParsecOrbitHooksV1, header), 0);
+    assert_eq!(offset_of!(ParsecOrbitHooksV1, resolve), 8);
+    assert_eq!(offset_of!(ParsecOrbitHooksV1, install), 16);
+    assert_eq!(offset_of!(ParsecOrbitHooksV1, enable), 24);
+    assert_eq!(offset_of!(ParsecOrbitHooksV1, disable), 32);
+    assert_eq!(offset_of!(ParsecOrbitHooksV1, remove), 40);
+    assert_eq!(size_of::<ParsecOrbitHooksV1>(), 48);
 }
 
 #[test]
@@ -204,6 +219,8 @@ fn abi_document_matches_the_definitions() {
         "ParsecOrbitKindHandlerV1",
         "ParsecOrbitWebViewV1",
         "ParsecOrbitJsV1",
+        "ParsecOrbitConfigV1",
+        "ParsecOrbitHooksV1",
         "ERR_NOT_FOUND",
         INTERFACE_KIND_PREFIX,
         INTERFACE_WEBVIEW,

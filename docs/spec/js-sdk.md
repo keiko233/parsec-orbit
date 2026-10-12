@@ -1,6 +1,6 @@
 # JavaScript / TypeScript SDK
 
-Status: implemented (`parsec-orbit-plugin-js-runtime`, `javascript-sdk`, `examples/parsec-orbit-plugin-bandwidth-ts`); `config` is runtime-local until the config service exists. Decisions: [ADR 0003](../design/decisions/0003-js-runtime-is-a-plugin.md), [ADR 0005](../design/decisions/0005-boa-as-js-engine.md).
+Status: implemented (`parsec-orbit-plugin-js-runtime`, `javascript-sdk`, `examples/parsec-orbit-plugin-bandwidth-ts`); `config` uses the config service when it is installed. Decisions: [ADR 0003](../design/decisions/0003-js-runtime-is-a-plugin.md), [ADR 0005](../design/decisions/0005-boa-as-js-engine.md).
 
 ## Model
 
@@ -43,7 +43,7 @@ export default definePlugin({
 interface Host {
   plugin: { id: string; version: string; dir: string; dataDir: string };
   log: { trace(...a: unknown[]): void; debug(...): void; info(...): void; warn(...): void; error(...): void };
-  config?: Config;            // requires permission "config"; JSON in <dataDir>/config.json until the config service exists
+  config?: Config;            // requires permission "config"; kept by parsec-orbit.config when installed, else in <dataDir>/config.json
   webview?: WebView;          // requires permission "webview"
   setTimeout/clearTimeout/setInterval/clearInterval;   // runtime-provided timers (also global, with console.*)
 }

@@ -99,6 +99,7 @@ fn plugin_spec(
         }),
         log: logger(lines),
         webview,
+        config: None,
     }
 }
 
@@ -134,6 +135,7 @@ fn native_context() -> (Handle, Lines) {
         plugin: None,
         log: logger(&lines),
         webview: None,
+        config: None,
     })
     .unwrap();
     (handle, lines)
@@ -827,3 +829,110 @@ fn a_runaway_loop_ends_with_an_error_instead_of_hanging_the_context() {
 
 #[allow(dead_code)]
 fn unused(_: &Path) {}
+
+// ---- host.config through the config service ------------------------------------------------
+
+static CONFIG_STORE: Mutex<Vec<(String, String, String)>> = Mutex::new(Vec::new());
+
+unsafe extern "system" fn svc_get(
+    owner: *const u8,
+    owner_len: usize,
+    key: *const u8,
+    key_len: usize,
+    out: Option<MessageCallback>,
+    user: *mut c_void,
+) -> i32 {
+    let (owner, key) = (text(owner, owner_len), text(key, key_len));
+    let store = CONFIG_STORE.lock().unwrap();
+    match store.iter().find(|(o, k, _)| *o == owner && *k == key) {
+        Some((_, _, json)) => {
+            unsafe { out.unwrap()(user, json.as_ptr(), json.len()) };
+            0
+        }
+        None => parsec_orbit_plugin_sdk_std::ERR_NOT_FOUND,
+    }
+}
+
+unsafe extern "system" fn svc_set(
+    owner: *const u8,
+    owner_len: usize,
+    key: *const u8,
+    key_len: usize,
+    json: *const u8,
+    json_len: usize,
+) -> i32 {
+    let entry = (
+        text(owner, owner_len),
+        text(key, key_len),
+        text(json, json_len),
+    );
+    let mut store = CONFIG_STORE.lock().unwrap();
+    store.retain(|(o, k, _)| !(*o == entry.0 && *k == entry.1));
+    store.push(entry);
+    0
+}
+
+unsafe extern "system" fn svc_remove(
+    owner: *const u8,
+    owner_len: usize,
+    key: *const u8,
+    key_len: usize,
+) -> i32 {
+    let (owner, key) = (text(owner, owner_len), text(key, key_len));
+    let mut store = CONFIG_STORE.lock().unwrap();
+    let before = store.len();
+    store.retain(|(o, k, _)| !(*o == owner && *k == key));
+    if store.len() < before {
+        0
+    } else {
+        parsec_orbit_plugin_sdk_std::ERR_NOT_FOUND
+    }
+}
+
+static CONFIG_SERVICE: parsec_orbit_plugin_sdk_std::ParsecOrbitConfigV1 =
+    parsec_orbit_plugin_sdk_std::ParsecOrbitConfigV1 {
+        header: ParsecOrbitInterfaceHeader::new(
+            std::mem::size_of::<parsec_orbit_plugin_sdk_std::ParsecOrbitConfigV1>(),
+            1,
+            0,
+        ),
+        get: Some(svc_get),
+        set: Some(svc_set),
+        remove: Some(svc_remove),
+        keys: None,
+    };
+
+#[test]
+fn host_config_uses_the_config_service_when_it_is_there() {
+    use parsec_orbit_plugin_sdk_std::services::ConfigClient;
+    let host = MockHost::new("com.parsec-orbit.js-runtime");
+    host.provide("parsec-orbit.config", &CONFIG_SERVICE.header);
+    let client = ConfigClient::new(&host.context())
+        .unwrap()
+        .for_owner("com.test.plugin");
+
+    let dir = Dir::new("config-service");
+    dir.write(
+        "main.js",
+        r#"export default { async setup(host) {
+          host.log.info("before:", String(await host.config.get("answer")));
+          await host.config.set("answer", { n: 42 });
+          host.log.info("after:", JSON.stringify(await host.config.get("answer")));
+          await host.config.set("answer", undefined);
+          host.log.info("removed:", String(await host.config.get("answer")));
+        } };"#,
+    );
+    let lines: Lines = Arc::default();
+    let mut spec = plugin_spec(&dir, "com.test.plugin", &["config"], None, &lines);
+    spec.config = Some(client);
+    let handle = spawn(spec).unwrap();
+    handle.load().unwrap();
+
+    assert!(said(&lines, "before: undefined"));
+    assert!(said(&lines, "after: {\"n\":42}"));
+    assert!(said(&lines, "removed: undefined"));
+    assert!(
+        !dir.0.join("data").join("config.json").exists(),
+        "the file fallback is not used"
+    );
+}

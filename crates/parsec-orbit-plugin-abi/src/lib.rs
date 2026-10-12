@@ -449,6 +449,92 @@ pub struct ParsecOrbitJsV1 {
     pub destroy_context: Option<unsafe extern "system" fn(context: i64) -> i32>,
 }
 
+/// `parsec-orbit.config` 1.0, provided by the config plugin: settings that
+/// survive restarts, one JSON object per owner (usually a plugin id).
+///
+/// Strings are UTF-8 `(pointer, length)` pairs. Values are JSON text. Every
+/// function is thread-safe.
+#[repr(C)]
+pub struct ParsecOrbitConfigV1 {
+    pub header: ParsecOrbitInterfaceHeader,
+    /// Passes the value of `key` as JSON to `out` (valid only during the
+    /// call). [`ERR_NOT_FOUND`] when the key is not set.
+    pub get: Option<
+        unsafe extern "system" fn(
+            owner: *const u8,
+            owner_len: usize,
+            key: *const u8,
+            key_len: usize,
+            out: Option<MessageCallback>,
+            user: *mut c_void,
+        ) -> i32,
+    >,
+    /// Stores `json` (which has to be valid JSON) under `key`.
+    pub set: Option<
+        unsafe extern "system" fn(
+            owner: *const u8,
+            owner_len: usize,
+            key: *const u8,
+            key_len: usize,
+            json: *const u8,
+            json_len: usize,
+        ) -> i32,
+    >,
+    /// Removes `key`; [`ERR_NOT_FOUND`] when it was not set.
+    pub remove: Option<
+        unsafe extern "system" fn(
+            owner: *const u8,
+            owner_len: usize,
+            key: *const u8,
+            key_len: usize,
+        ) -> i32,
+    >,
+    /// Passes the keys of the owner, as a JSON array of strings, to `out`.
+    pub keys: Option<
+        unsafe extern "system" fn(
+            owner: *const u8,
+            owner_len: usize,
+            out: Option<MessageCallback>,
+            user: *mut c_void,
+        ) -> i32,
+    >,
+}
+
+/// `parsec-orbit.hooks` 1.0, provided by the hooks plugin: inline hooks on
+/// functions of the client process.
+///
+/// A hook redirects calls of `target` to `detour`; `*original` receives a
+/// pointer that calls the unhooked function. Hooks are installed disabled
+/// and cost nothing until enabled.
+#[repr(C)]
+pub struct ParsecOrbitHooksV1 {
+    pub header: ParsecOrbitInterfaceHeader,
+    /// Address of `symbol` in the loaded module `module` (UTF-8 names), or
+    /// null.
+    pub resolve: Option<
+        unsafe extern "system" fn(
+            module: *const u8,
+            module_len: usize,
+            symbol: *const u8,
+            symbol_len: usize,
+        ) -> *const c_void,
+    >,
+    /// Prepares a hook. Returns a hook id greater than zero, or a negative
+    /// error ([`ERR_INVALID`], [`ERR_EXISTS`] if `target` is hooked already,
+    /// [`ERR_EXCEPTION`] if the prologue cannot be relocated).
+    pub install: Option<
+        unsafe extern "system" fn(
+            target: *const c_void,
+            detour: *const c_void,
+            original: *mut *const c_void,
+        ) -> i64,
+    >,
+    pub enable: Option<unsafe extern "system" fn(hook: i64) -> i32>,
+    pub disable: Option<unsafe extern "system" fn(hook: i64) -> i32>,
+    /// Disables and forgets the hook.
+    pub remove: Option<unsafe extern "system" fn(hook: i64) -> i32>,
+}
+
 /// `ParsecOrbitPluginQuery(host_abi) -> *const ParsecOrbitPluginDesc`
 pub type QueryFn = unsafe extern "system" fn(host_abi: u32) -> *const ParsecOrbitPluginDesc;
 /// `ParsecOrbitPluginInit(host) -> 0 on success`

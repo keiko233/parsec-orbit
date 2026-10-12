@@ -76,9 +76,26 @@ The page talks to the bridge through a CDP binding (`Runtime.addBinding` named `
 
 For native plugins that want to evaluate script. `create_context(name)` makes a context of its own: the name is 1 to 64 bytes with no control characters and no path separators (`-1` otherwise), `-2` if the name is taken. `eval(context, source, out, user)` evaluates a script of at most 4 MiB (`-1` when the source is larger) and passes the result as JSON; `destroy_context(context)` drops it. Contexts are independent of those of JavaScript plugins, run on a thread of their own and have no `host` object; they have the timers and nothing else.
 
+### `parsec-orbit.config` (provided by the config plugin), version 1.0
+
+Settings that survive restarts. Every *owner* (a plugin id; the SDK's `ConfigClient` uses the caller's own) has one JSON object whose keys hold JSON values. All strings are UTF-8 `(ptr, len)`; values are JSON text.
+
+| Function | Behaviour |
+| --- | --- |
+| `get(owner, key, out, user)` | Passes the value as JSON to `out`. `-3` when the key is not set (`null` is a value). |
+| `set(owner, key, json)` | Stores `json`, which has to be valid JSON of at most 1 MiB. Keys are 1 to 256 bytes; an owner has at most 1024 keys. `-1` for anything else, `-4` if the file could not be written (memory is left as it was). |
+| `remove(owner, key)` | `0`, or `-3` if the key was not set. |
+| `keys(owner, out, user)` | Passes the keys as a JSON array of strings. |
+
+Storage: `%APPDATA%\ParsecOrbit\data\com.parsec-orbit.config\<owner>.json`, the owner's characters outside `[A-Za-z0-9._-]` replaced; cached in memory and written back on every change through a temporary file and a rename. A file that is not a JSON object is reported (`-1`) and never overwritten. Without `%APPDATA%` the settings live in memory only. The owner is whatever the caller says: this is a namespace, not a security boundary (plugins are native code in one process). The JavaScript runtime backs `host.config` with this service when it is installed and keeps a file of its own otherwise.
+
+### `parsec-orbit.hooks` (provided by the hooks plugin), version 1.0
+
+Inline hooks on functions of the client process. `resolve(module, symbol)` returns the address of an export of a loaded module (or null). `install(target, detour, &original)` prepares a hook and returns its id (`-2` if `target` is hooked already, `-6` if the function start cannot be relocated); `*original` receives a pointer that calls the unhooked function. Hooks are installed disabled; `enable`, `disable` and `remove` take the id. A detour has the exact signature and calling convention of the target and must never unwind. The functions are thread-safe; the hook itself is applied while the process runs, so a hook on a function that other threads are executing is the plugin's responsibility, as is everything a detour does.
+
 ### Reserved
 
-`parsec-orbit.hooks` (function hook registration), `parsec-orbit.config` (per-plugin settings storage), `parsec-orbit.market` (install source and update metadata).
+`parsec-orbit.market` (install source and update metadata of an installed plugin).
 
 ## Error codes
 

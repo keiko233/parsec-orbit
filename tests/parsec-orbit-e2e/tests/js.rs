@@ -234,3 +234,69 @@ fn the_typescript_bandwidth_sample_runs_on_the_runtime_and_reaches_the_page() {
         "the page script was delivered"
     );
 }
+
+// ---- the config store, across restarts ------------------------------------------------
+
+#[test]
+fn settings_survive_a_restart_through_the_config_service() {
+    let sandbox = client("config-restart");
+    sandbox.install_plugin("config", Plugin::Config);
+    sandbox.install_fixture(
+        "writer",
+        "id = \"fx.writer\"\nrequires = [\"com.parsec-orbit.config\"]",
+        "config_get=answer\nconfig_set=answer|{\"n\":42}\nconfig_set=bad|{nope\n",
+    );
+
+    let first = run_client(&sandbox);
+    first
+        .assert_success()
+        .assert_log_contains("fixture[fx.writer]: config_get answer -> unset")
+        .assert_log_contains("fixture[fx.writer]: config_set answer -> ok")
+        .assert_log_contains("fixture[fx.writer]: config_set bad -> error -1");
+
+    // The same installation, started again.
+    // The log is appended to, so "ready:" is there already: wait for the line
+    // that only the second start can write.
+    let second = sandbox.run(CLIENT, "config_get answer -> {", |_| {});
+    second
+        .assert_success()
+        .assert_log_contains("fixture[fx.writer]: config_get answer -> {\"n\":42}");
+
+    let file = sandbox
+        .appdata
+        .join("ParsecOrbit/data/com.parsec-orbit.config/fx.writer.json");
+    assert_eq!(
+        std::fs::read_to_string(file).unwrap(),
+        "{\"answer\":{\"n\":42}}"
+    );
+}
+
+#[test]
+fn a_javascript_plugin_keeps_its_settings_in_the_config_store() {
+    let sandbox = client("js-config");
+    sandbox.install_plugin("config", Plugin::Config);
+    sandbox.install_plugin("js-runtime", Plugin::JsRuntime);
+    js_plugin(
+        &sandbox,
+        "counter",
+        "com.example.js-counter",
+        "permissions = [\"config\"]\n",
+        r#"export default { async setup(host) {
+             const runs = (await host.config.get("runs")) ?? 0;
+             await host.config.set("runs", runs + 1);
+             host.log.info("run number " + (runs + 1));
+           } };"#,
+    );
+
+    run_client(&sandbox)
+        .assert_success()
+        .assert_log_contains("com.example.js-counter: run number 1");
+    sandbox
+        .run(CLIENT, "run number 2", |_| {})
+        .assert_success()
+        .assert_log_contains("com.example.js-counter: run number 2");
+    let file = sandbox
+        .appdata
+        .join("ParsecOrbit/data/com.parsec-orbit.config/com.example.js-counter.json");
+    assert_eq!(std::fs::read_to_string(file).unwrap(), "{\"runs\":2}");
+}
