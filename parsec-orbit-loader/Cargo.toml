@@ -22,7 +22,7 @@ diagnostics = []
 
 [dependencies]
 parsec-orbit-plugin-sdk = { path = "../parsec-orbit-plugin-sdk" }
-toml = "0.8"
+toml = "0.9"
 windows-sys = { version = "0.61", features = [
     "Win32_Foundation",
     "Win32_Security",
