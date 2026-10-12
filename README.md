@@ -66,9 +66,11 @@ pnpm install; pnpm -r build; pnpm -r test   # the JavaScript SDK and the sample
 cargo test --workspace
 ```
 
-Windows only (the loader is a `bcrypt.dll` proxy). Node.js is needed for the
-behaviour tests of the script injected into the WebView UI; without it that one
-test is skipped (set `PARSEC_ORBIT_REQUIRE_NODE=1` to make it fail instead).
+Windows only (the loader is a `bcrypt.dll` proxy). The JavaScript workspace
+needs Node.js 26+ and pnpm 12 (`packageManager` pins it); Node is also needed
+for the behaviour tests of the script injected into the WebView UI; without it
+that one test is skipped (set `PARSEC_ORBIT_REQUIRE_NODE=1` to make it fail
+instead).
 
 * **Unit tests** sit next to the code: ABI layout (`abi`) and the export macro
   (`sdk`), settings, logging and the forwarding thunks (`loader`), manifests,
