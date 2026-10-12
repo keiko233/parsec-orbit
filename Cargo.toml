@@ -2,10 +2,12 @@
 resolver = "2"
 members = [
     "loader",
+    "patches",
     "sdk",
     "examples/hello-plugin",
     "verify/callpaths",
     "verify/roundtrip",
+    "verify/webview-inject",
 ]
 
 [workspace.package]

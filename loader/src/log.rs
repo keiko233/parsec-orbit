@@ -47,6 +47,11 @@ pub fn process_name() -> &'static str {
 
 /// Switches logging on. Without it every call site is a no-op.
 pub fn init(path: PathBuf) {
+    // The default location is `%APPDATA%\ParsecOrbit`, which does not exist on
+    // a fresh machine; CreateFileW alone would silently give up there.
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
     let _ = LOG_PATH.set(path);
 }
 

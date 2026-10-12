@@ -1,0 +1,10 @@
+[package]
+name = "parsec-orbit-verify-webview-inject"
+description = "One-shot WebView patch injection against a running client's DevTools endpoint"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+parsec-orbit-patches = { path = "../../patches" }
