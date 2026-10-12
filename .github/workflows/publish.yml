@@ -1,0 +1,109 @@
+# Publishes a new version: bumps the workspace version, commits, tags, pushes,
+# then calls the Release workflow directly. A tag pushed with GITHUB_TOKEN
+# does not trigger other workflows on its own, so Publish invokes Release via
+# workflow_call instead of relying on the tag push. Release builds, verifies,
+# packages, and publishes the GitHub release with a git-cliff changelog.
+#
+# Run from the Actions tab: Publish -> Run workflow -> version e.g. 0.2.0.
+# A leading "v" is accepted and stripped (v0.2.0 -> 0.2.0).
+name: Publish
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'New version without the leading v (e.g. 0.2.0)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.bump.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      # Bumps [workspace.package] version in Cargo.toml, refreshes Cargo.lock,
+      # commits both, pushes the commit, and pushes the version tag. The
+      # release job below then calls the Release workflow with that tag.
+      - name: Bump the workspace version, commit, and tag
+        id: bump
+        shell: bash
+        env:
+          VERSION_INPUT: ${{ inputs.version }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          VERSION="${VERSION_INPUT#v}"
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]]; then
+            echo "invalid version: $VERSION_INPUT (expected e.g. 0.2.0)" >&2
+            exit 1
+          fi
+          TAG="v$VERSION"
+          echo "publishing $TAG from $REF_NAME"
+
+          git fetch --tags origin
+          if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+            echo "tag $TAG already exists" >&2
+            exit 1
+          fi
+
+          CURRENT="$(sed -n -E 's/^version = "([^"]+)"$/\1/p' Cargo.toml | head -n 1)"
+          if [ -z "$CURRENT" ]; then
+            echo "could not read the workspace version from Cargo.toml" >&2
+            exit 1
+          fi
+          if [ "$CURRENT" = "$VERSION" ]; then
+            echo "Cargo.toml is already at $VERSION; nothing to bump" >&2
+            exit 1
+          fi
+          echo "bumping $CURRENT -> $VERSION"
+
+          python3 - "$VERSION" <<'EOF'
+          import re
+          import sys
+          version = sys.argv[1]
+          path = "Cargo.toml"
+          with open(path, encoding="utf-8") as f:
+              src = f.read()
+          out, n = re.subn(r'(?m)^version = "[^"]+"$', 'version = "' + version + '"', src, count=1)
+          if n != 1:
+              raise SystemExit("workspace version line not found in Cargo.toml")
+          with open(path, "w", encoding="utf-8", newline="") as f:
+              f.write(out)
+          EOF
+
+          # Refreshes the workspace member versions inside Cargo.lock without
+          # compiling anything, so this step also works on ubuntu-latest.
+          cargo metadata --no-deps --format-version 1 >/dev/null
+
+          git diff --stat
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Cargo.toml Cargo.lock
+          git commit -m "chore(release): publish $TAG"
+          git push origin "HEAD:$REF_NAME"
+          git tag "$TAG"
+          git push origin "$TAG"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "pushed $TAG."
+
+  # A tag pushed with GITHUB_TOKEN does not trigger the Release workflow's
+  # push trigger, so call it directly. Release checks out the tag above and
+  # does build -> verify -> package -> GitHub release with cliff notes.
+  release:
+    needs: publish
+    uses: ./.github/workflows/release.yml
+    with:
+      tag: ${{ needs.publish.outputs.tag }}
+    permissions:
+      contents: write

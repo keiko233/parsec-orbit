@@ -1,11 +1,16 @@
-# Builds and publishes a release when a version tag is pushed:
+# Builds and publishes a release when a version tag is pushed.
+# Preferred entry point is Actions -> Publish -> Run workflow: it bumps the
+# workspace version, tags, pushes, then calls this workflow directly via
+# workflow_call (a tag pushed with GITHUB_TOKEN would NOT trigger this
+# workflow on its own, so Publish invokes it explicitly).
+# Manual tagging still works:
 #
 #   git tag v0.1.0
 #   git push origin v0.1.0
 #
 # The tag must match the workspace version in Cargo.toml. The release contains
 # the loader (bcrypt.dll), the official bandwidth plugin, the example plugin,
-# and checksums.
+# and checksums. Release notes are built with git-cliff (see cliff.toml).
 name: Release
 
 on:
@@ -13,6 +18,12 @@ on:
     tags:
       - 'v*'
   workflow_dispatch:
+  workflow_call:
+    inputs:
+      tag:
+        description: 'Tag to release (e.g. v0.2.0). Defaults to github.ref_name when run via tag push.'
+        required: false
+        type: string
 
 permissions:
   contents: write
@@ -22,25 +33,61 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Full history and tags so git-cliff can diff against the previous tag.
+          fetch-depth: 0
+          # When called from Publish, check out the tag that was just pushed.
+          ref: ${{ inputs.tag || github.ref }}
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-pc-windows-msvc
 
+      # Resolves which tag is being released: the workflow_call input when
+      # invoked from Publish, otherwise the pushed tag. Empty on a manual
+      # branch run (preview only, no GitHub release).
+      - name: Resolve the release tag
+        id: tag
+        shell: pwsh
+        run: |
+          $tag = '${{ inputs.tag }}'
+          if ((-not $tag) -and ('${{ github.ref_type }}' -eq 'tag')) { $tag = '${{ github.ref_name }}' }
+          "tag=$tag" >> $env:GITHUB_OUTPUT
+          Write-Host "tag=$tag"
+
       # A tag that disagrees with Cargo.toml would publish a mislabelled
       # release, so fail before spending time on the build.
       - name: Check the tag against the workspace version
-        if: startsWith(github.ref, 'refs/tags/')
+        if: steps.tag.outputs.tag != ''
         shell: pwsh
         run: |
           $match = Select-String -Path Cargo.toml -Pattern '^version = "(.+)"' | Select-Object -First 1
           if (-not $match) { throw 'could not read the workspace version from Cargo.toml' }
           $version = 'v' + $match.Matches[0].Groups[1].Value
-          if ('${{ github.ref_name }}' -ne $version) {
-            throw "tag ${{ github.ref_name }} does not match the workspace version $version"
+          if ('${{ steps.tag.outputs.tag }}' -ne $version) {
+            throw "tag ${{ steps.tag.outputs.tag }} does not match the workspace version $version"
           }
           Write-Host "releasing $version"
+
+      - name: Install git-cliff
+        uses: orhun/git-cliff-action@v4
+
+      # Builds the release notes from conventional commits. With a tag this is
+      # the current version section; without one (manual branch run) it
+      # previews unreleased commits. The full CHANGELOG.md is staged into
+      # dist/ below so it ships as a release asset.
+      - name: Build the changelog with git-cliff
+        shell: pwsh
+        run: |
+          if ('${{ steps.tag.outputs.tag }}' -ne '') {
+            git cliff --latest --strip all --output RELEASE_NOTES.md
+          } else {
+            git cliff --unreleased --strip all --output RELEASE_NOTES.md
+          }
+          git cliff --output CHANGELOG.md
+          Write-Host '--- release notes ---'
+          Get-Content RELEASE_NOTES.md
 
       - name: Build
         run: cargo build --release --locked
@@ -56,14 +103,31 @@ jobs:
         shell: pwsh
         run: ./scripts/package.ps1 -SkipBuild
 
+      - name: Stage the changelog into dist
+        shell: pwsh
+        run: |
+          # package.ps1 already wrote SHA256SUMS.txt, so regenerate it to
+          # cover CHANGELOG.md as well.
+          Copy-Item -LiteralPath CHANGELOG.md -Destination (Join-Path dist CHANGELOG.md)
+          Get-ChildItem -LiteralPath dist -File |
+            Where-Object { $_.Name -ne 'SHA256SUMS.txt' } |
+            Sort-Object Name |
+            ForEach-Object {
+              '{0}  {1}' -f (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLower(), $_.Name
+            } |
+            Set-Content -Encoding ascii (Join-Path dist 'SHA256SUMS.txt')
+          Get-ChildItem dist/
+
       - uses: actions/upload-artifact@v4
         with:
-          name: parsec-orbit-${{ github.ref_name }}
+          name: parsec-orbit-${{ steps.tag.outputs.tag || github.ref_name }}
           path: dist/*
 
       - name: Publish the GitHub release
-        if: startsWith(github.ref, 'refs/tags/')
+        if: steps.tag.outputs.tag != ''
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ steps.tag.outputs.tag }}
           files: dist/*
-          generate_release_notes: true
+          body_path: RELEASE_NOTES.md
+
