@@ -168,6 +168,27 @@ typedef struct ParsecOrbitJsV1 {
     int32_t (*eval)(int64_t context, const uint8_t *source, size_t len, ParsecOrbitMessageCallback out, void *user);
     int32_t (*destroy_context)(int64_t context);
 } ParsecOrbitJsV1;
+
+/* parsec-orbit.config, version 1.0 */
+typedef struct ParsecOrbitConfigV1 {
+    ParsecOrbitInterfaceHeader header;
+    int32_t (*get)(const uint8_t *owner, size_t owner_len, const uint8_t *key, size_t key_len,
+                   ParsecOrbitMessageCallback out, void *user);
+    int32_t (*set)(const uint8_t *owner, size_t owner_len, const uint8_t *key, size_t key_len,
+                   const uint8_t *json, size_t json_len);
+    int32_t (*remove)(const uint8_t *owner, size_t owner_len, const uint8_t *key, size_t key_len);
+    int32_t (*keys)(const uint8_t *owner, size_t owner_len, ParsecOrbitMessageCallback out, void *user);
+} ParsecOrbitConfigV1;
+
+/* parsec-orbit.hooks, version 1.0 */
+typedef struct ParsecOrbitHooksV1 {
+    ParsecOrbitInterfaceHeader header;
+    const void *(*resolve)(const uint8_t *module, size_t module_len, const uint8_t *symbol, size_t symbol_len);
+    int64_t (*install)(const void *target, const void *detour, const void **original);
+    int32_t (*enable)(int64_t hook);
+    int32_t (*disable)(int64_t hook);
+    int32_t (*remove)(int64_t hook);
+} ParsecOrbitHooksV1;
 ```
 
 Error codes returned by the host and by interfaces:

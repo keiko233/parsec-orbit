@@ -7,7 +7,7 @@
 //! 3. Events (`Runtime.bindingCalled`) read from the same socket.
 //!
 //! The session that keeps this alive and serves the `parsec-orbit.webview`
-//! interface is in [`crate::session`]; this module is the wire.
+//! interface is in the webview bridge plugin; this crate is the wire.
 
 use std::io::{ErrorKind, Read, Write};
 use std::net::{SocketAddr, TcpStream};
@@ -34,7 +34,7 @@ pub struct Injection {
 }
 
 /// Finds the page target and opens a WebSocket to it.
-pub(crate) fn attach(port: u16) -> Result<(Ws, String), String> {
+pub fn attach(port: u16) -> Result<(Ws, String), String> {
     let listing = http_get(port, "/json")?;
     let (target_url, ws_url) = pick_page(&listing).ok_or("no page target in /json")?;
     let path = ws_path(&ws_url).ok_or("unparsable webSocketDebuggerUrl")?;
@@ -57,7 +57,7 @@ pub fn inject_once(port: u16, script: &str) -> Result<Injection, String> {
     Ok(injection)
 }
 
-pub(crate) fn http_get(port: u16, path: &str) -> Result<String, String> {
+pub fn http_get(port: u16, path: &str) -> Result<String, String> {
     let address = SocketAddr::from(([127, 0, 0, 1], port));
     let mut stream = TcpStream::connect_timeout(&address, CONNECT_TIMEOUT)
         .map_err(|err| format!("connect {address}: {err}"))?;
@@ -127,7 +127,7 @@ fn parse_content_length(header: &[u8]) -> Option<usize> {
 }
 
 /// Picks the first page target and returns `(url, webSocketDebuggerUrl)`.
-pub(crate) fn pick_page(listing: &str) -> Option<(String, String)> {
+pub fn pick_page(listing: &str) -> Option<(String, String)> {
     for chunk in listing.split('{') {
         let is_page = chunk.contains("\"type\": \"page\"") || chunk.contains("\"type\":\"page\"");
         if !is_page {
@@ -142,7 +142,7 @@ pub(crate) fn pick_page(listing: &str) -> Option<(String, String)> {
 }
 
 /// Extracts a flat string field from a JSON fragment.
-pub(crate) fn json_field(fragment: &str, name: &str) -> Option<String> {
+pub fn json_field(fragment: &str, name: &str) -> Option<String> {
     let key = format!("\"{name}\"");
     let start = fragment.find(&key)? + key.len();
     let rest = &fragment[start..];
@@ -169,13 +169,13 @@ pub(crate) fn json_field(fragment: &str, name: &str) -> Option<String> {
     None
 }
 
-pub(crate) fn ws_path(url: &str) -> Option<String> {
+pub fn ws_path(url: &str) -> Option<String> {
     let rest = url.strip_prefix("ws://")?;
     let slash = rest.find('/')?;
     Some(rest[slash..].to_string())
 }
 
-pub(crate) struct Ws {
+pub struct Ws {
     stream: TcpStream,
     pending: Vec<u8>,
     /// Events that arrived while a command waited for its reply.
@@ -183,7 +183,7 @@ pub(crate) struct Ws {
 }
 
 impl Ws {
-    pub(crate) fn connect(port: u16, path: &str) -> Result<Ws, String> {
+    pub fn connect(port: u16, path: &str) -> Result<Ws, String> {
         let address = SocketAddr::from(([127, 0, 0, 1], port));
         let stream = TcpStream::connect_timeout(&address, CONNECT_TIMEOUT)
             .map_err(|err| format!("connect {address}: {err}"))?;
@@ -245,11 +245,7 @@ impl Ws {
         })
     }
 
-    pub(crate) fn add_new_document_script(
-        &mut self,
-        source: &str,
-        id: u64,
-    ) -> Result<bool, String> {
+    pub fn add_new_document_script(&mut self, source: &str, id: u64) -> Result<bool, String> {
         let command = format!(
             "{{\"id\":{id},\"method\":\"Page.addScriptToEvaluateOnNewDocument\",\"params\":{{\"source\":{}}}}}",
             json_string(source)
@@ -259,7 +255,7 @@ impl Ws {
         Ok(!reply.contains("\"error\""))
     }
 
-    pub(crate) fn evaluate(&mut self, expression: &str, id: u64) -> Result<Option<String>, String> {
+    pub fn evaluate(&mut self, expression: &str, id: u64) -> Result<Option<String>, String> {
         let command = format!(
             "{{\"id\":{id},\"method\":\"Runtime.evaluate\",\"params\":{{\"expression\":{},\"returnByValue\":true,\"awaitPromise\":true}}}}",
             json_string(expression)
@@ -272,11 +268,7 @@ impl Ws {
         Ok(json_field(&reply, "value"))
     }
 
-    pub(crate) fn read_until_reply(
-        &mut self,
-        id: u64,
-        timeout: Duration,
-    ) -> Result<String, String> {
+    pub fn read_until_reply(&mut self, id: u64, timeout: Duration) -> Result<String, String> {
         let needle = format!("\"id\":{id}");
         let deadline = Instant::now() + timeout;
         loop {
@@ -301,12 +293,12 @@ impl Ws {
     }
 
     /// How long a read blocks; the session polls with this.
-    pub(crate) fn set_poll_interval(&self, interval: Duration) {
+    pub fn set_poll_interval(&self, interval: Duration) {
         let _ = self.stream.set_read_timeout(Some(interval));
     }
 
     /// Sends a command whose `params` are already JSON.
-    pub(crate) fn command(&mut self, id: u64, method: &str, params: &str) -> Result<(), String> {
+    pub fn command(&mut self, id: u64, method: &str, params: &str) -> Result<(), String> {
         self.send_text(&format!(
             "{{\"id\":{id},\"method\":{},\"params\":{params}}}",
             json_string(method)
@@ -315,7 +307,7 @@ impl Ws {
 
     /// Sends a command and waits for its reply, which is returned as raw
     /// JSON. A protocol error reply is an `Err`.
-    pub(crate) fn call(
+    pub fn call(
         &mut self,
         id: u64,
         method: &str,
@@ -340,11 +332,11 @@ impl Ws {
     }
 
     /// Events that arrived while commands waited for their replies.
-    pub(crate) fn take_backlog(&mut self) -> Vec<String> {
+    pub fn take_backlog(&mut self) -> Vec<String> {
         std::mem::take(&mut self.backlog)
     }
 
-    pub(crate) fn send_text(&mut self, payload: &str) -> Result<(), String> {
+    pub fn send_text(&mut self, payload: &str) -> Result<(), String> {
         self.send_frame(0x1, payload.as_bytes())
     }
 
@@ -371,7 +363,7 @@ impl Ws {
         self.stream.write_all(&frame).map_err(|err| err.to_string())
     }
 
-    pub(crate) fn read_message(&mut self, deadline: Instant) -> Result<Option<Message>, String> {
+    pub fn read_message(&mut self, deadline: Instant) -> Result<Option<Message>, String> {
         let mut buffer: Option<Vec<u8>> = None;
         loop {
             let frame = match self.read_frame(deadline)? {
@@ -499,13 +491,13 @@ fn parse_frame(buffer: &mut Vec<u8>) -> Result<Option<RawFrame>, String> {
     }))
 }
 
-pub(crate) enum Message {
+pub enum Message {
     Text(String),
     Close,
     Ignored,
 }
 
-pub(crate) fn json_string(value: &str) -> String {
+pub fn json_string(value: &str) -> String {
     let mut out = String::with_capacity(value.len() + 2);
     out.push('"');
     for c in value.chars() {
@@ -529,7 +521,7 @@ pub(crate) fn json_string(value: &str) -> String {
     out
 }
 
-pub(crate) fn truncate(value: &str, limit: usize) -> String {
+pub fn truncate(value: &str, limit: usize) -> String {
     if value.len() <= limit {
         return value.to_string();
     }

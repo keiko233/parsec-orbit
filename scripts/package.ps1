@@ -1,8 +1,11 @@
 # Stages the release files into dist\:
 #
 #   bcrypt.dll                        the loader, goes next to parsecd.exe
+#   parsec-orbit-market.exe           finds, checks and installs plugins (see docs/spec/marketplace.md)
 #   parsec-orbit-plugin-webview-bridge.zip         official plugin, provides parsec-orbit.webview
 #                                                  (the webview patch below needs it)
+#   parsec-orbit-plugin-hooks.zip                  official plugin, provides parsec-orbit.hooks (optional download)
+#   parsec-orbit-plugin-config.zip                 official plugin, provides parsec-orbit.config (optional download)
 #   parsec-orbit-plugin-js-runtime.zip             official plugin, runs kind = "js" plugins (optional download)
 #   parsec-orbit-plugin-high-bitrate-webview.zip   official plugin, extract into <client>\plugins\
 #   parsec-orbit-plugin-high-bitrate-native.zip    official plugin, same layout
@@ -40,8 +43,19 @@ try {
     }
 
     Copy-Item -LiteralPath (Join-Path $release 'bcrypt.dll') -Destination $dist
+    Copy-Item -LiteralPath (Join-Path $release 'parsec-orbit-market.exe') -Destination $dist
 
     $plugins = @(
+        @{
+            Name = 'parsec-orbit-plugin-hooks'
+            Source = 'crates\parsec-orbit-plugin-hooks'
+            Dll = 'parsec_orbit_plugin_hooks.dll'
+        },
+        @{
+            Name = 'parsec-orbit-plugin-config'
+            Source = 'crates\parsec-orbit-plugin-config'
+            Dll = 'parsec_orbit_plugin_config.dll'
+        },
         @{
             Name = 'parsec-orbit-plugin-js-runtime'
             Source = 'crates\parsec-orbit-plugin-js-runtime'
@@ -69,6 +83,7 @@ try {
         }
     )
 
+    Add-Type -AssemblyName System.IO.Compression
     Add-Type -AssemblyName System.IO.Compression.FileSystem
     foreach ($plugin in $plugins) {
         $source = Join-Path $root $plugin.Source
@@ -79,12 +94,24 @@ try {
         Copy-Item -LiteralPath (Join-Path $release $plugin.Dll) -Destination $folder
 
         $zip = Join-Path $dist ($plugin.Name + '.zip')
-        [System.IO.Compression.ZipFile]::CreateFromDirectory(
-            $folder,
-            $zip,
-            [System.IO.Compression.CompressionLevel]::Optimal,
-            $true
-        )
+        # Entry names are written by hand with forward slashes: Windows
+        # PowerShell's CreateFromDirectory uses backslashes, which the plugin
+        # market (and every other zip tool) rejects or misreads.
+        $archive = [System.IO.Compression.ZipFile]::Open($zip, [System.IO.Compression.ZipArchiveMode]::Create)
+        try {
+            foreach ($file in (Get-ChildItem -LiteralPath $folder -Recurse -File | Sort-Object FullName)) {
+                $relative = $file.FullName.Substring($folder.Length).TrimStart('\', '/').Replace('\', '/')
+                [void][System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile(
+                    $archive,
+                    $file.FullName,
+                    ($plugin.Name + '/' + $relative),
+                    [System.IO.Compression.CompressionLevel]::Optimal
+                )
+            }
+        }
+        finally {
+            $archive.Dispose()
+        }
     }
 
     Get-ChildItem -LiteralPath $dist -File | Sort-Object Name | ForEach-Object {

@@ -45,13 +45,15 @@ Parsec UI/client request/reply protocol (`protocol_version: 1`).
 * `src/lib.rs` - the plugin: port detection, registration.
 * `src/service.rs` - the `ParsecOrbitWebViewV1` table.
 * `src/bridge.rs` - scripts, subscriptions and the session thread.
-* `src/devtools.rs` - HTTP and WebSocket client for the endpoint (also used by
-  `parsec-orbit-verify-webview-inject` through `inject_once`).
+* `crates/parsec-orbit-devtools` - HTTP and WebSocket client for the endpoint
+  (also used by `parsec-orbit-verify-webview-inject` through `inject_once`);
+  kept out of the plugin crate because a dual `cdylib`/`rlib` crate cannot be
+  linked into an LTO build of a tool.
 * `assets/orbit.js` - the page helper.
 
 ## Tests
 
-`tests/session.rs` and `tests/devtools.rs` run the bridge against a fake
+`tests/session.rs` (and the DevTools crate's own tests) run the bridge against a fake
 endpoint that speaks HTTP and WebSocket; the end-to-end suite
 (`tests/parsec-orbit-e2e`) runs the DLL in a real process against the same
 kind of fake.

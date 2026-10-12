@@ -21,6 +21,13 @@ client. It uses a `bcrypt.dll` proxy and does not modify Parsec files.
   `parsec-orbit.webview` (scripts, evaluation and messages for the WebView2 UI
   over the DevTools endpoint); see its
   [README](crates/parsec-orbit-plugin-webview-bridge/README.md).
+* `crates/parsec-orbit-plugin-config/` and `crates/parsec-orbit-plugin-hooks/` -
+  official plugins that provide `parsec-orbit.config` (settings that survive
+  restarts) and `parsec-orbit.hooks` (inline function hooks).
+* `crates/parsec-orbit-market/` - the `parsec-orbit-market` tool: plugin index,
+  sha256 and ed25519 checks, safe installation; see
+  [Marketplace](docs/spec/marketplace.md). `crates/parsec-orbit-devtools/` is
+  the DevTools client the webview bridge and the verify tool share.
 * `crates/parsec-orbit-plugin-js-runtime/` - official plugin that runs JavaScript
   and TypeScript plugins (`kind = "js"`) on Boa; see its
   [README](crates/parsec-orbit-plugin-js-runtime/README.md).

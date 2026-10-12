@@ -16,6 +16,8 @@ pub struct Artifacts {
     pub webview: PathBuf,
     pub bridge: PathBuf,
     pub js_runtime: PathBuf,
+    pub config: PathBuf,
+    pub hooks: PathBuf,
     pub native: PathBuf,
     pub fixture: PathBuf,
     pub fixture_nostd: PathBuf,
@@ -57,6 +59,8 @@ pub fn artifacts() -> &'static Artifacts {
             .args(["-p", "parsec-orbit-plugin-high-bitrate-webview"])
             .args(["-p", "parsec-orbit-plugin-webview-bridge"])
             .args(["-p", "parsec-orbit-plugin-js-runtime"])
+            .args(["-p", "parsec-orbit-plugin-config"])
+            .args(["-p", "parsec-orbit-plugin-hooks"])
             .args(["-p", "parsec-orbit-plugin-high-bitrate-native"])
             .args(["-p", "parsec-orbit-fixture-plugin"])
             .args(["-p", "parsec-orbit-fixture-nostd"])
@@ -78,6 +82,8 @@ pub fn artifacts() -> &'static Artifacts {
             webview: debug.join("parsec_orbit_plugin_high_bitrate_webview.dll"),
             bridge: debug.join("parsec_orbit_plugin_webview_bridge.dll"),
             js_runtime: debug.join("parsec_orbit_plugin_js_runtime.dll"),
+            config: debug.join("parsec_orbit_plugin_config.dll"),
+            hooks: debug.join("parsec_orbit_plugin_hooks.dll"),
             native: debug.join("parsec_orbit_plugin_high_bitrate_native.dll"),
             fixture: debug.join("parsec_orbit_fixture_plugin.dll"),
             fixture_nostd: debug.join("parsec_orbit_fixture_nostd.dll"),
@@ -91,6 +97,8 @@ pub fn artifacts() -> &'static Artifacts {
             &artifacts.webview,
             &artifacts.bridge,
             &artifacts.js_runtime,
+            &artifacts.config,
+            &artifacts.hooks,
             &artifacts.native,
             &artifacts.fixture,
             &artifacts.fixture_nostd,
@@ -111,6 +119,8 @@ pub fn plugin_manifest(kind: Plugin) -> PathBuf {
         Plugin::Hello => root.join("examples/parsec-orbit-plugin-hello/plugin.toml"),
         Plugin::Webview => root.join("crates/parsec-orbit-plugin-high-bitrate-webview/plugin.toml"),
         Plugin::Native => root.join("crates/parsec-orbit-plugin-high-bitrate-native/plugin.toml"),
+        Plugin::Hooks => root.join("crates/parsec-orbit-plugin-hooks/plugin.toml"),
+        Plugin::Config => root.join("crates/parsec-orbit-plugin-config/plugin.toml"),
         Plugin::JsRuntime => root.join("crates/parsec-orbit-plugin-js-runtime/plugin.toml"),
         Plugin::WebviewBridge => root.join("crates/parsec-orbit-plugin-webview-bridge/plugin.toml"),
         Plugin::Fixture => root.join("tests/parsec-orbit-fixture-plugin/plugin.toml"),
@@ -125,6 +135,8 @@ pub enum Plugin {
     Webview,
     WebviewBridge,
     JsRuntime,
+    Config,
+    Hooks,
     Native,
     Fixture,
     FixtureNostd,
@@ -138,6 +150,8 @@ impl Plugin {
             Plugin::Webview => &artifacts().webview,
             Plugin::WebviewBridge => &artifacts().bridge,
             Plugin::JsRuntime => &artifacts().js_runtime,
+            Plugin::Config => &artifacts().config,
+            Plugin::Hooks => &artifacts().hooks,
             Plugin::Native => &artifacts().native,
             Plugin::Fixture => &artifacts().fixture,
             Plugin::FixtureNostd => &artifacts().fixture_nostd,

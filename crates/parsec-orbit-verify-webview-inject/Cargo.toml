@@ -8,4 +8,4 @@ publish = false
 
 [dependencies]
 parsec-orbit-plugin-high-bitrate-webview = { path = "../parsec-orbit-plugin-high-bitrate-webview" }
-parsec-orbit-plugin-webview-bridge = { path = "../parsec-orbit-plugin-webview-bridge" }
+parsec-orbit-devtools = { path = "../parsec-orbit-devtools" }

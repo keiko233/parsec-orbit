@@ -47,12 +47,15 @@ parsec-orbit-plugin-abi      no_std, zero deps. repr(C) types, constants, servic
         |       ^
         |       +-- parsec-orbit-plugin-sdk-std   threads, panic hook, tracing bridge, MockHost   [crates.io]
         |-- parsec-orbit-core         loader logic (std; toml parse-only)
+        |-- parsec-orbit-devtools     HTTP + WebSocket + DevTools protocol client (std)
+        |-- parsec-orbit-market       index, sha256/ed25519, safe installation, the market tool
                 ^
                 +-- parsec-orbit-loader   cdylib named `bcrypt`
 
 crates/     every Rust crate: the loader and SDK above, the official plugins and
             the verification tools; high-bitrate-native and high-bitrate-webview -> sdk-std
-            (official), webview-bridge (serde_json), js-runtime (Boa)             -> sdk-std + heavy deps
+            (official), webview-bridge (-> devtools), js-runtime (Boa), config,
+            hooks (retour)                                                          -> sdk-std + heavy deps
 examples/   parsec-orbit-plugin-hello (-> sdk-std), parsec-orbit-plugin-hello-nostd (-> sdk)
 javascript-sdk/  @parsec-orbit/sdk (TypeScript: types, definePlugin, ui helper, mock host)  [npm]
 tests/      parsec-orbit-e2e;  crates/parsec-orbit-verify-*  verification tools
@@ -66,7 +69,7 @@ The loader was just reduced from ~520 KB to ~340 KB; that is the baseline to pro
 
 | Artifact | Budget | Mechanism |
 | --- | --- | --- |
-| loader `bcrypt.dll` | <= 360 KiB (368,640 B; the phase-2 release build is 368,128 B = 359.5 KiB, 512 B headroom) | no async runtime, no serde, no `tracing` unless measured to fit |
+| loader `bcrypt.dll` | <= 360 KiB (368,640 B). Phase 2 stayed just under it (368,128 B, 512 B headroom); phase 5 is over it at 374,272 B - see the [size report](../design/size-report.md) | no async runtime, no serde, no `tracing` unless measured to fit |
 | minimal Rust plugin | goal: well below the current ~210 KB std `hello` | CRT-free `no_std` recipe (`freestanding!`), `panic=abort`, `opt-level=z`, LTO, strip |
 | JS runtime plugin | unconstrained (separate download) | Boa lives here only |
 

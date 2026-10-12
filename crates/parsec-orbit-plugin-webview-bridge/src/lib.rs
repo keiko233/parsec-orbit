@@ -2,20 +2,20 @@
 //!
 //! Provides the `parsec-orbit.webview` interface: scripts that stay installed
 //! in the client's WebView2 UI, evaluation, and messages in both directions.
-//! It drives the DevTools endpoint the loader opens (see [`devtools`]) and
-//! keeps the session alive, attaching again and replaying the scripts when
-//! the page is recreated. Plugins - native ones through
+//! It drives the DevTools endpoint the loader opens (the
+//! `parsec-orbit-devtools` crate) and keeps the session alive, attaching
+//! again and replaying the scripts when the page is recreated. Plugins -
+//! native ones through
 //! `WebViewClient`, JavaScript ones through the runtime - use the interface
 //! instead of carrying an HTTP/WebSocket client of their own.
 
 pub mod bridge;
-pub mod devtools;
 pub mod service;
 
 use parsec_orbit_plugin_sdk_std::prelude::*;
 use parsec_orbit_plugin_sdk_std::services::WebView;
 
-pub use devtools::{inject_once, Injection};
+pub use parsec_orbit_devtools::{inject_once, Injection};
 
 /// Port the loader opens the WebView2 DevTools endpoint on by default.
 const DEFAULT_DEVTOOLS_PORT: u16 = 9222;

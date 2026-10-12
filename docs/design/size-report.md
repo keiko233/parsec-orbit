@@ -46,3 +46,28 @@ The migration to `Plugin` / `Context` costs 2.5 to 6 KB each: the log macros, th
 | phase 2 (host revision 2) | 368,128 |
 
 Budget: 360 KiB = 368,640 bytes, so phase 2 left 512 bytes. The growth is the registry, the ordering, the kind-handler call and the manifest lists. The planner uses plain vectors because every collection type costs bytes here. If the loader needs room later, the lever is the `toml` parser: `toml` + `toml_parser` are about 36 KiB of the `.text`, and `plugin.toml` is flat enough for a hand-written reader.
+
+## Phase 4 and 5 plugins (release, bytes)
+
+| Artifact | Size | Notes |
+| --- | ---: | --- |
+| `webview-bridge` | 379,904 | `std`, `serde_json`, `parsec-orbit-devtools` |
+| `js-runtime` | 4,226,048 | Boa without `temporal`/`intl`; a separate download on purpose |
+| `config` | 297,984 | `std`, `serde_json` |
+| `hooks` | 385,536 | `std`, `retour` |
+| `parsec-orbit-market.exe` | 1,847,296 | TLS (`rustls`), zip, ed25519 |
+| loader `bcrypt.dll` | 374,272 | 5,632 bytes over the 360 KiB budget, see below |
+
+Measured again on the release branch rather than on the phase branch these
+numbers were first taken from: the DevTools client now lives in its own crate
+and the webview bridge changed its thread model, so `webview-bridge` and
+`js-runtime` moved by a few KB. `config`, `hooks` and the market tool are
+identical.
+
+**The loader is over its budget.** Phase 2 left 512 bytes of the 360 KiB
+(368,640 B); the release build is 374,272 B, 5,632 B too much. Nothing in
+phase 5 links against the loader, so the growth is the phase-3/4 work piling
+up in it: the service registry, the per-plugin host tables and the extra host
+revision entries. The documented lever is the `toml` parser below the
+`plugin.toml` reader (about 36 KiB of `.text`); until it is pulled, the
+"stays under 360 KiB" line in [architecture.md](architecture.md) is not met.

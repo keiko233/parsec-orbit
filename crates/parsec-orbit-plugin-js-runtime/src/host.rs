@@ -703,6 +703,24 @@ fn config_get(_: &JsValue, args: &[JsValue], context: &mut JsContext) -> JsResul
     let Some(key) = args.get_or_undefined(0).as_string() else {
         return rejected("get needs a key as a string", context);
     };
+    if let Some(client) = with_state(|state| state.spec.config) {
+        let mut json = None;
+        return match client.get(&key.to_std_string_escaped(), |value| {
+            json = Some(value.to_string())
+        }) {
+            Ok(_) => {
+                let value = json
+                    .and_then(|json| serde_json::from_str::<Value>(&json).ok())
+                    .and_then(|value| JsValue::from_json(&value, context).ok())
+                    .unwrap_or_default();
+                resolved(value, context)
+            }
+            Err(error) => rejected(
+                format!("the config store failed (code {})", error.code()),
+                context,
+            ),
+        };
+    }
     let Some(path) = config_path() else {
         return rejected("this plugin has no data directory", context);
     };
@@ -726,6 +744,22 @@ fn config_set(_: &JsValue, args: &[JsValue], context: &mut JsContext) -> JsResul
         Ok(value) => value,
         Err(error) => return rejected(describe(&error, context), context),
     };
+    if let Some(client) = with_state(|state| state.spec.config) {
+        let key = key.to_std_string_escaped();
+        let outcome = match value {
+            Some(value) => client
+                .set(&key, &value.to_string())
+                .map_err(|error| error.code()),
+            None => client
+                .remove(&key)
+                .map(|_| ())
+                .map_err(|error| error.code()),
+        };
+        return match outcome {
+            Ok(()) => resolved(JsValue::undefined(), context),
+            Err(code) => rejected(format!("the config store failed (code {code})"), context),
+        };
+    }
     let Some(path) = config_path() else {
         return rejected("this plugin has no data directory", context);
     };

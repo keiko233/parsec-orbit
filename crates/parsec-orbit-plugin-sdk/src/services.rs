@@ -230,3 +230,186 @@ impl JsClient {
         code(unsafe { destroy(context) })
     }
 }
+
+// ---- parsec-orbit.config -----------------------------------------------------
+
+use crate::abi::{ParsecOrbitConfigV1, ParsecOrbitHooksV1, ERR_NOT_FOUND};
+
+/// Binding of `parsec-orbit.config`, version 1.
+pub struct Config;
+
+impl Interface for Config {
+    const NAME: &'static CStr = c"parsec-orbit.config";
+    const MAJOR: u16 = 1;
+    type Table = ParsecOrbitConfigV1;
+
+    fn header(table: &ParsecOrbitConfigV1) -> &ParsecOrbitInterfaceHeader {
+        &table.header
+    }
+}
+
+/// Settings of one plugin, kept by the config plugin. Values are JSON text;
+/// the keys are the plugin's own (each plugin sees only its own object).
+#[derive(Clone, Copy)]
+pub struct ConfigClient {
+    table: &'static ParsecOrbitConfigV1,
+    owner: &'static str,
+}
+
+impl ConfigClient {
+    /// The service, if the config plugin is loaded and speaks version 1.
+    pub fn new(cx: &Context) -> Option<ConfigClient> {
+        cx.service::<Config>().map(|table| ConfigClient {
+            table,
+            owner: cx.plugin_id(),
+        })
+    }
+
+    /// The same service on behalf of another owner, for a plugin that keeps
+    /// settings for others (the JavaScript runtime does).
+    pub fn for_owner(self, owner: &'static str) -> ConfigClient {
+        ConfigClient { owner, ..self }
+    }
+
+    /// Passes the JSON value of `key` to `value`; `Ok(false)` if it is not set.
+    pub fn get(&self, key: &str, mut value: impl FnMut(&str)) -> Result<bool> {
+        let get = self.table.get.ok_or(Error::new(ERR_NOT_READY))?;
+        let mut sink: &mut dyn FnMut(&str) = &mut value;
+        let result = unsafe {
+            get(
+                self.owner.as_ptr(),
+                self.owner.len(),
+                key.as_ptr(),
+                key.len(),
+                Some(collect),
+                &mut sink as *mut &mut dyn FnMut(&str) as *mut c_void,
+            )
+        };
+        match result {
+            0 => Ok(true),
+            ERR_NOT_FOUND => Ok(false),
+            other => Err(Error::new(other)),
+        }
+    }
+
+    /// Stores `json` (valid JSON text) under `key`.
+    pub fn set(&self, key: &str, json: &str) -> Result {
+        let set = self.table.set.ok_or(Error::new(ERR_NOT_READY))?;
+        code(unsafe {
+            set(
+                self.owner.as_ptr(),
+                self.owner.len(),
+                key.as_ptr(),
+                key.len(),
+                json.as_ptr(),
+                json.len(),
+            )
+        })
+    }
+
+    /// Removes `key`; `Ok(false)` if it was not set.
+    pub fn remove(&self, key: &str) -> Result<bool> {
+        let remove = self.table.remove.ok_or(Error::new(ERR_NOT_READY))?;
+        match unsafe {
+            remove(
+                self.owner.as_ptr(),
+                self.owner.len(),
+                key.as_ptr(),
+                key.len(),
+            )
+        } {
+            0 => Ok(true),
+            ERR_NOT_FOUND => Ok(false),
+            other => Err(Error::new(other)),
+        }
+    }
+
+    /// Passes the keys, as a JSON array of strings, to `keys`.
+    pub fn keys(&self, mut keys: impl FnMut(&str)) -> Result {
+        let list = self.table.keys.ok_or(Error::new(ERR_NOT_READY))?;
+        let mut sink: &mut dyn FnMut(&str) = &mut keys;
+        code(unsafe {
+            list(
+                self.owner.as_ptr(),
+                self.owner.len(),
+                Some(collect),
+                &mut sink as *mut &mut dyn FnMut(&str) as *mut c_void,
+            )
+        })
+    }
+}
+
+// ---- parsec-orbit.hooks ---------------------------------------------------------
+
+/// Binding of `parsec-orbit.hooks`, version 1.
+pub struct Hooks;
+
+impl Interface for Hooks {
+    const NAME: &'static CStr = c"parsec-orbit.hooks";
+    const MAJOR: u16 = 1;
+    type Table = ParsecOrbitHooksV1;
+
+    fn header(table: &ParsecOrbitHooksV1) -> &ParsecOrbitInterfaceHeader {
+        &table.header
+    }
+}
+
+/// Inline hooks on functions of the client process.
+#[derive(Clone, Copy)]
+pub struct HooksClient {
+    table: &'static ParsecOrbitHooksV1,
+}
+
+impl HooksClient {
+    /// The service, if the hooks plugin is loaded and speaks version 1.
+    pub fn new(cx: &Context) -> Option<HooksClient> {
+        cx.service::<Hooks>().map(|table| HooksClient { table })
+    }
+
+    /// Address of `symbol` in the loaded module `module` (for example
+    /// `"kernel32.dll"`, `"CreateFileW"`).
+    pub fn resolve(&self, module: &str, symbol: &str) -> Option<*const c_void> {
+        let resolve = self.table.resolve?;
+        let address =
+            unsafe { resolve(module.as_ptr(), module.len(), symbol.as_ptr(), symbol.len()) };
+        (!address.is_null()).then_some(address)
+    }
+
+    /// Prepares a hook of `target` that runs `detour`. Returns the hook id and
+    /// the pointer that calls the original function. The hook is disabled
+    /// until [`HooksClient::enable`]. The returned pointer is valid until
+    /// [`HooksClient::remove`], which restores the original bytes and frees
+    /// the trampoline the pointer points at.
+    ///
+    /// # Safety
+    /// `target` is the start of a function and `detour` has its exact
+    /// signature and calling convention; both stay valid for the process
+    /// lifetime.
+    pub unsafe fn install(
+        &self,
+        target: *const c_void,
+        detour: *const c_void,
+    ) -> Result<(i64, *const c_void)> {
+        let install = self.table.install.ok_or(Error::new(ERR_NOT_READY))?;
+        let mut original: *const c_void = core::ptr::null();
+        id(unsafe { install(target, detour, &mut original) }).map(|hook| (hook, original))
+    }
+
+    pub fn enable(&self, hook: i64) -> Result {
+        let enable = self.table.enable.ok_or(Error::new(ERR_NOT_READY))?;
+        code(unsafe { enable(hook) })
+    }
+
+    pub fn disable(&self, hook: i64) -> Result {
+        let disable = self.table.disable.ok_or(Error::new(ERR_NOT_READY))?;
+        code(unsafe { disable(hook) })
+    }
+
+    /// Disables the hook and puts the bytes of the original function back.
+    /// The `original` pointer [`HooksClient::install`] returned is dead
+    /// afterwards: calling through it is undefined.
+    pub fn remove(&self, hook: i64) -> Result {
+        let remove = self.table.remove.ok_or(Error::new(ERR_NOT_READY))?;
+        code(unsafe { remove(hook) })
+    }
+}

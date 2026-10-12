@@ -103,6 +103,31 @@ jobs:
         shell: pwsh
         run: ./scripts/package.ps1 -SkipBuild
 
+      # The plugin index: every plugin zip of this release with its sha256.
+      # It is signed when the repository has a signing key (a base64 ed25519
+      # secret in the MARKET_SIGNING_KEY secret, made with
+      # `parsec-orbit-market keygen`); the matching public key is what users
+      # put in their trusted-keys.txt. Without the key the index is still
+      # published, unsigned, and clients refuse it unless told otherwise.
+      - name: Build and sign the plugin index
+        shell: pwsh
+        env:
+          MARKET_SIGNING_KEY: ${{ secrets.MARKET_SIGNING_KEY }}
+        run: |
+          $market = 'target/release/parsec-orbit-market.exe'
+          & $market index dist --out dist/index.json --name "Parsec Orbit ${{ github.ref_name }}"
+          if ($LASTEXITCODE) { throw 'building the index failed' }
+          if ($env:MARKET_SIGNING_KEY) {
+            $key = Join-Path $env:RUNNER_TEMP 'market.key'
+            Set-Content -LiteralPath $key -Value $env:MARKET_SIGNING_KEY -Encoding ascii -NoNewline
+            & $market sign dist/index.json --key $key
+            $status = $LASTEXITCODE
+            Remove-Item -LiteralPath $key -Force
+            if ($status) { throw 'signing the index failed' }
+          } else {
+            Write-Host 'MARKET_SIGNING_KEY is not set: the index is published unsigned'
+          }
+
       - name: Stage the changelog into dist
         shell: pwsh
         run: |

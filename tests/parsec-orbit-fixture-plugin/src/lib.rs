@@ -14,6 +14,9 @@
 //! webview_eval=<expression>       evaluate in the page once it is attached
 //! webview_post=<channel>|<json>   post to the page once it is attached
 //! js_eval=<source>                evaluate in a context made through parsec-orbit.js
+//! config_set=<key>|<json>         store a setting through parsec-orbit.config
+//! config_get=<key>                read a setting back
+//! hook_processor=                 hook kernel32!GetCurrentProcessorNumber through parsec-orbit.hooks
 //! ```
 //!
 //! Every action logs one `fixture[<id>]: ...` line so a test can assert on it.
@@ -24,10 +27,10 @@
 
 #![allow(deprecated)]
 
-use std::ffi::CString;
+use std::ffi::{c_void, CString};
 use std::path::Path;
 
-use parsec_orbit_plugin_sdk::services::{JsClient, WebViewClient};
+use parsec_orbit_plugin_sdk::services::{ConfigClient, HooksClient, JsClient, WebViewClient};
 use parsec_orbit_plugin_sdk::{
     Context, ParsecOrbitHost, ParsecOrbitInterfaceHeader, ParsecOrbitKindHandlerV1,
     ParsecOrbitPluginLoadInfo, LOG_INFO,
@@ -80,6 +83,32 @@ unsafe extern "system" fn load_plugin(info: *const ParsecOrbitPluginLoadInfo) ->
     } else {
         0
     }
+}
+
+extern "system" fn fake_processor() -> u32 {
+    777
+}
+
+/// Hooks a harmless system function, calls it hooked and unhooked.
+fn hook_processor(hooks: HooksClient) -> String {
+    let Some(target) = hooks.resolve("kernel32.dll", "GetCurrentProcessorNumber") else {
+        return "unresolved".to_string();
+    };
+    let function: extern "system" fn() -> u32 = unsafe { std::mem::transmute(target) };
+    let (hook, original) = match unsafe { hooks.install(target, fake_processor as *const c_void) } {
+        Ok(installed) => installed,
+        Err(error) => return format!("install error {}", error.code()),
+    };
+    let original: extern "system" fn() -> u32 = unsafe { std::mem::transmute(original) };
+    if hooks.enable(hook).is_err() {
+        return "enable failed".to_string();
+    }
+    let hooked = function();
+    let through_trampoline = original() < 4096;
+    let _ = hooks.disable(hook);
+    let restored = function() < 4096;
+    let _ = hooks.remove(hook);
+    format!("hooked={hooked} trampoline={through_trampoline} restored={restored}")
 }
 
 /// Calls the webview service. Evaluating and posting need an attached page,
@@ -195,6 +224,43 @@ unsafe extern "system" fn init(host: *const ParsecOrbitHost) -> i32 {
                     continue;
                 };
                 webview_action(cx, &id, action, argument);
+            }
+            "config_set" | "config_get" => {
+                let Some(cx) = (unsafe { Context::from_host(host) }) else {
+                    continue;
+                };
+                match ConfigClient::new(&cx) {
+                    None => say(format!("fixture[{id}]: {action} -> no config service")),
+                    Some(config) if action == "config_set" => {
+                        let (key, json) = argument.split_once('|').unwrap_or((argument, "null"));
+                        let outcome = match config.set(key, json) {
+                            Ok(()) => "ok".to_string(),
+                            Err(error) => format!("error {}", error.code()),
+                        };
+                        say(format!("fixture[{id}]: config_set {key} -> {outcome}"));
+                    }
+                    Some(config) => {
+                        let mut value = String::new();
+                        let outcome = match config.get(argument, |json| value = json.to_string()) {
+                            Ok(true) => value,
+                            Ok(false) => "unset".to_string(),
+                            Err(error) => format!("error {}", error.code()),
+                        };
+                        say(format!("fixture[{id}]: config_get {argument} -> {outcome}"));
+                    }
+                }
+            }
+            "hook_processor" => {
+                let Some(cx) = (unsafe { Context::from_host(host) }) else {
+                    continue;
+                };
+                match HooksClient::new(&cx) {
+                    None => say(format!("fixture[{id}]: hook_processor -> no hooks service")),
+                    Some(hooks) => say(format!(
+                        "fixture[{id}]: hook_processor -> {}",
+                        hook_processor(hooks)
+                    )),
+                }
             }
             "js_eval" => {
                 let Some(cx) = (unsafe { Context::from_host(host) }) else {
