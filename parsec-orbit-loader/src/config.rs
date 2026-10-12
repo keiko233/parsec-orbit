@@ -10,7 +10,8 @@ pub const DEFAULT_DEVTOOLS_PORT: u16 = 9222;
 pub const CLIENT_PROCESS: &str = "parsecd.exe";
 
 pub struct Config {
-    pub log_path: PathBuf,
+    /// Log destinations in priority order; the first writable one wins.
+    pub log_candidates: Vec<PathBuf>,
     pub plugin_dirs: Vec<PathBuf>,
     /// `None` disables the devtools arguments.
     pub devtools_port: Option<u16>,
@@ -46,14 +47,38 @@ impl Config {
             plugin_dirs.push(Path::new(&appdata).join("ParsecOrbit").join("plugins"));
         }
 
-        let default_log = env("APPDATA")
-            .map(|appdata| {
+        // Every candidate is probed at start-up, so a path that cannot be
+        // written (missing `%APPDATA%`, an unelevated client directory, a file
+        // someone else holds without sharing write) costs the next one, not
+        // the whole log.
+        let mut log_candidates = Vec::new();
+        if let Some(path) = env("PARSEC_ORBIT_LOG") {
+            log_candidates.push(PathBuf::from(path));
+        }
+        if let Some(appdata) = env("APPDATA") {
+            log_candidates.push(
                 Path::new(&appdata)
                     .join("ParsecOrbit")
-                    .join("parsec-orbit.log")
-            })
-            .or_else(|| loader_dir.map(|dir| dir.join("parsec-orbit.log")))
-            .unwrap_or_else(|| PathBuf::from("parsec-orbit.log"));
+                    .join("parsec-orbit.log"),
+            );
+        }
+        if let Some(dir) = loader_dir {
+            log_candidates.push(dir.join("parsec-orbit.log"));
+        }
+        if let Some(temp) = env("TEMP") {
+            log_candidates.push(Path::new(&temp).join("parsec-orbit.log"));
+        }
+        let mut unique: Vec<PathBuf> = Vec::with_capacity(log_candidates.len());
+        for candidate in log_candidates {
+            let duplicate = unique.iter().any(|existing| {
+                existing
+                    .to_string_lossy()
+                    .eq_ignore_ascii_case(&candidate.to_string_lossy())
+            });
+            if !duplicate {
+                unique.push(candidate);
+            }
+        }
 
         let devtools_port = match env("PARSEC_ORBIT_DEVTOOLS").as_deref() {
             Some("0") | Some("off") | Some("false") => None,
@@ -65,9 +90,7 @@ impl Config {
         };
 
         Config {
-            log_path: env("PARSEC_ORBIT_LOG")
-                .map(PathBuf::from)
-                .unwrap_or(default_log),
+            log_candidates: unique,
             plugin_dirs,
             devtools_port,
             any_host: matches!(env("PARSEC_ORBIT_HOST").as_deref(), Some("any")),

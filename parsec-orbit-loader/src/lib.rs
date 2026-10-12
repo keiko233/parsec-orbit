@@ -217,10 +217,20 @@ fn pre_resolve() -> usize {
 unsafe extern "system" fn worker(_parameter: *mut c_void) -> u32 {
     let directory = loader_dir();
     let config = config::Config::load(directory.as_deref());
-    log::init(config.log_path.clone());
+    let logging = log::init(&config.log_candidates);
 
     let version = env!("CARGO_PKG_VERSION");
     log::info(&format!("Parsec Orbit {version} loader mapped"));
+    for (path, code) in &logging.rejected {
+        log::warn(&format!(
+            "log path {} not writable (Win32 error {code}), trying the next one",
+            path.display()
+        ));
+    }
+    match &logging.path {
+        Some(path) => log::debug(&format!("logging to {}", path.display())),
+        None => log::error("no writable log file found; lines go to the debugger output only"),
+    }
 
     if !log::process_name().eq_ignore_ascii_case(config::CLIENT_PROCESS) && !config.any_host {
         log::info(&format!(
