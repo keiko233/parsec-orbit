@@ -46,3 +46,16 @@ The migration to `Plugin` / `Context` costs 2.5 to 6 KB each: the log macros, th
 | phase 2 (host revision 2) | 368,128 |
 
 Budget: 360 KiB = 368,640 bytes, so phase 2 left 512 bytes. The growth is the registry, the ordering, the kind-handler call and the manifest lists. The planner uses plain vectors because every collection type costs bytes here. If the loader needs room later, the lever is the `toml` parser: `toml` + `toml_parser` are about 36 KiB of the `.text`, and `plugin.toml` is flat enough for a hand-written reader.
+
+## Phase 4 and 5 plugins (release, bytes)
+
+| Artifact | Size | Notes |
+| --- | ---: | --- |
+| `webview-bridge` | 368,128 | `std`, `serde_json`, the DevTools client |
+| `js-runtime` | 4,224,512 | Boa without `temporal`/`intl`; a separate download on purpose |
+| `config` | 297,984 | `std`, `serde_json` |
+| `hooks` | 385,536 | `std`, `retour` |
+| `parsec-orbit-market.exe` | 1,847,296 | TLS (`rustls`), zip, ed25519 |
+| loader `bcrypt.dll` | 368,128 | unchanged since phase 2 |
+
+None of these touch the loader. The loader budget (360 KiB) stays where phase 2 left it, with 512 bytes to spare.
