@@ -10,6 +10,9 @@
 //! handler=<kind>         register a kind handler for <kind>
 //! unregister=<name>      remove an interface registered by this plugin
 //! fail=<code>            make init return <code>
+//! webview_script=<key>|<script>   hand a script to parsec-orbit.webview
+//! webview_eval=<expression>       evaluate in the page once it is attached
+//! webview_post=<channel>|<json>   post to the page once it is attached
 //! ```
 //!
 //! Every action logs one `fixture[<id>]: ...` line so a test can assert on it.
@@ -23,8 +26,9 @@
 use std::ffi::CString;
 use std::path::Path;
 
+use parsec_orbit_plugin_sdk::services::WebViewClient;
 use parsec_orbit_plugin_sdk::{
-    ParsecOrbitHost, ParsecOrbitInterfaceHeader, ParsecOrbitKindHandlerV1,
+    Context, ParsecOrbitHost, ParsecOrbitInterfaceHeader, ParsecOrbitKindHandlerV1,
     ParsecOrbitPluginLoadInfo, LOG_INFO,
 };
 
@@ -74,6 +78,54 @@ unsafe extern "system" fn load_plugin(info: *const ParsecOrbitPluginLoadInfo) ->
         7
     } else {
         0
+    }
+}
+
+/// Calls the webview service. Evaluating and posting need an attached page,
+/// which appears some time after `init`, so they wait on a thread.
+fn webview_action(cx: Context, id: &str, action: &str, argument: &str) {
+    let id = id.to_string();
+    let action = action.to_string();
+    let argument = argument.to_string();
+    let say = move |message: String| cx.host().log_with_target(LOG_INFO, &id, &message);
+    let Some(webview) = WebViewClient::new(&cx) else {
+        say(format!("fixture: {action} -> no webview service"));
+        return;
+    };
+    let work = move || match action.as_str() {
+        "webview_script" => {
+            let (key, script) = argument.split_once('|').unwrap_or((&argument, ""));
+            let outcome = match webview.add_script(key, script) {
+                Ok(id) => format!("id {id}"),
+                Err(error) => format!("error {}", error.code()),
+            };
+            say(format!("fixture: webview_script {key} -> {outcome}"));
+        }
+        "webview_eval" | "webview_post" => {
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
+            while !webview.is_ready() && std::time::Instant::now() < deadline {
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+            if action == "webview_eval" {
+                let mut value = String::new();
+                let outcome = match webview.evaluate(&argument, |json| value = json.to_string()) {
+                    Ok(()) => value,
+                    Err(error) => format!("error {}", error.code()),
+                };
+                say(format!("fixture: webview_eval {argument} -> {outcome}"));
+            } else {
+                let (channel, payload) = argument.split_once('|').unwrap_or((&argument, "null"));
+                let outcome = match webview.post(channel, payload) {
+                    Ok(()) => "ok".to_string(),
+                    Err(error) => format!("error {}", error.code()),
+                };
+                say(format!("fixture: webview_post {channel} -> {outcome}"));
+            }
+        }
+        _ => {}
+    };
+    if std::thread::Builder::new().spawn(work).is_err() {
+        // Nothing to do: the thread could not start.
     }
 }
 
@@ -137,6 +189,12 @@ unsafe extern "system" fn init(host: *const ParsecOrbitHost) -> i32 {
                 )),
                 None => say(format!("fixture[{id}]: query {argument} -> not found")),
             },
+            "webview_script" | "webview_eval" | "webview_post" => {
+                let Some(cx) = (unsafe { Context::from_host(host) }) else {
+                    continue;
+                };
+                webview_action(cx, &id, action, argument);
+            }
             "fail" => result = argument.parse().unwrap_or(1),
             _ => say(format!("fixture[{id}]: unknown action {action}")),
         }

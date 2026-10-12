@@ -10,6 +10,7 @@ pub struct Artifacts {
     pub loader: PathBuf,
     pub hello: PathBuf,
     pub webview: PathBuf,
+    pub bridge: PathBuf,
     pub native: PathBuf,
     pub fixture: PathBuf,
     pub fixture_nostd: PathBuf,
@@ -49,6 +50,7 @@ pub fn artifacts() -> &'static Artifacts {
             ])
             .args(["-p", "parsec-orbit-plugin-hello"])
             .args(["-p", "parsec-orbit-plugin-high-bitrate-webview"])
+            .args(["-p", "parsec-orbit-plugin-webview-bridge"])
             .args(["-p", "parsec-orbit-plugin-high-bitrate-native"])
             .args(["-p", "parsec-orbit-fixture-plugin"])
             .args(["-p", "parsec-orbit-fixture-nostd"])
@@ -68,6 +70,7 @@ pub fn artifacts() -> &'static Artifacts {
             loader: debug.join("bcrypt.dll"),
             hello: debug.join("parsec_orbit_plugin_hello.dll"),
             webview: debug.join("parsec_orbit_plugin_high_bitrate_webview.dll"),
+            bridge: debug.join("parsec_orbit_plugin_webview_bridge.dll"),
             native: debug.join("parsec_orbit_plugin_high_bitrate_native.dll"),
             fixture: debug.join("parsec_orbit_fixture_plugin.dll"),
             fixture_nostd: debug.join("parsec_orbit_fixture_nostd.dll"),
@@ -79,6 +82,7 @@ pub fn artifacts() -> &'static Artifacts {
             &artifacts.loader,
             &artifacts.hello,
             &artifacts.webview,
+            &artifacts.bridge,
             &artifacts.native,
             &artifacts.fixture,
             &artifacts.fixture_nostd,
@@ -101,6 +105,9 @@ pub fn plugin_manifest(kind: Plugin) -> PathBuf {
             root.join("plugins/parsec-orbit-plugin-high-bitrate-webview/plugin.toml")
         }
         Plugin::Native => root.join("plugins/parsec-orbit-plugin-high-bitrate-native/plugin.toml"),
+        Plugin::WebviewBridge => {
+            root.join("plugins/parsec-orbit-plugin-webview-bridge/plugin.toml")
+        }
         Plugin::Fixture => root.join("tests/parsec-orbit-fixture-plugin/plugin.toml"),
         Plugin::FixtureNostd => root.join("tests/parsec-orbit-fixture-nostd/plugin.toml"),
         Plugin::HelloNostd => root.join("examples/parsec-orbit-plugin-hello-nostd/plugin.toml"),
@@ -111,6 +118,7 @@ pub fn plugin_manifest(kind: Plugin) -> PathBuf {
 pub enum Plugin {
     Hello,
     Webview,
+    WebviewBridge,
     Native,
     Fixture,
     FixtureNostd,
@@ -122,6 +130,7 @@ impl Plugin {
         match self {
             Plugin::Hello => &artifacts().hello,
             Plugin::Webview => &artifacts().webview,
+            Plugin::WebviewBridge => &artifacts().bridge,
             Plugin::Native => &artifacts().native,
             Plugin::Fixture => &artifacts().fixture,
             Plugin::FixtureNostd => &artifacts().fixture_nostd,

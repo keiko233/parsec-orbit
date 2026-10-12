@@ -1,0 +1,18 @@
+[package]
+name = "parsec-orbit-plugin-webview-bridge"
+description = "Parsec Orbit plugin that provides parsec-orbit.webview: scripts, evaluation and messages for the WebView2 UI"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+# The loader maps the cdylib; the rlib exists so the verification tools can
+# drive the same DevTools client without a second copy of the code.
+[lib]
+name = "parsec_orbit_plugin_webview_bridge"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+parsec-orbit-plugin-sdk-std = { path = "../../crates/parsec-orbit-plugin-sdk-std" }
+serde_json = "1"

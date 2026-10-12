@@ -17,6 +17,10 @@ client. It uses a `bcrypt.dll` proxy and does not modify Parsec files.
   discovery, dependency ordering, the service registry, per-plugin host tables.
   Specifications, design notes and the roadmap are indexed in
   [docs/](docs/README.md).
+* `plugins/parsec-orbit-plugin-webview-bridge/` - official plugin that provides
+  `parsec-orbit.webview` (scripts, evaluation and messages for the WebView2 UI
+  over the DevTools endpoint); see its
+  [README](plugins/parsec-orbit-plugin-webview-bridge/README.md).
 * `plugins/parsec-orbit-plugin-high-bitrate-webview/` - official plugin that widens the
   "Bandwidth Limit" choices in the WebView2 UI; see its
   [README](plugins/parsec-orbit-plugin-high-bitrate-webview/README.md).
@@ -61,12 +65,13 @@ test is skipped (set `PARSEC_ORBIT_REQUIRE_NODE=1` to make it fail instead).
 
 * **Unit tests** sit next to the code: ABI layout (`abi`) and the export macro
   (`sdk`), settings, logging and the forwarding thunks (`loader`), manifests,
-  plugin discovery and the descriptor checks (`core`), the DevTools client
-  (`webview`) and the signature scan and in-memory patch, run against a fake PE
-  image (`native`).
-* **Integration tests** in `plugins/parsec-orbit-plugin-high-bitrate-webview/tests/` drive
-  the DevTools client against a fake endpoint and run `assets/bandwidth.js` in
-  a fake browser under Node.
+  plugin discovery and the descriptor checks (`core`), the DevTools client and
+  the bridge session (`webview-bridge`) and the signature scan and in-memory
+  patch, run against a fake PE image (`native`).
+* **Integration tests** in `plugins/parsec-orbit-plugin-webview-bridge/tests/` drive
+  the DevTools client and the bridge session against a fake endpoint;
+  `plugins/parsec-orbit-plugin-high-bitrate-webview/tests/` runs
+  `assets/bandwidth.js` in a fake browser under Node.
 * **End-to-end tests** in `tests/parsec-orbit-e2e/` build the loader and the
   plugins into `target/e2e`, install them into a throwaway client directory
   next to a host process named `parsecd.exe`, and check the log, the files the

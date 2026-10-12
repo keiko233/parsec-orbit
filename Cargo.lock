@@ -135,6 +135,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "parsec-orbit-plugin-webview-bridge"
+version = "0.1.0"
+dependencies = [
+ "parsec-orbit-plugin-sdk-std",
+ "serde_json",
+]
+
+[[package]]
 name = "parsec-orbit-verify-callpaths"
 version = "0.1.0"
 dependencies = [
@@ -153,6 +161,7 @@ name = "parsec-orbit-verify-webview-inject"
 version = "0.1.0"
 dependencies = [
  "parsec-orbit-plugin-high-bitrate-webview",
+ "parsec-orbit-plugin-webview-bridge",
 ]
 
 [[package]]

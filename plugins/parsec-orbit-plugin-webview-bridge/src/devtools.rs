@@ -1,23 +1,17 @@
-//! WebView2 patch delivery over the DevTools protocol.
-//!
-//! The loader sets `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS`, which opens a
-//! loopback DevTools endpoint when the client uses its WebView UI; this plugin
-//! then speaks just enough of HTTP and WebSocket to drive that endpoint:
+//! The DevTools client: just enough HTTP and WebSocket to drive the
+//! endpoint the loader opens for the WebView2 UI.
 //!
 //! 1. `GET /json` to find the page target's WebSocket URL.
-//! 2. `Page.addScriptToEvaluateOnNewDocument` so the patch also survives
-//!    reloads of the web UI.
-//! 3. `Runtime.evaluate` so the patch lands in the already-loaded document.
+//! 2. Commands over the WebSocket: `Page.addScriptToEvaluateOnNewDocument`,
+//!    `Runtime.evaluate`, `Runtime.addBinding`, ...
+//! 3. Events (`Runtime.bindingCalled`) read from the same socket.
 //!
-//! The connection is then kept open (answering pings) so the registered script
-//! stays alive for the lifetime of the page.
+//! The session that keeps this alive and serves the `parsec-orbit.webview`
+//! interface is in [`crate::session`]; this module is the wire.
 
 use std::io::{ErrorKind, Read, Write};
 use std::net::{SocketAddr, TcpStream};
 use std::time::{Duration, Instant};
-
-/// Injected into the web UI; see `assets/bandwidth.js`.
-pub const BITRATE_SCRIPT: &str = include_str!("../assets/bandwidth.js");
 
 /// RFC 6455 sample key. The server response is not verified; the endpoint is
 /// loopback-only and speaks to a known local process.
@@ -25,10 +19,12 @@ const WS_KEY: &str = "dGhlIHNhbXBsZSBub25jZQ==";
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(2);
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(5);
-const IDLE_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Largest WebSocket frame accepted from the endpoint.
 const MAX_FRAME_BYTES: usize = 16 * 1024 * 1024;
+
+/// Events kept while a command waits for its reply.
+const MAX_BACKLOG: usize = 256;
 
 /// What an [`inject_once`] call achieved.
 pub struct Injection {
@@ -37,8 +33,8 @@ pub struct Injection {
     pub evaluation_result: Option<String>,
 }
 
-/// Result of attaching and keeping the session alive.
-fn attach(port: u16) -> Result<(Ws, String), String> {
+/// Finds the page target and opens a WebSocket to it.
+pub(crate) fn attach(port: u16) -> Result<(Ws, String), String> {
     let listing = http_get(port, "/json")?;
     let (target_url, ws_url) = pick_page(&listing).ok_or("no page target in /json")?;
     let path = ws_path(&ws_url).ok_or("unparsable webSocketDebuggerUrl")?;
@@ -46,60 +42,22 @@ fn attach(port: u16) -> Result<(Ws, String), String> {
     Ok((socket, target_url))
 }
 
-/// Injects the bandwidth script into the current document and closes the
-/// connection again. Used by the verification tooling and by callers that only
-/// need a one-shot patch.
-pub fn inject_once(port: u16) -> Result<Injection, String> {
+/// Injects `script` into the current document and registers it for new ones,
+/// then closes the connection again. Used by the verification tooling and by
+/// callers that only need a one-shot patch.
+pub fn inject_once(port: u16, script: &str) -> Result<Injection, String> {
     let (mut socket, target_url) = attach(port)?;
     let mut injection = Injection {
         target_url,
         new_document_script: false,
         evaluation_result: None,
     };
-    injection.new_document_script = socket.add_new_document_script(BITRATE_SCRIPT, 1)?;
-    injection.evaluation_result = socket.evaluate(BITRATE_SCRIPT, 2)?;
+    injection.new_document_script = socket.add_new_document_script(script, 1)?;
+    injection.evaluation_result = socket.evaluate(script, 2)?;
     Ok(injection)
 }
 
-/// Keeps a patch session alive forever: attach, inject, then idle until the
-/// connection drops (page reload keeps the same target, a recreated webview
-/// produces a new one) and start over.
-pub fn inject_script_forever<F: Fn(&str)>(port: u16, log: F) {
-    let mut waiting_logged = false;
-    loop {
-        match attach(port) {
-            Ok((mut socket, target_url)) => {
-                waiting_logged = false;
-                match socket.add_new_document_script(BITRATE_SCRIPT, 1) {
-                    Ok(true) => log(&format!(
-                        "webview patch registered for future documents ({target_url})"
-                    )),
-                    Ok(false) => log("webview patch registration returned no identifier"),
-                    Err(err) => log(&format!("webview patch registration failed: {err}")),
-                }
-                match socket.evaluate(BITRATE_SCRIPT, 2) {
-                    Ok(Some(result)) => log(&format!("webview bandwidth list extended: {result}")),
-                    Ok(None) => log("webview bandwidth patch evaluated"),
-                    Err(err) => log(&format!("webview bandwidth patch failed: {err}")),
-                }
-                if let Err(err) = socket.idle() {
-                    log(&format!("webview devtools session ended: {err}"));
-                }
-            }
-            Err(err) => {
-                if !waiting_logged {
-                    log(&format!(
-                        "webview devtools endpoint not available yet: {err}"
-                    ));
-                    waiting_logged = true;
-                }
-            }
-        }
-        std::thread::sleep(Duration::from_millis(1000));
-    }
-}
-
-fn http_get(port: u16, path: &str) -> Result<String, String> {
+pub(crate) fn http_get(port: u16, path: &str) -> Result<String, String> {
     let address = SocketAddr::from(([127, 0, 0, 1], port));
     let mut stream = TcpStream::connect_timeout(&address, CONNECT_TIMEOUT)
         .map_err(|err| format!("connect {address}: {err}"))?;
@@ -169,7 +127,7 @@ fn parse_content_length(header: &[u8]) -> Option<usize> {
 }
 
 /// Picks the first page target and returns `(url, webSocketDebuggerUrl)`.
-fn pick_page(listing: &str) -> Option<(String, String)> {
+pub(crate) fn pick_page(listing: &str) -> Option<(String, String)> {
     for chunk in listing.split('{') {
         let is_page = chunk.contains("\"type\": \"page\"") || chunk.contains("\"type\":\"page\"");
         if !is_page {
@@ -184,7 +142,7 @@ fn pick_page(listing: &str) -> Option<(String, String)> {
 }
 
 /// Extracts a flat string field from a JSON fragment.
-fn json_field(fragment: &str, name: &str) -> Option<String> {
+pub(crate) fn json_field(fragment: &str, name: &str) -> Option<String> {
     let key = format!("\"{name}\"");
     let start = fragment.find(&key)? + key.len();
     let rest = &fragment[start..];
@@ -211,19 +169,21 @@ fn json_field(fragment: &str, name: &str) -> Option<String> {
     None
 }
 
-fn ws_path(url: &str) -> Option<String> {
+pub(crate) fn ws_path(url: &str) -> Option<String> {
     let rest = url.strip_prefix("ws://")?;
     let slash = rest.find('/')?;
     Some(rest[slash..].to_string())
 }
 
-struct Ws {
+pub(crate) struct Ws {
     stream: TcpStream,
     pending: Vec<u8>,
+    /// Events that arrived while a command waited for its reply.
+    backlog: Vec<String>,
 }
 
 impl Ws {
-    fn connect(port: u16, path: &str) -> Result<Ws, String> {
+    pub(crate) fn connect(port: u16, path: &str) -> Result<Ws, String> {
         let address = SocketAddr::from(([127, 0, 0, 1], port));
         let stream = TcpStream::connect_timeout(&address, CONNECT_TIMEOUT)
             .map_err(|err| format!("connect {address}: {err}"))?;
@@ -278,10 +238,18 @@ impl Ws {
             ));
         }
         let pending = buffer[header_end..].to_vec();
-        Ok(Ws { stream, pending })
+        Ok(Ws {
+            stream,
+            pending,
+            backlog: Vec::new(),
+        })
     }
 
-    fn add_new_document_script(&mut self, source: &str, id: u64) -> Result<bool, String> {
+    pub(crate) fn add_new_document_script(
+        &mut self,
+        source: &str,
+        id: u64,
+    ) -> Result<bool, String> {
         let command = format!(
             "{{\"id\":{id},\"method\":\"Page.addScriptToEvaluateOnNewDocument\",\"params\":{{\"source\":{}}}}}",
             json_string(source)
@@ -291,7 +259,7 @@ impl Ws {
         Ok(!reply.contains("\"error\""))
     }
 
-    fn evaluate(&mut self, expression: &str, id: u64) -> Result<Option<String>, String> {
+    pub(crate) fn evaluate(&mut self, expression: &str, id: u64) -> Result<Option<String>, String> {
         let command = format!(
             "{{\"id\":{id},\"method\":\"Runtime.evaluate\",\"params\":{{\"expression\":{},\"returnByValue\":true,\"awaitPromise\":true}}}}",
             json_string(expression)
@@ -304,7 +272,11 @@ impl Ws {
         Ok(json_field(&reply, "value"))
     }
 
-    fn read_until_reply(&mut self, id: u64, timeout: Duration) -> Result<String, String> {
+    pub(crate) fn read_until_reply(
+        &mut self,
+        id: u64,
+        timeout: Duration,
+    ) -> Result<String, String> {
         let needle = format!("\"id\":{id}");
         let deadline = Instant::now() + timeout;
         loop {
@@ -316,6 +288,11 @@ impl Ws {
                     if text.contains(&needle) {
                         return Ok(text);
                     }
+                    // Not ours: keep events for the session, drop replies to
+                    // other commands.
+                    if text.contains("\"method\"") && self.backlog.len() < MAX_BACKLOG {
+                        self.backlog.push(text);
+                    }
                 }
                 Message::Close => return Err("websocket closed".into()),
                 Message::Ignored => {}
@@ -323,20 +300,51 @@ impl Ws {
         }
     }
 
-    /// Keeps the session alive, answering pings, until it closes or times out
-    /// after prolonged silence.
-    fn idle(&mut self) -> Result<(), String> {
-        loop {
-            let deadline = Instant::now() + IDLE_TIMEOUT;
-            match self.read_message(deadline) {
-                Ok(Some(Message::Text(_))) | Ok(Some(Message::Ignored)) | Ok(None) => continue,
-                Ok(Some(Message::Close)) => return Err("websocket closed".into()),
-                Err(err) => return Err(err),
-            }
+    /// How long a read blocks; the session polls with this.
+    pub(crate) fn set_poll_interval(&self, interval: Duration) {
+        let _ = self.stream.set_read_timeout(Some(interval));
+    }
+
+    /// Sends a command whose `params` are already JSON.
+    pub(crate) fn command(&mut self, id: u64, method: &str, params: &str) -> Result<(), String> {
+        self.send_text(&format!(
+            "{{\"id\":{id},\"method\":{},\"params\":{params}}}",
+            json_string(method)
+        ))
+    }
+
+    /// Sends a command and waits for its reply, which is returned as raw
+    /// JSON. A protocol error reply is an `Err`.
+    pub(crate) fn call(
+        &mut self,
+        id: u64,
+        method: &str,
+        params: &str,
+        timeout: Duration,
+    ) -> Result<String, String> {
+        self.command(id, method, params)?;
+        let reply = self.read_until_reply(id, timeout)?;
+        match serde_json::from_str::<serde_json::Value>(&reply) {
+            Ok(value) => match value.get("error") {
+                Some(error) => Err(format!(
+                    "{method} failed: {}",
+                    error
+                        .get("message")
+                        .and_then(|message| message.as_str())
+                        .unwrap_or("unknown error")
+                )),
+                None => Ok(reply),
+            },
+            Err(err) => Err(format!("{method}: unreadable reply: {err}")),
         }
     }
 
-    fn send_text(&mut self, payload: &str) -> Result<(), String> {
+    /// Events that arrived while commands waited for their replies.
+    pub(crate) fn take_backlog(&mut self) -> Vec<String> {
+        std::mem::take(&mut self.backlog)
+    }
+
+    pub(crate) fn send_text(&mut self, payload: &str) -> Result<(), String> {
         self.send_frame(0x1, payload.as_bytes())
     }
 
@@ -363,7 +371,7 @@ impl Ws {
         self.stream.write_all(&frame).map_err(|err| err.to_string())
     }
 
-    fn read_message(&mut self, deadline: Instant) -> Result<Option<Message>, String> {
+    pub(crate) fn read_message(&mut self, deadline: Instant) -> Result<Option<Message>, String> {
         let mut buffer: Option<Vec<u8>> = None;
         loop {
             let frame = match self.read_frame(deadline)? {
@@ -491,13 +499,13 @@ fn parse_frame(buffer: &mut Vec<u8>) -> Result<Option<RawFrame>, String> {
     }))
 }
 
-enum Message {
+pub(crate) enum Message {
     Text(String),
     Close,
     Ignored,
 }
 
-fn json_string(value: &str) -> String {
+pub(crate) fn json_string(value: &str) -> String {
     let mut out = String::with_capacity(value.len() + 2);
     out.push('"');
     for c in value.chars() {
@@ -521,7 +529,7 @@ fn json_string(value: &str) -> String {
     out
 }
 
-fn truncate(value: &str, limit: usize) -> String {
+pub(crate) fn truncate(value: &str, limit: usize) -> String {
     if value.len() <= limit {
         return value.to_string();
     }
@@ -572,11 +580,6 @@ mod tests {
         for text in ["\u{1F600}", "\u{10FFFF}", "a\u{10000}b", "\u{7f}"] {
             assert_eq!(decode(&json_string(text)), text);
         }
-    }
-
-    #[test]
-    fn json_string_round_trips_the_injected_script() {
-        assert_eq!(decode(&json_string(BITRATE_SCRIPT)), BITRATE_SCRIPT);
     }
 
     // ---- truncate ----------------------------------------------------------
@@ -912,6 +915,7 @@ mod tests {
             Ws {
                 stream: client,
                 pending: Vec::new(),
+                backlog: Vec::new(),
             },
             server,
         )
@@ -1106,23 +1110,6 @@ mod tests {
     }
 
     #[test]
-    fn idle_answers_pings_and_ends_on_close() {
-        let (mut ws, mut server) = pair();
-        server
-            .write_all(&frame(true, 0x9, b"keepalive", None))
-            .unwrap();
-        server
-            .write_all(&frame(true, 0x1, b"{\"event\":1}", None))
-            .unwrap();
-        server.write_all(&frame(true, 0x8, b"", None)).unwrap();
-        assert_eq!(ws.idle().unwrap_err(), "websocket closed");
-        assert_eq!(
-            read_client_frame(&mut server),
-            (1, 0xA, b"keepalive".to_vec())
-        );
-    }
-
-    #[test]
     fn commands_carry_the_id_method_and_escaped_source() {
         let (mut ws, mut server) = pair();
         // Replies are canned; only the outgoing commands are inspected.
@@ -1195,11 +1182,5 @@ mod tests {
         let error = ws.evaluate("x", 1).unwrap_err();
         assert!(error.len() < 400, "{} bytes", error.len());
         assert!(error.ends_with("..."));
-    }
-
-    #[test]
-    fn the_injected_script_is_the_asset() {
-        assert!(BITRATE_SCRIPT.contains("__orbitBitrateExtend"));
-        assert!(BITRATE_SCRIPT.trim_end().ends_with("})();"));
     }
 }

@@ -15,18 +15,20 @@ The native (libmatoya) UI is patched by the separate
 
 ## Files
 
-* `plugin.toml` - manifest the loader reads (`id`, `enabled`, `entry`, ...).
-* `src/lib.rs` - plugin entry point; finds the DevTools endpoint.
-* `src/webview.rs` - minimal HTTP/WebSocket client for the endpoint, plus the
-  script injection loop.
+* `plugin.toml` - manifest the loader reads (`id`, `requires`, `entry`, ...).
+* `src/lib.rs` - plugin entry point: hands the script to the bridge.
 * `assets/bandwidth.js` - the script injected into the web UI; also usable by
   hand in the DevTools console.
 
 ## Install
 
-Copy this folder (or extract `parsec-orbit-plugin-high-bitrate-webview.zip`) into the
-client's plugin directory, so that the loader finds
-`plugins\parsec-orbit-plugin-high-bitrate-webview\plugin.toml` next to `parsecd.exe`.
+This plugin needs the
+[`parsec-orbit-plugin-webview-bridge`](../parsec-orbit-plugin-webview-bridge/README.md)
+plugin, which does the talking to the DevTools endpoint (the loader skips this
+plugin with `needs com.parsec-orbit.webview-bridge, not installed` otherwise).
+Copy both folders (or extract both zips) into the client's plugin directory, so
+that the loader finds `plugins\parsec-orbit-plugin-high-bitrate-webview\plugin.toml`
+and `plugins\parsec-orbit-plugin-webview-bridge\plugin.toml` next to `parsecd.exe`.
 
 ## Disable
 
@@ -46,16 +48,15 @@ extra entries and replays the app's own `parsec_config_update` event so an
 already-rendered settings page shows them. The script is idempotent and can be
 pasted into the DevTools console.
 
-The loader opens `http://127.0.0.1:9222/json` (unless `PARSEC_ORBIT_DEVTOOLS=0`
-or `/off`/`/false`, or the user already set
-`WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` themselves), and the plugin's worker
-thread then
-
-1. polls `/json` until the page target exists,
-2. registers the script with `Page.addScriptToEvaluateOnNewDocument` so it
-   survives reloads,
-3. runs it once with `Runtime.evaluate` for the loaded document, and
-4. keeps the WebSocket open, answering pings, until the page goes away.
+The plugin calls `add_script("bandwidth", <assets/bandwidth.js>)` on the
+bridge's `parsec-orbit.webview` interface. The bridge (see its README) polls
+the DevTools endpoint the loader opened until the page exists, registers the
+script with `Page.addScriptToEvaluateOnNewDocument` so it survives reloads,
+runs it once with `Runtime.evaluate` for the loaded document, and registers it
+again if the page is recreated. The loader opens the endpoint unless
+`PARSEC_ORBIT_DEVTOOLS=0` (or `off`/`false`) or the user already set
+`WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` themselves; then the web UI is left
+untouched.
 
 `cargo run --release -p parsec-orbit-verify-webview-inject -- 9222` performs the
 same steps against a running client without restarting it.

@@ -5,17 +5,20 @@
 //! `min 0` / `max 2147483647`, but the WebView UI only offers the built-in
 //! ladder `3, 5, 7, 10, 15, 20, 25, 30, 35, 40, 45, 50 Mbps`.
 //!
-//! This plugin delivers [`webview::BITRATE_SCRIPT`] (built from
-//! `assets/bandwidth.js`) over the DevTools endpoint the loader opens and
-//! widens the dropdown to `..500 Mbps`. The loader stays responsible for the
-//! endpoint itself, so a missing plugin simply leaves the web UI untouched.
-
-pub mod webview;
+//! This plugin hands [`BITRATE_SCRIPT`] (built from `assets/bandwidth.js`) to
+//! the `parsec-orbit.webview` interface of the webview-bridge plugin, which
+//! keeps it installed in the client's WebView2 UI - in the current document and
+//! in every new one - and widens the dropdown to `..500 Mbps`. Without the
+//! bridge, or without a DevTools endpoint, the web UI is left untouched.
 
 use parsec_orbit_plugin_sdk_std::prelude::*;
+use parsec_orbit_plugin_sdk_std::services::WebViewClient;
 
-/// Port the loader opens the WebView2 DevTools endpoint on by default.
-const DEFAULT_DEVTOOLS_PORT: u16 = 9222;
+/// Injected into the web UI; see `assets/bandwidth.js`.
+pub const BITRATE_SCRIPT: &str = include_str!("../assets/bandwidth.js");
+
+/// Key of the script in the bridge. The bridge adds the plugin id.
+const SCRIPT_KEY: &str = "bandwidth";
 
 fn env(name: &str) -> Option<String> {
     std::env::var(name).ok().filter(|value| !value.is_empty())
@@ -33,38 +36,6 @@ fn enabled_with(env: &dyn Fn(&str) -> Option<String>) -> bool {
         env("PARSEC_ORBIT_PATCHES").as_deref(),
         Some("0") | Some("off") | Some("false")
     )
-}
-
-/// Port of the DevTools endpoint the loader opened, if any.
-///
-/// The loader puts `--remote-debugging-port=<port>` into
-/// `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS`. Parsing that back (instead of just
-/// trusting the environment) keeps the plugin honest when the user supplied
-/// their own browser arguments or disabled the endpoint.
-fn devtools_port() -> Option<u16> {
-    devtools_port_with(&env)
-}
-
-fn devtools_port_with(env: &dyn Fn(&str) -> Option<String>) -> Option<u16> {
-    if matches!(
-        env("PARSEC_ORBIT_DEVTOOLS").as_deref(),
-        Some("0") | Some("off") | Some("false")
-    ) {
-        return None;
-    }
-
-    if let Some(arguments) = env("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS") {
-        // The variable exists: the port has to be in it, otherwise the
-        // endpoint is not ours to use.
-        return arguments
-            .split_whitespace()
-            .find_map(|token| token.strip_prefix("--remote-debugging-port="))
-            .and_then(|value| value.parse().ok());
-    }
-
-    env("PARSEC_ORBIT_DEVTOOLS_PORT")
-        .and_then(|value| value.parse().ok())
-        .or(Some(DEFAULT_DEVTOOLS_PORT))
 }
 
 #[derive(Default)]
@@ -86,23 +57,33 @@ impl Plugin for Webview {
             return Ok(());
         }
 
-        match devtools_port() {
-            Some(port) => {
-                // The loop polls until the endpoint exists and reconnects when
-                // the page is recreated; it must not run on the loader's
-                // worker thread.
-                let cx = *cx;
-                cx.spawn("injector", move || {
-                    webview::inject_script_forever(port, |message| info!(cx, "{message}"));
-                })?;
-            }
-            None => warn!(
+        let Some(webview) = WebViewClient::new(cx) else {
+            warn!(
                 cx,
-                "no WebView2 DevTools endpoint (disabled or custom browser arguments), the web UI is left untouched"
-            ),
-        }
+                "parsec-orbit.webview is not available (is the webview bridge installed?), the web UI is left untouched"
+            );
+            return Ok(());
+        };
 
-        Ok(())
+        // The bridge keeps the script installed: it runs in the current
+        // document and in every new one, and is replayed if the page is
+        // recreated. Nothing is waited for here.
+        match webview.add_script(SCRIPT_KEY, BITRATE_SCRIPT) {
+            Ok(id) => {
+                info!(
+                    cx,
+                    "webview bandwidth patch handed to the bridge (script {id})"
+                );
+                Ok(())
+            }
+            Err(error) => {
+                error!(cx, "the bridge refused the webview patch: {error}");
+                Err(Error::with_message(
+                    error.code(),
+                    "could not hand the patch to the webview bridge",
+                ))
+            }
+        }
     }
 }
 
@@ -120,9 +101,13 @@ parsec_orbit_plugin_sdk_std::declare_plugin! {
 mod tests {
     use super::*;
     use parsec_orbit_plugin_sdk_std::testing::MockHost;
-    use parsec_orbit_plugin_sdk_std::{ParsecOrbitHost, LOG_WARN};
+    use parsec_orbit_plugin_sdk_std::{
+        ParsecOrbitHost, ParsecOrbitInterfaceHeader, ParsecOrbitWebViewV1, ERR_INVALID, LOG_INFO,
+        LOG_WARN,
+    };
     use std::collections::HashMap;
     use std::ffi::CStr;
+    use std::sync::Mutex;
 
     fn lookup(vars: &[(&str, &str)]) -> impl Fn(&str) -> Option<String> {
         let vars: HashMap<String, String> = vars
@@ -149,130 +134,88 @@ mod tests {
         }
     }
 
-    // ---- devtools_port ---------------------------------------------------------
-
-    fn port(vars: &[(&str, &str)]) -> Option<u16> {
-        devtools_port_with(&lookup(vars))
-    }
-
-    #[test]
-    fn port_defaults_to_the_loader_default() {
-        assert_eq!(port(&[]), Some(9222));
-        assert_eq!(port(&[("PARSEC_ORBIT_DEVTOOLS_PORT", "")]), Some(9222));
-    }
-
-    #[test]
-    fn port_follows_the_configured_port_variable() {
-        assert_eq!(port(&[("PARSEC_ORBIT_DEVTOOLS_PORT", "9333")]), Some(9333));
-        // Unparsable values fall back rather than switching the patch off.
-        assert_eq!(port(&[("PARSEC_ORBIT_DEVTOOLS_PORT", "nope")]), Some(9222));
-        assert_eq!(port(&[("PARSEC_ORBIT_DEVTOOLS_PORT", "70000")]), Some(9222));
-    }
-
-    #[test]
-    fn port_is_none_when_devtools_are_switched_off() {
-        for off in ["0", "off", "false"] {
-            assert_eq!(port(&[("PARSEC_ORBIT_DEVTOOLS", off)]), None, "{off}");
-            assert_eq!(
-                port(&[
-                    ("PARSEC_ORBIT_DEVTOOLS", off),
-                    (
-                        "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS",
-                        "--remote-debugging-port=9300"
-                    ),
-                ]),
-                None,
-                "the off switch wins over the browser arguments ({off})"
-            );
-        }
-        assert_eq!(port(&[("PARSEC_ORBIT_DEVTOOLS", "1")]), Some(9222));
-    }
-
-    #[test]
-    fn port_is_read_back_from_the_browser_arguments_the_loader_set() {
-        let arguments = "--remote-debugging-port=9300 --remote-allow-origins=*";
-        assert_eq!(
-            port(&[("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", arguments)]),
-            Some(9300)
-        );
-        // The arguments are authoritative even if the port variable differs.
-        assert_eq!(
-            port(&[
-                ("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", arguments),
-                ("PARSEC_ORBIT_DEVTOOLS_PORT", "9444"),
-            ]),
-            Some(9300)
-        );
-        assert_eq!(
-            port(&[(
-                "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS",
-                "--foo --remote-allow-origins=* --remote-debugging-port=1234 --bar"
-            )]),
-            Some(1234)
-        );
-    }
-
-    #[test]
-    fn port_is_none_when_the_user_brought_their_own_browser_arguments() {
-        // The variable exists but names no debugging port: the endpoint is not
-        // ours, so the plugin must not guess one.
-        for arguments in [
-            "--user-flag",
-            "--remote-debugging-port=abc",
-            "--remote-debugging-port=",
-            "--remote-debugging-port=99999",
-            "--remote-debugging-pipe",
-        ] {
-            assert_eq!(
-                port(&[
-                    ("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", arguments),
-                    ("PARSEC_ORBIT_DEVTOOLS_PORT", "9444"),
-                ]),
-                None,
-                "{arguments}"
-            );
-        }
-    }
-
     // ---- init ----------------------------------------------------------------
 
     #[test]
     fn init_refuses_a_missing_or_too_small_host_table() {
         assert_eq!(
             unsafe { ParsecOrbitPluginInit(std::ptr::null()) },
-            parsec_orbit_plugin_sdk_std::ERR_INVALID
+            ERR_INVALID
         );
         let mut tiny = ParsecOrbitHost::blank();
         tiny.struct_size = 8;
-        assert_eq!(
-            unsafe { ParsecOrbitPluginInit(&tiny) },
-            parsec_orbit_plugin_sdk_std::ERR_INVALID
-        );
+        assert_eq!(unsafe { ParsecOrbitPluginInit(&tiny) }, ERR_INVALID);
     }
 
-    /// Never reaches the code that connects to a DevTools port, so it cannot
-    /// touch a client that is really running on this machine. The connecting
-    /// path is covered against a fake endpoint in `tests/` and in the e2e
-    /// crate. The only test that mutates the environment.
+    static REGISTERED: Mutex<Vec<(String, String)>> = Mutex::new(Vec::new());
+
+    unsafe extern "system" fn add_script(
+        key: *const u8,
+        key_len: usize,
+        script: *const u8,
+        script_len: usize,
+    ) -> i64 {
+        let text = |pointer: *const u8, len: usize| {
+            String::from_utf8_lossy(unsafe { std::slice::from_raw_parts(pointer, len) })
+                .into_owned()
+        };
+        REGISTERED
+            .lock()
+            .unwrap()
+            .push((text(key, key_len), text(script, script_len)));
+        5
+    }
+
+    static BRIDGE: ParsecOrbitWebViewV1 = ParsecOrbitWebViewV1 {
+        header: ParsecOrbitInterfaceHeader::new(std::mem::size_of::<ParsecOrbitWebViewV1>(), 1, 0),
+        is_ready: None,
+        add_script: Some(add_script),
+        remove_script: None,
+        evaluate: None,
+        subscribe: None,
+        unsubscribe: None,
+        post: None,
+    };
+
+    /// The only test that mutates the environment.
     #[test]
-    fn init_stays_idle_or_warns_without_ever_spawning_the_injector() {
+    fn init_hands_the_script_to_the_bridge_or_leaves_the_ui_alone() {
         let host = MockHost::new("com.parsec-orbit.webview");
 
+        // Switched off: nothing is looked up, nothing is registered.
         std::env::set_var("PARSEC_ORBIT_PATCHES", "0");
         assert!(host.init::<Webview>().1.is_ok());
         assert!(host.logged("webview ui patches"));
         assert!(host.logged("stays idle"));
         std::env::remove_var("PARSEC_ORBIT_PATCHES");
 
-        std::env::set_var("PARSEC_ORBIT_DEVTOOLS", "off");
+        // No bridge: a warning, still a success - the UI is simply untouched.
+        host.clear_logs();
         assert!(host.init::<Webview>().1.is_ok());
-        assert!(host.logged("no WebView2 DevTools endpoint"));
-        let warned = host
+        assert!(host
             .logs()
             .iter()
-            .any(|line| line.level == LOG_WARN && line.message.contains("no WebView2"));
-        assert!(warned, "the missing endpoint is a warning");
-        std::env::remove_var("PARSEC_ORBIT_DEVTOOLS");
+            .any(|line| line.level == LOG_WARN && line.message.contains("webview bridge")));
+        assert!(REGISTERED.lock().unwrap().is_empty());
+
+        // With the bridge the script is registered under the plugin's key.
+        host.provide("parsec-orbit.webview", &BRIDGE.header);
+        host.clear_logs();
+        assert!(host.init::<Webview>().1.is_ok());
+        assert!(host
+            .logs()
+            .iter()
+            .any(|line| line.level == LOG_INFO && line.message.contains("(script 5)")));
+        let registered = REGISTERED.lock().unwrap();
+        assert_eq!(registered.len(), 1);
+        assert_eq!(registered[0].0, "com.parsec-orbit.webview/bandwidth");
+        assert_eq!(registered[0].1, BITRATE_SCRIPT);
+    }
+
+    #[test]
+    fn the_script_is_the_asset() {
+        assert!(BITRATE_SCRIPT.contains("__orbitBitrateExtend"));
+        assert!(BITRATE_SCRIPT.contains("const EXTRA_MBPS = ["));
     }
 
     // ---- descriptor ---------------------------------------------------------------
@@ -311,6 +254,17 @@ mod tests {
         assert_eq!(
             manifest_value("entry"),
             "parsec_orbit_plugin_high_bitrate_webview.dll"
+        );
+    }
+
+    /// Without the bridge the plugin does nothing, so the loader has to load
+    /// the bridge first.
+    #[test]
+    fn the_manifest_requires_the_bridge() {
+        let manifest = include_str!("../plugin.toml");
+        assert!(
+            manifest.contains("requires = [\"com.parsec-orbit.webview-bridge\"]"),
+            "{manifest}"
         );
     }
 }

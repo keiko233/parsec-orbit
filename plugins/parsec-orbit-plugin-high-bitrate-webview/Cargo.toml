@@ -8,7 +8,7 @@ repository.workspace = true
 publish = false
 
 # The loader maps the cdylib; the rlib exists so the verification tools can
-# drive the same DevTools client without a second copy of the code.
+# reach the patch script.
 [lib]
 name = "parsec_orbit_plugin_high_bitrate_webview"
 crate-type = ["cdylib", "rlib"]

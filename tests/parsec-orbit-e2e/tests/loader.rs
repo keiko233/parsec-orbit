@@ -84,6 +84,7 @@ fn log_lines_have_the_documented_shape() {
 #[test]
 fn the_official_plugins_load_with_their_shipped_manifests() {
     let sandbox = client("official");
+    sandbox.install_plugin("webview-bridge", Plugin::WebviewBridge);
     sandbox.install_plugin("webview", Plugin::Webview);
     sandbox.install_plugin("native", Plugin::Native);
 
@@ -99,7 +100,7 @@ fn the_official_plugins_load_with_their_shipped_manifests() {
         ))
         .assert_log_contains(&format!("webview ui patches {v} starting"))
         .assert_log_contains(&format!("native ui patches {v} starting"))
-        .assert_log_contains("ready: 2 loaded, 0 skipped, 0 failed");
+        .assert_log_contains("ready: 3 loaded, 0 skipped, 0 failed");
 }
 
 #[test]
@@ -366,13 +367,14 @@ fn a_plugin_of_a_kind_nobody_serves_is_skipped_with_a_hint() {
 fn the_official_plugins_agree_with_their_manifests() {
     let sandbox = client("manifest-agreement");
     sandbox.install_plugin("native", Plugin::Native);
+    sandbox.install_plugin("webview-bridge", Plugin::WebviewBridge);
     sandbox.install_plugin("webview", Plugin::Webview);
     sandbox.install_plugin("hello", Plugin::Hello);
 
     let run = run_client(&sandbox);
     run.assert_success()
         .assert_log_lacks("disagree on")
-        .assert_log_contains("ready: 3 loaded, 0 skipped, 0 failed");
+        .assert_log_contains("ready: 4 loaded, 0 skipped, 0 failed");
 }
 
 #[test]
@@ -784,11 +786,12 @@ fn bandwidth_script() -> String {
 fn the_webview_plugin_delivers_the_script_through_the_endpoint_the_loader_opened() {
     let devtools = FakeDevTools::start();
     let sandbox = client("webview-inject");
+    sandbox.install_plugin("webview-bridge", Plugin::WebviewBridge);
     sandbox.install_plugin("webview", Plugin::Webview);
 
     let run = sandbox.run(
         CLIENT,
-        "webview bandwidth list extended: installed",
+        "script com.parsec-orbit.webview/bandwidth installed",
         |command| {
             command
                 .env_remove("PARSEC_ORBIT_DEVTOOLS")
@@ -800,9 +803,8 @@ fn the_webview_plugin_delivers_the_script_through_the_endpoint_the_loader_opened
             "devtools enabled: http://127.0.0.1:{}/json",
             devtools.port
         ))
-        .assert_log_contains(
-            "webview patch registered for future documents (https://web.parsec.test/)",
-        );
+        .assert_log_contains("devtools session attached (https://web.parsec.test/)")
+        .assert_log_contains("webview bandwidth patch handed to the bridge");
     assert_eq!(
         run.value("webview2_args").unwrap(),
         format!(
@@ -811,21 +813,83 @@ fn the_webview_plugin_delivers_the_script_through_the_endpoint_the_loader_opened
         )
     );
 
-    let commands = devtools.wait_for_commands(2);
+    // The bridge sets up the session (events, the binding, the page helper)
+    // and then installs the plugin's script like any other.
+    let commands = devtools.wait_for_commands(6);
     let script = bandwidth_script();
+    let methods: Vec<&str> = commands
+        .iter()
+        .map(|command| command["method"].as_str().unwrap())
+        .collect();
     assert_eq!(
-        commands[0]["method"],
-        "Page.addScriptToEvaluateOnNewDocument"
+        methods,
+        [
+            "Runtime.enable",
+            "Runtime.addBinding",
+            "Page.addScriptToEvaluateOnNewDocument",
+            "Runtime.evaluate",
+            "Page.addScriptToEvaluateOnNewDocument",
+            "Runtime.evaluate"
+        ]
     );
-    assert_eq!(commands[0]["params"]["source"], script.as_str());
-    assert_eq!(commands[1]["method"], "Runtime.evaluate");
-    assert_eq!(commands[1]["params"]["expression"], script.as_str());
+    assert_eq!(commands[1]["params"]["name"], "__orbitSend");
+    assert!(commands[2]["params"]["source"]
+        .as_str()
+        .unwrap()
+        .contains("window.__orbit"));
+    assert_eq!(commands[4]["params"]["source"], script.as_str());
+    assert_eq!(commands[5]["params"]["expression"], script.as_str());
+}
+
+/// A native plugin uses `parsec-orbit.webview` through the SDK client: the
+/// bridge starts its session on the first call and serves script, evaluate and
+/// post from there.
+#[test]
+fn a_native_plugin_uses_the_webview_service_of_the_bridge() {
+    let devtools = FakeDevTools::start();
+    let sandbox = client("webview-native-consumer");
+    sandbox.install_plugin("webview-bridge", Plugin::WebviewBridge);
+    sandbox.install_fixture(
+        "consumer",
+        &fixture_manifest("fx.ui", "requires = [\"com.parsec-orbit.webview-bridge\"]"),
+        "webview_script=hello|window.hello = 1;\nwebview_eval=1+1\nwebview_post=greeting|{\"x\":1}\n",
+    );
+
+    let run = sandbox.run(CLIENT, "webview_post greeting -> ok", |command| {
+        command
+            .env_remove("PARSEC_ORBIT_DEVTOOLS")
+            .env("PARSEC_ORBIT_DEVTOOLS_PORT", devtools.port.to_string());
+    });
+    run.assert_success()
+        .assert_log_contains("fixture: webview_script hello -> id 1")
+        .assert_log_contains("fixture: webview_eval 1+1 -> \"installed\"")
+        .assert_log_contains("fixture: webview_post greeting -> ok")
+        .assert_log_contains("script fx.ui/hello installed");
+
+    let commands = devtools.wait_for_commands(8);
+    let expressions: Vec<&str> = commands
+        .iter()
+        .filter(|command| command["method"] == "Runtime.evaluate")
+        .map(|command| command["params"]["expression"].as_str().unwrap())
+        .collect();
+    assert!(
+        expressions.contains(&"window.hello = 1;"),
+        "{expressions:?}"
+    );
+    assert!(expressions.contains(&"1+1"), "{expressions:?}");
+    assert!(
+        expressions
+            .iter()
+            .any(|e| e.contains("__deliver(\"greeting\", {\"x\":1})")),
+        "{expressions:?}"
+    );
 }
 
 #[test]
 fn the_webview_plugin_stays_away_when_patches_are_switched_off() {
     let devtools = FakeDevTools::start();
     let sandbox = client("webview-off");
+    sandbox.install_plugin("webview-bridge", Plugin::WebviewBridge);
     sandbox.install_plugin("webview", Plugin::Webview);
 
     let run = sandbox.run(CLIENT, "ready:", |command| {
@@ -838,10 +902,11 @@ fn the_webview_plugin_stays_away_when_patches_are_switched_off() {
         .assert_log_contains("the webview plugin stays idle")
         .assert_log_contains("loaded com.parsec-orbit.webview");
 
+    // The bridge connects only when somebody needs the page.
     std::thread::sleep(Duration::from_millis(1500));
     assert!(
         devtools.requests.lock().unwrap().is_empty(),
-        "the plugin must not connect"
+        "nothing must connect"
     );
     assert!(devtools.commands.lock().unwrap().is_empty());
 }
@@ -850,6 +915,7 @@ fn the_webview_plugin_stays_away_when_patches_are_switched_off() {
 fn the_webview_plugin_leaves_the_ui_alone_when_the_user_set_their_own_browser_arguments() {
     let devtools = FakeDevTools::start();
     let sandbox = client("webview-custom-args");
+    sandbox.install_plugin("webview-bridge", Plugin::WebviewBridge);
     sandbox.install_plugin("webview", Plugin::Webview);
 
     let run = sandbox.run(CLIENT, "ready:", |command| {
@@ -873,6 +939,7 @@ fn the_webview_plugin_keeps_retrying_until_the_endpoint_appears() {
         listener.local_addr().unwrap().port()
     };
     let sandbox = client("webview-late");
+    sandbox.install_plugin("webview-bridge", Plugin::WebviewBridge);
     sandbox.install_plugin("webview", Plugin::Webview);
 
     let starter = {
@@ -882,7 +949,7 @@ fn the_webview_plugin_keeps_retrying_until_the_endpoint_appears() {
         command
             .arg(loader)
             .arg(log)
-            .arg("webview bandwidth list extended: installed")
+            .arg("script com.parsec-orbit.webview/bandwidth installed")
             .arg("30");
         sandbox.base_environment(&mut command);
         command
@@ -922,5 +989,5 @@ fn the_webview_plugin_keeps_retrying_until_the_endpoint_appears() {
         "{}",
         String::from_utf8_lossy(&output.stdout)
     );
-    assert_eq!(commands.lock().unwrap().len(), 2);
+    assert_eq!(commands.lock().unwrap().len(), 6);
 }

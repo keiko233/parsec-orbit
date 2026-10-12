@@ -1,0 +1,14 @@
+# Metadata for the loader. Official plugin that provides the
+# `parsec-orbit.webview` interface: scripts that stay installed in the
+# WebView2 UI, evaluation and messages, over the DevTools endpoint the loader
+# opens.
+id = "com.parsec-orbit.webview-bridge"
+name = "WebView Bridge"
+version = "0.1.0"
+kind = "dll"
+entry = "parsec_orbit_plugin_webview_bridge.dll"
+author = "Parsec Orbit contributors"
+description = "Provides parsec-orbit.webview: scripts, evaluation and messages for the WebView2 UI"
+license = "MIT"
+api = 1
+enabled = true

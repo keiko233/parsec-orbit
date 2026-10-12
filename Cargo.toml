@@ -6,6 +6,7 @@ members = [
     "crates/parsec-orbit-plugin-sdk",
     "crates/parsec-orbit-plugin-sdk-std",
     "crates/parsec-orbit-core",
+    "plugins/parsec-orbit-plugin-webview-bridge",
     "plugins/parsec-orbit-plugin-high-bitrate-webview",
     "plugins/parsec-orbit-plugin-high-bitrate-native",
     "examples/parsec-orbit-plugin-hello",
