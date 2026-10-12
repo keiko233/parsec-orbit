@@ -4,10 +4,9 @@
 # changelog. Two separate workflows so Release always checks out the bump
 # commit behind the tag.
 #
-# Setup (once): create a PAT with contents read+write and save it as the
-# `PUBLISH_TOKEN` repository secret (Settings -> Secrets -> Actions). The tag
-# must be pushed with this token: a tag pushed with GITHUB_TOKEN does NOT
-# trigger the Release workflow.
+# Requires Settings -> Actions -> General -> Workflow permissions set to
+# "Read and write permissions" so this workflow can push the bump commit
+# and the version tag.
 #
 # Run from the Actions tab: Publish -> Run workflow -> version e.g. 0.1.0.
 # A leading "v" is accepted and stripped (v0.1.0 -> 0.1.0).
@@ -28,20 +27,9 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     steps:
-      - name: Check the publish token
-        shell: bash
-        env:
-          PUBLISH_TOKEN: ${{ secrets.PUBLISH_TOKEN }}
-        run: |
-          if [ -z "$PUBLISH_TOKEN" ]; then
-            echo "secrets.PUBLISH_TOKEN is not set; add a PAT (contents read+write) as PUBLISH_TOKEN so the pushed tag triggers Release." >&2
-            exit 1
-          fi
-
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          token: ${{ secrets.PUBLISH_TOKEN }}
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
