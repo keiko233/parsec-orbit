@@ -41,10 +41,12 @@ jobs:
       - name: Install pnpm
         run: npm install --global pnpm@11
 
-      # Builds the TypeScript sample that the end-to-end tests load.
+      # Builds the TypeScript SDK, then the sample that the end-to-end tests
+      # load (the sample type-checks against the SDK's built declarations).
       - name: JavaScript SDK and sample
         run: |
           pnpm install --frozen-lockfile
+          pnpm -r build
           pnpm -r test
 
       - name: Check formatting

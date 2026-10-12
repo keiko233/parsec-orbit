@@ -62,7 +62,7 @@ directory and `%TEMP%`, and mirrors every line to the debugger output.
 ## Tests
 
 ```powershell
-pnpm install; pnpm -r test    # the JavaScript SDK and the TypeScript sample (builds it)
+pnpm install; pnpm -r build; pnpm -r test   # the JavaScript SDK and the sample
 cargo test --workspace
 ```
 
