@@ -14,9 +14,20 @@
 //! skipped instead of being loaded.
 
 use std::collections::HashSet;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use parsec_orbit_plugin_abi::ABI_VERSION;
+
+/// A manifest `entry` has to stay inside the plugin directory. Absolute paths
+/// and `..` components would otherwise let a manifest map a DLL from anywhere
+/// on the host.
+fn manifest_entry_stays_inside(entry: &Path) -> bool {
+    !entry.as_os_str().is_empty()
+        && !entry.is_absolute()
+        && entry
+            .components()
+            .all(|component| matches!(component, Component::Normal(_) | Component::CurDir))
+}
 
 use crate::activate::activate;
 use crate::manifest::{describe, read_manifest};
@@ -79,6 +90,9 @@ fn load_plugin_dir(env: Env, dir: &Path, scan: &mut Scan, seen: &mut HashSet<Str
     let manifest = match read_manifest(&manifest_path) {
         Ok(manifest) => manifest,
         Err(error) => {
+            // The toml parser formats errors over several lines; the loader log
+            // is line-oriented and prefixes one line per decision.
+            let error = error.lines().collect::<Vec<_>>().join(" ");
             log.error(&format!("{}: {error}", manifest_path.display()));
             scan.summary.failed += 1;
             return;
@@ -119,6 +133,15 @@ fn load_plugin_dir(env: Env, dir: &Path, scan: &mut Scan, seen: &mut HashSet<Str
         .unwrap_or_else(|| KIND_DLL.to_string());
     match kind.as_str() {
         KIND_DLL => {
+            if let Some(entry) = &manifest.entry {
+                if !manifest_entry_stays_inside(Path::new(entry)) {
+                    log.warn(&format!(
+                        "{label}: manifest entry escapes the plugin directory"
+                    ));
+                    scan.summary.failed += 1;
+                    return;
+                }
+            }
             let entry = manifest
                 .entry
                 .as_ref()
@@ -399,6 +422,27 @@ mod tests {
         );
         // No exports at all, so activation fails.
         assert_eq!(result.summary.failed, 1);
+    }
+
+    #[test]
+    fn scan_rejects_a_manifest_entry_that_escapes_the_plugin_directory() {
+        let dir = TempDir::new("scan-entry-escape");
+        dir.write(
+            "p/plugin.toml",
+            "id = \"escape\"\nentry = \"../evil.dll\"\n",
+        );
+        let platform = Fake {
+            exports: Exports::default(),
+            seen: RefCell::default(),
+        };
+        let (result, log) = run(&platform, &[dir.path()]);
+
+        assert!(
+            platform.seen.borrow().is_empty(),
+            "the entry was never mapped"
+        );
+        assert_eq!(result.summary.failed, 1);
+        assert!(log.mentions("manifest entry escapes the plugin directory"));
     }
 
     struct DescCell(ParsecOrbitPluginDesc);

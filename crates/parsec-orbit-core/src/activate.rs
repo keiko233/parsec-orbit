@@ -15,6 +15,8 @@ unsafe fn text(pointer: *const u8) -> Option<String> {
     if pointer.is_null() {
         return None;
     }
+    // Safety: the plugin descriptor contract requires NUL-terminated UTF-8
+    // strings that stay valid for the lifetime of the module.
     unsafe { CStr::from_ptr(pointer as *const _) }
         .to_str()
         .ok()
@@ -59,6 +61,9 @@ pub fn activate(
     if descriptor.is_null() {
         return Err("query returned no descriptor".to_string());
     }
+    // Safety: the query export must return a readable descriptor of at least
+    // `size_of::<ParsecOrbitPluginDesc>()` bytes; the following size check
+    // rejects a smaller `struct_size` before any tail fields are read.
     let descriptor = unsafe { &*descriptor };
 
     let struct_size = descriptor.struct_size as usize;

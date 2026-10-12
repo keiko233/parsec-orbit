@@ -57,7 +57,7 @@ name = "parsec-orbit-loader"
 version = "0.1.0"
 dependencies = [
  "parsec-orbit-core",
- "parsec-orbit-plugin-sdk",
+ "parsec-orbit-plugin-abi",
  "windows-sys",
 ]
 

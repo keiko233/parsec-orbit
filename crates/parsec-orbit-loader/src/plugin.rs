@@ -11,7 +11,7 @@ use std::path::Path;
 use std::sync::{Mutex, OnceLock};
 
 use parsec_orbit_core::{Env, Exports, Loaded, Logger, Module, Platform};
-use parsec_orbit_plugin_sdk::{
+use parsec_orbit_plugin_abi::{
     InitFn, LegacyInitFn, ParsecOrbitHost, QueryFn, ShutdownFn, ABI_VERSION, EXPORT_INIT,
     EXPORT_LEGACY_INIT, EXPORT_QUERY, EXPORT_SHUTDOWN,
 };

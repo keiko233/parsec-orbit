@@ -53,8 +53,15 @@ pub fn read_manifest(path: &Path) -> Result<Manifest, String> {
         api: table
             .get("api")
             .and_then(|value| value.get_ref().as_integer())
-            .and_then(|value| value.as_str().parse::<i64>().ok())
-            .unwrap_or(ABI_VERSION as i64) as u32,
+            .map(
+                |value| match i64::from_str_radix(value.as_str(), value.radix()) {
+                    // Invalid or overflowing values must be incompatible rather than
+                    // truncate to a value the loader happens to implement.
+                    Ok(api) if api >= 0 => u32::try_from(api).unwrap_or(u32::MAX),
+                    _ => u32::MAX,
+                },
+            )
+            .unwrap_or(ABI_VERSION),
         enabled: table
             .get("enabled")
             .and_then(|value| value.get_ref().as_bool())
@@ -139,6 +146,17 @@ mod tests {
     fn manifest_with_a_negative_api_is_not_accepted_as_compatible() {
         let manifest = manifest_of("api = -1\n").unwrap();
         assert!(manifest.api > ABI_VERSION);
+    }
+
+    #[test]
+    fn manifest_api_uses_the_toml_radix() {
+        assert_eq!(manifest_of("api = 0x10\n").unwrap().api, 16);
+    }
+
+    #[test]
+    fn manifest_api_rejects_values_outside_u32() {
+        assert!(manifest_of("api = 4294967296\n").unwrap().api > ABI_VERSION);
+        assert!(manifest_of("api = 18446744073709551616\n").unwrap().api > ABI_VERSION);
     }
 
     #[test]

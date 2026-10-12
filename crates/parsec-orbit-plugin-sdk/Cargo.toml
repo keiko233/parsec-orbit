@@ -9,7 +9,7 @@ readme = "../../README.md"
 publish = false
 
 [dependencies]
-parsec-orbit-plugin-abi = { path = "../parsec-orbit-plugin-abi" }
+parsec-orbit-plugin-abi = { version = "0.1.0", path = "../parsec-orbit-plugin-abi" }
 
 [lib]
 name = "parsec_orbit_plugin_sdk"
