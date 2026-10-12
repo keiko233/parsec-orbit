@@ -14,7 +14,7 @@ name = "parsec_orbit_plugin_webview"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-parsec-orbit-plugin-sdk = { path = "../../parsec-orbit-plugin-sdk" }
+parsec-orbit-plugin-sdk = { path = "../../crates/parsec-orbit-plugin-sdk" }
 
 [dev-dependencies]
 serde_json = "1"

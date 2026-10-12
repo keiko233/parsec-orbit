@@ -5,10 +5,10 @@ client. It uses a `bcrypt.dll` proxy and does not modify Parsec files.
 
 ## Layout
 
-* `parsec-orbit-loader/` - the `bcrypt.dll` proxy. It forwards every export to
+* `crates/parsec-orbit-loader/` - the `bcrypt.dll` proxy. It forwards every export to
   the real `bcrypt.dll`, opens the WebView2 DevTools endpoint and hosts the
   plugin system.
-* `parsec-orbit-plugin-sdk/` - the plugin ABI; see the
+* `crates/parsec-orbit-plugin-sdk/` - the plugin ABI; see the
   [plugin ABI reference](docs/spec/plugin-abi.md). Specifications, design
   notes and the SDK roadmap are indexed in [docs/](docs/README.md).
 * `plugins/parsec-orbit-plugin-webview/` - official plugin that widens the

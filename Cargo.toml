@@ -1,8 +1,8 @@
 [workspace]
 resolver = "2"
 members = [
-    "parsec-orbit-loader",
-    "parsec-orbit-plugin-sdk",
+    "crates/parsec-orbit-loader",
+    "crates/parsec-orbit-plugin-sdk",
     "plugins/parsec-orbit-plugin-webview",
     "plugins/parsec-orbit-plugin-native",
     "examples/parsec-orbit-plugin-hello",

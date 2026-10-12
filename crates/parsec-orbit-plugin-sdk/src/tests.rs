@@ -66,7 +66,7 @@ fn abi_constants_are_stable() {
 /// it must not drift from the constants.
 #[test]
 fn abi_document_matches_the_sdk() {
-    let doc = include_str!("../../docs/spec/plugin-abi.md");
+    let doc = include_str!("../../../docs/spec/plugin-abi.md");
     for export in [
         EXPORT_QUERY,
         EXPORT_INIT,

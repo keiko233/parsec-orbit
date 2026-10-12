@@ -5,7 +5,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-readme = "../README.md"
+readme = "../../README.md"
 publish = false
 
 # The file name is the whole point: the client statically imports bcrypt.dll

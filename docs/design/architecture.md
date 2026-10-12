@@ -52,7 +52,7 @@ sdk/js/     @parsec-orbit/sdk (TypeScript)                                      
 tests/      parsec-orbit-e2e;  verify/  verification tools
 ```
 
-Directory moves: `parsec-orbit-loader/` and `parsec-orbit-plugin-sdk/` move under `crates/`; the SDK splits into `-abi` and `-sdk`. Scripts, CI and README paths are updated in the same commit.
+Directory layout: the loader and the SDK live under `crates/` (done); the SDK still has to be split into `-abi` and `-sdk` (Phase 1).
 
 ## Size policy
 
