@@ -9,7 +9,9 @@
 
 use std::ffi::c_void;
 use std::path::Path;
+use std::sync::atomic::Ordering;
 use std::sync::mpsc::Sender;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use boa_engine::object::builtins::{JsFunction, JsPromise};
@@ -201,31 +203,32 @@ fn deferred(context: &mut JsContext) -> (JsPromise, u64) {
 /// outcome: JSON on success (empty means `undefined`), a message on failure.
 ///
 /// Every call blocks a thread, so a script that fires calls without awaiting
-/// them cannot spawn unbounded work: past `MAX_TASKS` the promise is rejected
-/// instead.
+/// them cannot spawn unbounded work: past `MAX_TASKS` in flight for this
+/// context the promise is rejected instead. The count is per context, so one
+/// plugin cannot exhaust another plugin's budget.
 fn task(
     context: &mut JsContext,
     work: impl FnOnce() -> Result<String, String> + Send + 'static,
 ) -> JsResult<JsValue> {
-    /// Helper threads waiting on the bridge, across every context.
     const MAX_TASKS: usize = 32;
-    static TASKS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    let tasks = with_state(|state| Arc::clone(&state.tasks));
 
-    if TASKS.fetch_add(1, std::sync::atomic::Ordering::SeqCst) >= MAX_TASKS {
-        TASKS.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+    if tasks.fetch_add(1, Ordering::SeqCst) >= MAX_TASKS {
+        tasks.fetch_sub(1, Ordering::SeqCst);
         return rejected("too many webview calls in flight", context);
     }
     let (promise, id) = deferred(context);
     let tx = with_state(|state| state.tx.clone());
+    let counter = Arc::clone(&tasks);
     let spawned = std::thread::Builder::new()
         .name("js-task".to_string())
         .spawn(move || {
             let outcome = work();
-            TASKS.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+            counter.fetch_sub(1, Ordering::SeqCst);
             let _ = tx.send(Command::Settled { id, outcome });
         });
     if spawned.is_err() {
-        TASKS.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+        tasks.fetch_sub(1, Ordering::SeqCst);
         settle(
             context,
             id,
@@ -450,6 +453,17 @@ pub(crate) struct Subscriber {
     pub(crate) channel: String,
 }
 
+/// Whether the bridge confirmed it dropped the subscription. "Not found" also
+/// counts: a subscription the bridge does not know cannot call back. Any other
+/// failure leaves it possibly live, so the caller leaks the subscriber instead
+/// of freeing it under the bridge's feet.
+fn unsubscribed(webview: &WebViewClient, id: i64) -> bool {
+    match webview.unsubscribe(id) {
+        Ok(()) => true,
+        Err(error) => error.code() == parsec_orbit_plugin_sdk_std::ERR_NOT_FOUND,
+    }
+}
+
 unsafe extern "system" fn on_page_message(user: *mut c_void, message: *const u8, len: usize) {
     // Safety: `user` is a leaked `Subscriber`, `message` is valid for the call.
     let subscriber = unsafe { &*(user as *const Subscriber) };
@@ -549,12 +563,14 @@ fn remove_handler(channel: &str, local: u64) {
         (last, bridge_id, subscriber)
     });
     if last {
-        if let Some(webview) = webview_client() {
-            let _ = webview.unsubscribe(bridge_id);
+        // Only free once the bridge confirmed it will not call back any more:
+        // `unsubscribe` does not return while one of its callbacks is running.
+        let confirmed = webview_client().is_some_and(|webview| unsubscribed(&webview, bridge_id));
+        if confirmed {
+            // Safety: the bridge no longer holds the subscription and the
+            // channel is gone from the state, so nothing can reach this box.
+            drop(unsafe { Box::from_raw(subscriber) });
         }
-        // Safety: `unsubscribe` does not return while a callback of this
-        // subscription is running, and the channel is gone from the state.
-        drop(unsafe { Box::from_raw(subscriber) });
     }
 }
 
@@ -604,15 +620,15 @@ pub fn unsubscribe_all() {
         state.channels.clear();
         (state.spec.webview, subscriptions)
     });
-    if let Some(webview) = webview {
-        for (id, _) in &subscriptions {
-            let _ = webview.unsubscribe(*id);
+    for (id, subscriber) in subscriptions {
+        let confirmed = webview
+            .as_ref()
+            .is_some_and(|webview| unsubscribed(webview, id));
+        if confirmed {
+            // Safety: as in `remove_handler`; the context is going away too,
+            // so no callback can reach the inbox any more.
+            drop(unsafe { Box::from_raw(subscriber) });
         }
-    }
-    for (_, subscriber) in subscriptions {
-        // Safety: as in `remove_handler`; the context is going away too, so no
-        // callback can reach the inbox any more.
-        drop(unsafe { Box::from_raw(subscriber) });
     }
 }
 

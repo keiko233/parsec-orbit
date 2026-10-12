@@ -14,7 +14,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::rc::Rc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -190,6 +190,9 @@ pub(crate) struct State {
     pub spec: Spec,
     pub tx: Sender<Command>,
     pub stopped: Arc<AtomicBool>,
+    /// Helper threads this context has in flight, capped by `host::task`.
+    /// Per context, so one plugin cannot reject another plugin's calls.
+    pub tasks: Arc<AtomicUsize>,
     pub timers: Vec<Timer>,
     pub next_timer: u64,
     pub pending: HashMap<u64, ResolvingFunctions>,
@@ -349,6 +352,7 @@ fn run(spec: Spec, tx: Sender<Command>, inbox: Receiver<Command>) {
             spec: spec.clone(),
             tx,
             stopped: stopped.clone(),
+            tasks: Arc::new(AtomicUsize::new(0)),
             timers: Vec::new(),
             next_timer: 0,
             pending: HashMap::new(),
