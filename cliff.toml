@@ -2,12 +2,12 @@
 #
 # Used by .github/workflows/release.yml to build the GitHub Release notes:
 #
-#   git cliff --latest --strip all --output RELEASE_NOTES.md
+#   git-cliff --latest --strip all --output RELEASE_NOTES.md
 #
 # Preview locally with:
 #
-#   git cliff --unreleased --strip all
-#   git cliff --output CHANGELOG.md
+#   git-cliff --unreleased --strip all
+#   git-cliff --output CHANGELOG.md
 #
 # The repo follows conventional commits (feat:, fix:, refactor:, chore:, ...),
 # so no extra git history rewriting is needed.
