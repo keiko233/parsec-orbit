@@ -61,11 +61,11 @@ jobs:
         shell: pwsh
         run: |
           if ('${{ github.ref_type }}' -eq 'tag') {
-            git cliff --latest --strip all --output RELEASE_NOTES.md
+            git-cliff --latest --strip all --output RELEASE_NOTES.md
           } else {
-            git cliff --unreleased --strip all --output RELEASE_NOTES.md
+            git-cliff --unreleased --strip all --output RELEASE_NOTES.md
           }
-          git cliff --output CHANGELOG.md
+          git-cliff --output CHANGELOG.md
           Write-Host '--- release notes ---'
           Get-Content RELEASE_NOTES.md
 
