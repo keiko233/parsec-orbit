@@ -1,0 +1,19 @@
+[package]
+name = "parsec-orbit-fixture-nostd"
+description = "Test fixture: a no_std plugin that exercises the freestanding runtime, chosen by the suffix of its id"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[lib]
+name = "parsec_orbit_fixture_nostd"
+crate-type = ["cdylib"]
+
+[dependencies]
+parsec-orbit-plugin-sdk = { path = "../../crates/parsec-orbit-plugin-sdk" }
+
+[dev-dependencies]
+# `testing::MockHost` for the unit tests; the plugin itself never links `std`.
+parsec-orbit-plugin-sdk-std = { path = "../../crates/parsec-orbit-plugin-sdk-std" }

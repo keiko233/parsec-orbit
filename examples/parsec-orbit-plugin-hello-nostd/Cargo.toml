@@ -1,0 +1,19 @@
+[package]
+name = "parsec-orbit-plugin-hello-nostd"
+description = "The smallest Parsec Orbit plugin: no_std, no C runtime, a few kilobytes"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[lib]
+name = "parsec_orbit_plugin_hello_nostd"
+crate-type = ["cdylib"]
+
+[dependencies]
+parsec-orbit-plugin-sdk = { path = "../../crates/parsec-orbit-plugin-sdk" }
+
+[dev-dependencies]
+# `testing::MockHost` for the unit tests; the plugin itself never links `std`.
+parsec-orbit-plugin-sdk-std = { path = "../../crates/parsec-orbit-plugin-sdk-std" }

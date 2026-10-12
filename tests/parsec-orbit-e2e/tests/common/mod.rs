@@ -12,6 +12,8 @@ pub struct Artifacts {
     pub webview: PathBuf,
     pub native: PathBuf,
     pub fixture: PathBuf,
+    pub fixture_nostd: PathBuf,
+    pub hello_nostd: PathBuf,
     pub callpaths: PathBuf,
     pub roundtrip: PathBuf,
 }
@@ -49,6 +51,8 @@ pub fn artifacts() -> &'static Artifacts {
             .args(["-p", "parsec-orbit-plugin-high-bitrate-webview"])
             .args(["-p", "parsec-orbit-plugin-high-bitrate-native"])
             .args(["-p", "parsec-orbit-fixture-plugin"])
+            .args(["-p", "parsec-orbit-fixture-nostd"])
+            .args(["-p", "parsec-orbit-plugin-hello-nostd"])
             .args(["-p", "parsec-orbit-verify-callpaths"])
             .args(["-p", "parsec-orbit-verify-roundtrip"])
             .output()
@@ -66,6 +70,8 @@ pub fn artifacts() -> &'static Artifacts {
             webview: debug.join("parsec_orbit_plugin_high_bitrate_webview.dll"),
             native: debug.join("parsec_orbit_plugin_high_bitrate_native.dll"),
             fixture: debug.join("parsec_orbit_fixture_plugin.dll"),
+            fixture_nostd: debug.join("parsec_orbit_fixture_nostd.dll"),
+            hello_nostd: debug.join("parsec_orbit_plugin_hello_nostd.dll"),
             callpaths: debug.join("callpaths.exe"),
             roundtrip: debug.join("roundtrip.exe"),
         };
@@ -75,6 +81,8 @@ pub fn artifacts() -> &'static Artifacts {
             &artifacts.webview,
             &artifacts.native,
             &artifacts.fixture,
+            &artifacts.fixture_nostd,
+            &artifacts.hello_nostd,
             &artifacts.callpaths,
             &artifacts.roundtrip,
         ] {
@@ -94,6 +102,8 @@ pub fn plugin_manifest(kind: Plugin) -> PathBuf {
         }
         Plugin::Native => root.join("plugins/parsec-orbit-plugin-high-bitrate-native/plugin.toml"),
         Plugin::Fixture => root.join("tests/parsec-orbit-fixture-plugin/plugin.toml"),
+        Plugin::FixtureNostd => root.join("tests/parsec-orbit-fixture-nostd/plugin.toml"),
+        Plugin::HelloNostd => root.join("examples/parsec-orbit-plugin-hello-nostd/plugin.toml"),
     }
 }
 
@@ -103,6 +113,8 @@ pub enum Plugin {
     Webview,
     Native,
     Fixture,
+    FixtureNostd,
+    HelloNostd,
 }
 
 impl Plugin {
@@ -112,6 +124,8 @@ impl Plugin {
             Plugin::Webview => &artifacts().webview,
             Plugin::Native => &artifacts().native,
             Plugin::Fixture => &artifacts().fixture,
+            Plugin::FixtureNostd => &artifacts().fixture_nostd,
+            Plugin::HelloNostd => &artifacts().hello_nostd,
         }
     }
 }
@@ -194,6 +208,25 @@ entry = \"{}\"
         )
         .unwrap();
         std::fs::write(target.join("fixture.cfg"), script).unwrap();
+        target
+    }
+
+    /// The no_std fixture in `<client>\plugins\<dir>` under the given plugin id.
+    pub fn install_nostd_fixture(&self, dir: &str, id: &str) -> PathBuf {
+        let target = self.client.join("plugins").join(dir);
+        std::fs::create_dir_all(&target).unwrap();
+        let dll = Plugin::FixtureNostd.dll();
+        std::fs::copy(dll, target.join(dll.file_name().unwrap())).unwrap();
+        std::fs::write(
+            target.join("plugin.toml"),
+            format!(
+                "id = \"{id}\"
+entry = \"{}\"
+",
+                dll.file_name().unwrap().to_string_lossy()
+            ),
+        )
+        .unwrap();
         target
     }
 
@@ -315,3 +348,78 @@ impl Run {
 
 /// Version the loader announces (it follows the workspace version).
 pub const LOADER_VERSION: &str = env!("CARGO_PKG_VERSION");
+
+// ---- PE headers ------------------------------------------------------------
+
+fn u16_at(bytes: &[u8], offset: usize) -> usize {
+    u16::from_le_bytes([bytes[offset], bytes[offset + 1]]) as usize
+}
+
+fn u32_at(bytes: &[u8], offset: usize) -> usize {
+    u32::from_le_bytes(bytes[offset..offset + 4].try_into().unwrap()) as usize
+}
+
+/// Locates a 64-bit PE image's data directory `index`, and a function that
+/// maps RVAs to file offsets.
+fn pe_directory(bytes: &[u8], index: usize) -> (usize, impl Fn(usize) -> usize + '_) {
+    assert_eq!(&bytes[..2], b"MZ");
+    let nt = u32_at(bytes, 0x3C);
+    assert_eq!(&bytes[nt..nt + 4], b"PE\0\0");
+    let section_count = u16_at(bytes, nt + 6);
+    let optional_size = u16_at(bytes, nt + 20);
+    let optional = nt + 24;
+    assert_eq!(u16_at(bytes, optional), 0x20B, "expected a PE32+ image");
+    let rva = u32_at(bytes, optional + 112 + index * 8);
+    let sections = optional + optional_size;
+    let to_offset = move |rva: usize| -> usize {
+        for section in 0..section_count {
+            let header = sections + section * 40;
+            let virtual_size = u32_at(bytes, header + 8);
+            let virtual_address = u32_at(bytes, header + 12);
+            let raw_size = u32_at(bytes, header + 16);
+            let raw_pointer = u32_at(bytes, header + 20);
+            if rva >= virtual_address && rva < virtual_address + virtual_size.max(raw_size) {
+                return rva - virtual_address + raw_pointer;
+            }
+        }
+        panic!("RVA 0x{rva:X} is in no section");
+    };
+    (rva, to_offset)
+}
+
+fn c_string_at(bytes: &[u8], offset: usize) -> String {
+    let end = bytes[offset..].iter().position(|b| *b == 0).unwrap() + offset;
+    String::from_utf8(bytes[offset..end].to_vec()).unwrap()
+}
+
+/// Names in the export table of a 64-bit PE image, in table order.
+pub fn pe_export_names(bytes: &[u8]) -> Vec<String> {
+    let (rva, to_offset) = pe_directory(bytes, 0);
+    if rva == 0 {
+        return Vec::new();
+    }
+    let directory = to_offset(rva);
+    let count = u32_at(bytes, directory + 24);
+    let names = to_offset(u32_at(bytes, directory + 32));
+    (0..count)
+        .map(|index| c_string_at(bytes, to_offset(u32_at(bytes, names + index * 4))))
+        .collect()
+}
+
+/// DLLs named in the import table of a 64-bit PE image.
+pub fn pe_imported_dlls(bytes: &[u8]) -> Vec<String> {
+    let (rva, to_offset) = pe_directory(bytes, 1);
+    if rva == 0 {
+        return Vec::new();
+    }
+    let mut descriptor = to_offset(rva);
+    let mut dlls = Vec::new();
+    while u32_at(bytes, descriptor + 12) != 0 {
+        dlls.push(c_string_at(
+            bytes,
+            to_offset(u32_at(bytes, descriptor + 12)),
+        ));
+        descriptor += 20;
+    }
+    dlls
+}

@@ -43,14 +43,16 @@
 ```text
 parsec-orbit-plugin-abi      no_std, zero deps. repr(C) types, constants, service structs.      [crates.io]
         ^
-        |-- parsec-orbit-plugin-sdk   safe Rust API on top of the ABI; no_std by default.        [crates.io]
+        |-- parsec-orbit-plugin-sdk   safe Rust API + freestanding runtime; no_std, never std. [crates.io]
+        |       ^
+        |       +-- parsec-orbit-plugin-sdk-std   threads, panic hook, tracing bridge, MockHost   [crates.io]
         |-- parsec-orbit-core         loader logic (std; toml parse-only)
                 ^
                 +-- parsec-orbit-loader   cdylib named `bcrypt`
 
-plugins/    parsec-orbit-plugin-high-bitrate-native, parsec-orbit-plugin-high-bitrate-webview (official)   -> sdk
+plugins/    parsec-orbit-plugin-high-bitrate-native, parsec-orbit-plugin-high-bitrate-webview (official)   -> sdk-std
             (Phase 4) js-runtime, webview-bridge                                  -> sdk + heavy deps
-examples/   parsec-orbit-plugin-hello  (+ nostd variant)                          -> sdk
+examples/   parsec-orbit-plugin-hello (-> sdk-std), parsec-orbit-plugin-hello-nostd (-> sdk)
 sdk/js/     @parsec-orbit/sdk (TypeScript)                                        [npm]
 tests/      parsec-orbit-e2e;  verify/  verification tools
 ```
@@ -64,16 +66,17 @@ The loader was just reduced from ~520 KB to ~340 KB; that is the baseline to pro
 | Artifact | Budget | Mechanism |
 | --- | --- | --- |
 | loader `bcrypt.dll` | <= 360 KiB (368,640 B; the phase-2 release build is 368,128 B = 359.5 KiB, 512 B headroom) | no async runtime, no serde, no `tracing` unless measured to fit |
-| minimal Rust plugin | goal: well below the current ~210 KB std `hello` | `no_std` SDK default, `panic=abort`, `opt-level=z`, LTO, strip, CRT static |
+| minimal Rust plugin | goal: well below the current ~210 KB std `hello` | CRT-free `no_std` recipe (`freestanding!`), `panic=abort`, `opt-level=z`, LTO, strip |
 | JS runtime plugin | unconstrained (separate download) | Boa + tokio/ractor live here only |
 
-How the SDK keeps plugins small is specified in [spec/rust-sdk.md](../spec/rust-sdk.md#size-policy): `no_std` + a small freestanding runtime (allocator on the process heap, panic handler that logs and aborts), and *services over statically linked functionality* - the host and service plugins expose vtables so a plugin does not embed its own HTTP/WebSocket/JS stack.
+How the SDK keeps plugins small is specified in [spec/rust-sdk.md](../spec/rust-sdk.md#size-policy): `no_std` + a small freestanding runtime (allocator on the process heap, panic handler that logs and fast-fails), and *services over statically linked functionality* - the host and service plugins expose vtables so a plugin does not embed its own HTTP/WebSocket/JS stack.
 
 ## Concurrency and logging policy
 
 * The loader has one worker thread and runs plugin `init` on it sequentially in
   dependency order. Plugins that need to run long must spawn their own thread
-  (`Context::spawn`, `std` feature) and return from `init`.
+  (`ContextExt::spawn` from `parsec-orbit-plugin-sdk-std`) and return from
+  `init`.
 * **Logging**: the loader owns the log file. Plugins log through the host (`log_ex`, with the plugin id as target). The SDK's own macros need no dependencies; the `tracing` feature adds a `tracing::Subscriber` that forwards to the host so ecosystem crates' events end up in the same file. The loader itself adopts `tracing-core` only if the size budget allows ([ADR 0004](decisions/0004-loader-stays-light.md)).
 * **Actors**: `ractor` is adopted in the heavy plugins. The JS runtime runs each JS plugin's Boa context (which is not `Send`) inside its own actor on a dedicated thread; the webview bridge runs the DevTools session as an actor with supervised reconnects. Neither the loader nor the Rust SDK depends on `ractor`.
 

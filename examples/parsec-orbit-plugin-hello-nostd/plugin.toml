@@ -1,0 +1,9 @@
+id = "com.example.hello-nostd"
+name = "Hello Plugin (no_std)"
+version = "0.1.0"
+kind = "dll"
+entry = "parsec_orbit_plugin_hello_nostd.dll"
+author = "Parsec Orbit contributors"
+description = "Smallest possible plugin: no_std and no C runtime"
+license = "MIT"
+api = 1

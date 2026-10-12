@@ -1,12 +1,14 @@
-//! Smallest useful Parsec Orbit plugin.
+//! Smallest useful Parsec Orbit plugin that uses `std`.
 //!
-//! It shows the three things a plugin normally does: report its descriptor
-//! through `parsec_orbit_plugin!`, talk to the loader through `ParsecOrbitHost`, and
-//! return 0 from init when everything is fine.
+//! It shows what a plugin normally does: describe itself with
+//! `declare_plugin!`, talk to the loader through the [`Context`] that `init`
+//! receives, and return `Ok` when everything is fine. This one writes a small
+//! report file, which needs `std`; see `hello-nostd` for a plugin that is
+//! a tenth of the size.
 
 use std::path::PathBuf;
 
-use parsec_orbit_plugin_sdk::{ParsecOrbitHost, LOG_INFO};
+use parsec_orbit_plugin_sdk_std::prelude::*;
 
 const BUILD: u32 = 0x0001;
 
@@ -21,82 +23,58 @@ fn report_path() -> Option<PathBuf> {
         })
 }
 
-unsafe extern "system" fn init(host: *const ParsecOrbitHost) -> i32 {
-    let host = unsafe { &*host };
-    let loader = host.loader_version().unwrap_or("unknown");
+#[derive(Default)]
+struct Hello;
 
-    host.log(
-        LOG_INFO,
-        &format!("hello-plugin has been loaded by Parsec Orbit {loader}"),
-    );
+impl Plugin for Hello {
+    fn init(&mut self, cx: &Context) -> Result {
+        let loader = cx.loader_version();
 
-    let Some(path) = report_path() else {
-        host.log(LOG_INFO, "APPDATA is not set, skipping the report file");
-        return 0;
-    };
-    if let Some(parent) = path.parent() {
-        let _ = std::fs::create_dir_all(parent);
-    }
-    let report = format!(
-        "Parsec Orbit hello-plugin\nbuild={BUILD}\npid={}\nloader={loader}\n",
-        std::process::id()
-    );
-    match std::fs::write(&path, report) {
-        Ok(()) => {
-            host.log(LOG_INFO, &format!("wrote {}", path.display()));
-            0
+        info!(cx, "hello-plugin has been loaded by Parsec Orbit {loader}");
+
+        let Some(path) = report_path() else {
+            info!(cx, "APPDATA is not set, skipping the report file");
+            return Ok(());
+        };
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
         }
-        Err(error) => {
-            host.log(
-                parsec_orbit_plugin_sdk::LOG_ERROR,
-                &format!("could not write {}: {error}", path.display()),
-            );
-            1
+        let report = format!(
+            "Parsec Orbit hello-plugin\nbuild={BUILD}\npid={}\nloader={loader}\n",
+            std::process::id()
+        );
+        match std::fs::write(&path, report) {
+            Ok(()) => {
+                info!(cx, "wrote {}", path.display());
+                Ok(())
+            }
+            Err(error) => {
+                error!(cx, "could not write {}: {error}", path.display());
+                Err(Error::with_message(1, "could not write the report file"))
+            }
         }
     }
 }
 
-parsec_orbit_plugin_sdk::parsec_orbit_plugin! {
+parsec_orbit_plugin_sdk_std::declare_plugin! {
     id = "com.example.hello",
     name = "Hello Plugin",
     version = "0.1.0",
     author = "Parsec Orbit contributors",
     description = "Example plugin that logs and writes a report file",
     license = "MIT",
-    init = init,
+    plugin = Hello,
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use parsec_orbit_plugin_sdk::{ABI_VERSION, LOG_ERROR};
+    use parsec_orbit_plugin_sdk_std::testing::MockHost;
+    use parsec_orbit_plugin_sdk_std::{ABI_VERSION, LOG_ERROR};
     use std::ffi::CStr;
-    use std::sync::Mutex;
 
-    static LOGGED: Mutex<Vec<(u32, String)>> = Mutex::new(Vec::new());
-
-    unsafe extern "system" fn record(level: u32, message: *const u8, len: usize) {
-        let bytes = unsafe { std::slice::from_raw_parts(message, len) };
-        LOGGED
-            .lock()
-            .unwrap()
-            .push((level, String::from_utf8_lossy(bytes).into_owned()));
-    }
-
-    fn host() -> ParsecOrbitHost {
-        ParsecOrbitHost {
-            log: Some(record),
-            loader_version: b"9.9.9\0".as_ptr(),
-            ..ParsecOrbitHost::blank()
-        }
-    }
-
-    fn logged(text: &str) -> bool {
-        LOGGED
-            .lock()
-            .unwrap()
-            .iter()
-            .any(|(_, message)| message.contains(text))
+    fn host() -> MockHost {
+        MockHost::new("com.example.hello").with_loader_version("9.9.9")
     }
 
     fn scratch(label: &str) -> PathBuf {
@@ -116,8 +94,8 @@ mod tests {
         // 1. A usable %APPDATA%: report written, init succeeds.
         let appdata = scratch("ok");
         std::env::set_var("APPDATA", &appdata);
-        assert_eq!(unsafe { init(&host) }, 0);
-        assert!(logged("hello-plugin has been loaded by Parsec Orbit 9.9.9"));
+        assert!(host.init::<Hello>().1.is_ok());
+        assert!(host.logged("hello-plugin has been loaded by Parsec Orbit 9.9.9"));
         let report =
             std::fs::read_to_string(appdata.join("ParsecOrbit").join("hello-plugin.log")).unwrap();
         assert!(
@@ -133,8 +111,8 @@ mod tests {
 
         // 2. No %APPDATA%: nothing to write, still a success.
         std::env::set_var("APPDATA", "");
-        assert_eq!(unsafe { init(&host) }, 0);
-        assert!(logged("APPDATA is not set, skipping the report file"));
+        assert!(host.init::<Hello>().1.is_ok());
+        assert!(host.logged("APPDATA is not set, skipping the report file"));
 
         // 3. %APPDATA% is a file, so the directory cannot be created: the
         // failure is reported to the loader and init returns non-zero.
@@ -142,12 +120,11 @@ mod tests {
         let file = blocked.join("not-a-directory");
         std::fs::write(&file, "x").unwrap();
         std::env::set_var("APPDATA", &file);
-        assert_eq!(unsafe { init(&host) }, 1);
-        assert!(LOGGED
-            .lock()
-            .unwrap()
+        assert_eq!(host.init::<Hello>().1.unwrap_err().code(), 1);
+        assert!(host
+            .logs()
             .iter()
-            .any(|(level, message)| *level == LOG_ERROR && message.contains("could not write")));
+            .any(|line| line.level == LOG_ERROR && line.message.contains("could not write")));
 
         std::env::remove_var("APPDATA");
         let _ = std::fs::remove_dir_all(appdata);

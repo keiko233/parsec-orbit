@@ -13,6 +13,12 @@
 //! ```
 //!
 //! Every action logs one `fixture[<id>]: ...` line so a test can assert on it.
+//!
+//! It is written against the raw ABI on purpose (the deprecated
+//! `parsec_orbit_plugin!` macro included), so the end-to-end suite keeps
+//! covering plugins that do not use the `Plugin` trait.
+
+#![allow(deprecated)]
 
 use std::ffi::CString;
 use std::path::Path;
