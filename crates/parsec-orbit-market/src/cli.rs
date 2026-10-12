@@ -4,7 +4,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use crate::index::{Index, Plugin, Release, FORMAT};
-use crate::install::{InstallOptions, Market};
+use crate::install::{InstallOptions, LoadedIndex, Market};
 use crate::package;
 use crate::source::Fetch;
 use crate::trust;
@@ -170,18 +170,30 @@ pub fn run(
     };
     let options = parse(rest)?;
     let say = |out: &mut dyn Write, text: String| writeln!(out, "{text}").map_err(Error::from);
+    // `--allow-unsigned` waves an index through, but the reason it was not
+    // accepted still matters: a missing signature and a bad one are not the
+    // same risk.
+    let warn_unsigned = |out: &mut dyn Write, index: &LoadedIndex| -> Result<(), Error> {
+        if index.signed {
+            return Ok(());
+        }
+        let detail = index
+            .signature_note
+            .as_deref()
+            .map(|note| format!(" ({note})"))
+            .unwrap_or_default();
+        say(
+            out,
+            format!("warning: the index is not signed by a trusted key{detail}"),
+        )
+    };
 
     match command.as_str() {
         "help" | "--help" | "-h" => say(out, USAGE.trim_end().to_string()),
         "list" => {
             let market = market(&options, env, fetch)?;
             let index = market.load_index(&index_location(&options, env)?)?;
-            if !index.signed {
-                say(
-                    out,
-                    "warning: the index is not signed by a trusted key".to_string(),
-                )?;
-            }
+            warn_unsigned(out, &index)?;
             let installed = market.installed()?;
             for plugin in &index.index.plugins {
                 let latest = plugin.select(None, market.api).map(|r| r.version.clone());
@@ -217,12 +229,7 @@ pub fn run(
             let id = one(&options, "plugin id")?.to_string();
             let market = market(&options, env, fetch)?;
             let index = market.load_index(&index_location(&options, env)?)?;
-            if !index.signed {
-                say(
-                    out,
-                    "warning: the index is not signed by a trusted key".to_string(),
-                )?;
-            }
+            warn_unsigned(out, &index)?;
             let done = market.install(
                 &index,
                 &id,
@@ -628,6 +635,8 @@ mod tests {
             listed.contains("warning: the index is not signed"),
             "{listed}"
         );
+        // ... and says why: no signature is not the same as a bad one.
+        assert!(listed.contains("there is no signature"), "{listed}");
         assert!(listed.contains("com.example.p  1.0.0"));
 
         let installed = command(&["install", "com.example.p", "--allow-unsigned"], &env).unwrap();
@@ -636,6 +645,70 @@ mod tests {
             .0
             .join("roaming/ParsecOrbit/plugins/com.example.p/plugin.toml")
             .is_file());
+    }
+
+    #[test]
+    fn a_signature_that_does_not_verify_is_named_when_it_is_waved_through() {
+        let publisher = Dir::new("tamper");
+        write_package(&publisher, "com.example.p", "1.0.0", "");
+        let none = Vars(HashMap::new());
+        let index = publisher.path("index.json");
+        command(&["index", &publisher.path(""), "--out", &index], &none).unwrap();
+        let key_file = publisher.path("market");
+        let public = command(&["keygen", &key_file], &none)
+            .unwrap()
+            .lines()
+            .find(|line| line.starts_with("ed25519 "))
+            .unwrap()
+            .to_string();
+        let keys = publisher.path("trusted-keys.txt");
+        std::fs::write(&keys, format!("{public}\n")).unwrap();
+        let plugins = publisher.path("plugins");
+        command(
+            &["sign", &index, "--key", &format!("{key_file}.key")],
+            &none,
+        )
+        .unwrap();
+
+        // The index is edited after it was signed.
+        let edited = std::fs::read_to_string(&index)
+            .unwrap()
+            .replace("com.example.p", "com.example.q");
+        std::fs::write(&index, edited).unwrap();
+
+        let error = command(
+            &[
+                "list",
+                "--index",
+                &index,
+                "--keys",
+                &keys,
+                "--plugins-dir",
+                &plugins,
+            ],
+            &none,
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(
+            error.contains("no trusted key signed this index"),
+            "{error}"
+        );
+        let listed = command(
+            &[
+                "list",
+                "--index",
+                &index,
+                "--keys",
+                &keys,
+                "--plugins-dir",
+                &plugins,
+                "--allow-unsigned",
+            ],
+            &none,
+        )
+        .unwrap();
+        assert!(listed.contains("the signature did not verify"), "{listed}");
     }
 
     #[test]

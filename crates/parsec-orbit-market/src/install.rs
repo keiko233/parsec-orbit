@@ -54,6 +54,10 @@ pub struct LoadedIndex {
     pub location: String,
     /// Whether a trusted key signed it.
     pub signed: bool,
+    /// Why the signature was not accepted, when `--allow-unsigned` let the
+    /// index through anyway. A missing signature and one that failed to
+    /// verify read very differently to whoever decides to trust it.
+    pub signature_note: Option<String>,
 }
 
 /// Options of an install.
@@ -102,17 +106,18 @@ impl<'a> Market<'a> {
             .fetch
             .fetch(&format!("{location}.sig"), 4096)
             .map(|bytes| String::from_utf8_lossy(&bytes).into_owned());
+        let mut signature_note = None;
         let signed = match signature {
             Ok(signature) => match trust::verify(&bytes, &signature, &self.trusted) {
                 Ok(_) => true,
                 Err(error) if self.allow_unsigned => {
-                    let _ = error;
+                    signature_note = Some(format!("the signature did not verify: {error}"));
                     false
                 }
                 Err(error) => return Err(error),
             },
             Err(error) if self.allow_unsigned => {
-                let _ = error;
+                signature_note = Some(format!("there is no signature: {error}"));
                 false
             }
             Err(_) => {
@@ -125,6 +130,7 @@ impl<'a> Market<'a> {
             index: Index::parse(&bytes)?,
             location: location.to_string(),
             signed,
+            signature_note,
         })
     }
 

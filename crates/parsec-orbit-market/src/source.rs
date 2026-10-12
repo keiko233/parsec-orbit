@@ -24,6 +24,15 @@ fn file_path(location: &str) -> PathBuf {
     PathBuf::from(path)
 }
 
+/// Whether `location` names something on this machine: a `file://` URL, a
+/// Windows drive path or a UNC share (`\\host\share` and `//host/share`).
+fn is_local(location: &str) -> bool {
+    location.starts_with("file://")
+        || location.starts_with("\\\\")
+        || location.starts_with("//")
+        || Path::new(location).is_absolute()
+}
+
 impl Fetch for Real {
     fn fetch(&self, location: &str, limit: u64) -> Result<Vec<u8>, Error> {
         if !is_url(location) {
@@ -66,8 +75,32 @@ impl Fetch for Real {
 }
 
 /// `relative` as seen from `base`: absolute locations stay as they are, the
-/// rest is looked up next to the file (or URL) `base`.
+/// rest is looked up next to the file (or URL) `base`. An index fetched over
+/// http(s) may only name http(s) locations: a path or UNC share in a remote
+/// index would read the user's disk and, on Windows, hand credentials to the
+/// share's host.
 pub fn resolve(base: &str, relative: &str) -> Result<String, Error> {
+    if is_url(base) {
+        if is_url(relative) {
+            return Ok(relative.to_string());
+        }
+        if is_local(relative) {
+            return Err(Error::Index(format!(
+                "{relative:?} in an index fetched over http(s) is not an http(s) location"
+            )));
+        }
+        if relative.split(['/', '\\']).any(|part| part == "..") {
+            return Err(Error::Index(format!(
+                "{relative:?} climbs out of the index folder"
+            )));
+        }
+        let cut = base.rfind('/').map_or(base.len(), |at| at + 1);
+        return Ok(format!(
+            "{}{}",
+            &base[..cut],
+            relative.trim_start_matches("./")
+        ));
+    }
     if is_url(relative) || relative.starts_with("file://") || Path::new(relative).is_absolute() {
         return Ok(relative.to_string());
     }
@@ -75,14 +108,6 @@ pub fn resolve(base: &str, relative: &str) -> Result<String, Error> {
         return Err(Error::Index(format!(
             "{relative:?} climbs out of the index folder"
         )));
-    }
-    if is_url(base) {
-        let cut = base.rfind('/').map_or(base.len(), |at| at + 1);
-        return Ok(format!(
-            "{}{}",
-            &base[..cut],
-            relative.trim_start_matches("./")
-        ));
     }
     let parent = file_path(base)
         .parent()
@@ -148,6 +173,30 @@ pub(crate) mod tests {
         assert!(resolve("https://example.com/orbit/index.json", "../x.zip").is_err());
         assert!(resolve("index.json", "a/../../x.zip").is_err());
         assert!(resolve("index.json", "a\\..\\x.zip").is_err());
+    }
+
+    #[test]
+    fn a_remote_index_can_only_name_remote_locations() {
+        for local in [
+            "C:\\market\\p.zip",
+            "\\\\host\\share\\p.zip",
+            "//host/share/p.zip",
+            "file:///C:/market/p.zip",
+        ] {
+            assert!(
+                resolve("https://example.com/orbit/index.json", local).is_err(),
+                "{local} was accepted"
+            );
+        }
+        // The same locations are fine when the index itself is a local file:
+        // that is how a folder of zips is installed.
+        for local in ["C:\\market\\p.zip", "\\\\host\\share\\p.zip"] {
+            assert_eq!(
+                resolve("C:\\market\\index.json", local).unwrap(),
+                local,
+                "{local} was refused for a local index"
+            );
+        }
     }
 
     #[test]
