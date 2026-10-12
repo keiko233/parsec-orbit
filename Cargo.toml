@@ -4,15 +4,18 @@ members = [
     "crates/parsec-orbit-loader",
     "crates/parsec-orbit-plugin-abi",
     "crates/parsec-orbit-plugin-sdk",
+    "crates/parsec-orbit-plugin-sdk-std",
     "crates/parsec-orbit-core",
     "plugins/parsec-orbit-plugin-high-bitrate-webview",
     "plugins/parsec-orbit-plugin-high-bitrate-native",
     "examples/parsec-orbit-plugin-hello",
+    "examples/parsec-orbit-plugin-hello-nostd",
     "verify/parsec-orbit-verify-callpaths",
     "verify/parsec-orbit-verify-roundtrip",
     "verify/parsec-orbit-verify-webview-inject",
     "tests/parsec-orbit-e2e",
     "tests/parsec-orbit-fixture-plugin",
+    "tests/parsec-orbit-fixture-nostd",
 ]
 
 [workspace.package]
@@ -20,6 +23,11 @@ version = "0.1.0"
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/keiko233/parsec-orbit"
+
+# A `no_std` plugin cannot unwind, so it needs `panic = "abort"` in every
+# profile it is built with, not only in release.
+[profile.dev]
+panic = "abort"
 
 [profile.release]
 panic = "abort"

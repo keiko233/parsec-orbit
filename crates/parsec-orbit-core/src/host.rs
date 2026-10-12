@@ -90,6 +90,9 @@ impl Registry {
     /// Returns [`OK`], [`ERR_INVALID`] (bad name, null or misaligned table,
     /// header smaller than itself, reserved name of a third party) or
     /// [`ERR_EXISTS`].
+    // The table comes from plugin code through the ABI: null and alignment
+    // are checked, the rest is the plugin's promise.
+    #[allow(clippy::not_unsafe_ptr_arg_deref)]
     pub fn register(
         &mut self,
         owner: &str,
@@ -177,7 +180,9 @@ fn registry() -> MutexGuard<'static, Registry> {
         .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
-/// Registers an interface in the process wide registry.
+/// Registers an interface in the process wide registry. See
+/// [`Registry::register`] for the checks and the result.
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub fn register(owner: &str, name: &str, table: *const ParsecOrbitInterfaceHeader) -> i32 {
     let result = registry().register(owner, name, table);
     match result {

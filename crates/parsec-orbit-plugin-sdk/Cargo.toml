@@ -1,11 +1,13 @@
 [package]
 name = "parsec-orbit-plugin-sdk"
-description = "SDK for writing Parsec Orbit plugins: the ABI re-exported plus the export macro"
+description = "SDK for writing Parsec Orbit plugins: Plugin trait, Context, logging, services, and a freestanding runtime for tiny no_std DLLs"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-readme = "../../README.md"
+keywords = ["parsec", "plugin", "sdk", "no_std", "windows"]
+categories = ["development-tools", "no-std", "os::windows-apis"]
+rust-version = "1.81"
 publish = false
 
 [dependencies]
@@ -14,3 +16,7 @@ parsec-orbit-plugin-abi = { version = "0.1.0", path = "../parsec-orbit-plugin-ab
 [lib]
 name = "parsec_orbit_plugin_sdk"
 path = "src/lib.rs"
+
+[package.metadata.docs.rs]
+default-target = "x86_64-pc-windows-msvc"
+targets = ["x86_64-pc-windows-msvc"]

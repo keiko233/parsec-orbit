@@ -1,0 +1,7 @@
+id = "com.example.fixture-nostd"
+name = "Fixture (no_std)"
+version = "0.1.0"
+entry = "parsec_orbit_fixture_nostd.dll"
+author = "Parsec Orbit contributors"
+description = "Exercises the freestanding runtime"
+license = "MIT"

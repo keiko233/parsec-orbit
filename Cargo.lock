@@ -37,6 +37,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf8baf1c55e62ffcace7a9f06f4bd9cd3f0c4beb022d3b367256b91b87513d98"
 
 [[package]]
+name = "once_cell"
+version = "1.21.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
+
+[[package]]
 name = "parsec-orbit-core"
 version = "0.1.0"
 dependencies = [
@@ -50,6 +56,14 @@ version = "0.1.0"
 dependencies = [
  "serde_json",
  "windows-sys",
+]
+
+[[package]]
+name = "parsec-orbit-fixture-nostd"
+version = "0.1.0"
+dependencies = [
+ "parsec-orbit-plugin-sdk",
+ "parsec-orbit-plugin-sdk-std",
 ]
 
 [[package]]
@@ -76,14 +90,22 @@ version = "0.1.0"
 name = "parsec-orbit-plugin-hello"
 version = "0.1.0"
 dependencies = [
+ "parsec-orbit-plugin-sdk-std",
+]
+
+[[package]]
+name = "parsec-orbit-plugin-hello-nostd"
+version = "0.1.0"
+dependencies = [
  "parsec-orbit-plugin-sdk",
+ "parsec-orbit-plugin-sdk-std",
 ]
 
 [[package]]
 name = "parsec-orbit-plugin-high-bitrate-native"
 version = "0.1.0"
 dependencies = [
- "parsec-orbit-plugin-sdk",
+ "parsec-orbit-plugin-sdk-std",
  "windows-sys",
 ]
 
@@ -91,7 +113,7 @@ dependencies = [
 name = "parsec-orbit-plugin-high-bitrate-webview"
 version = "0.1.0"
 dependencies = [
- "parsec-orbit-plugin-sdk",
+ "parsec-orbit-plugin-sdk-std",
  "serde_json",
 ]
 
@@ -100,6 +122,16 @@ name = "parsec-orbit-plugin-sdk"
 version = "0.1.0"
 dependencies = [
  "parsec-orbit-plugin-abi",
+]
+
+[[package]]
+name = "parsec-orbit-plugin-sdk-std"
+version = "0.1.0"
+dependencies = [
+ "parsec-orbit-plugin-sdk",
+ "parsec-orbit-plugin-sdk-std",
+ "tracing",
+ "tracing-core",
 ]
 
 [[package]]
@@ -122,6 +154,12 @@ version = "0.1.0"
 dependencies = [
  "parsec-orbit-plugin-high-bitrate-webview",
 ]
+
+[[package]]
+name = "pin-project-lite"
+version = "0.2.17"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a89322df9ebe1c1578d689c92318e070967d1042b512afbe49518723f4e6d5cd"
 
 [[package]]
 name = "proc-macro2"
@@ -243,10 +281,36 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "06bdbd8cfc056b8d2e2e85f29b56a3bdbecb527cef81eb39e3e7b98af4652770"
 
 [[package]]
+name = "tracing"
+version = "0.1.44"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "63e71662fa4b2a2c3a26f570f037eb95bb1f85397f3cd8076caed2f026a6d100"
+dependencies = [
+ "pin-project-lite",
+ "tracing-core",
+]
+
+[[package]]
+name = "tracing-core"
+version = "0.1.36"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "db97caf9d906fbde555dd62fa95ddba9eecfd14cb388e4f491a66d74cd5fb79a"
+dependencies = [
+ "once_cell",
+ "valuable",
+]
+
+[[package]]
 name = "unicode-ident"
 version = "1.0.26"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d245f478577f809a851594d02313b640fb437e0bb33866753cff937863096954"
+
+[[package]]
+name = "valuable"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ba73ea9cf16a25df0c8caa16c51acb937d5712a8429db78a3ee29d5dcacd3a65"
 
 [[package]]
 name = "windows-link"

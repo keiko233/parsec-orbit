@@ -10,7 +10,7 @@
 
 pub mod legacy;
 
-use parsec_orbit_plugin_sdk::{ParsecOrbitHost, LOG_INFO};
+use parsec_orbit_plugin_sdk_std::prelude::*;
 
 /// Bandwidth options appended after the built-in `3..50 mbps` ladder.
 ///
@@ -28,63 +28,53 @@ fn enabled_with(switch: Option<&str>) -> bool {
     !matches!(switch, Some("0") | Some("off") | Some("false"))
 }
 
-/// Copy of the host `log` callback that can be moved to a worker thread.
-///
-/// A function pointer is `Send + Sync`, so unlike the host table itself this
-/// needs no `unsafe impl`.
-#[derive(Clone, Copy)]
-struct Log(unsafe extern "system" fn(u32, *const u8, usize));
+#[derive(Default)]
+struct Native;
 
-impl Log {
-    fn info(self, message: &str) {
-        // Safety: the loader's host table and its log callback live for the
-        // whole lifetime of the process, and the loader only reads `message`.
-        unsafe { (self.0)(LOG_INFO, message.as_ptr(), message.len()) }
+impl Plugin for Native {
+    fn init(&mut self, cx: &Context) -> Result {
+        info!(
+            cx,
+            "native ui patches {} starting",
+            env!("CARGO_PKG_VERSION")
+        );
+
+        if !enabled() {
+            info!(
+                cx,
+                "PARSEC_ORBIT_PATCHES is set, the native ui plugin stays idle"
+            );
+            return Ok(());
+        }
+
+        // The table only exists once the client has loaded its UI module, and
+        // the signature scan waits for it; never do that on the loader's
+        // worker thread.
+        let cx = *cx;
+        cx.spawn("patch", move || {
+            legacy::extend_bandwidth(|message| info!(cx, "{message}"));
+        })?;
+
+        Ok(())
     }
 }
 
-unsafe extern "system" fn init(host: *const ParsecOrbitHost) -> i32 {
-    if host.is_null() {
-        return 1;
-    }
-    let Some(log) = (unsafe { &*host }).log else {
-        return 1;
-    };
-    let log = Log(log);
-
-    log.info(&format!(
-        "native ui patches {} starting",
-        env!("CARGO_PKG_VERSION")
-    ));
-
-    if !enabled() {
-        log.info("PARSEC_ORBIT_PATCHES is set, the native ui plugin stays idle");
-        return 0;
-    }
-
-    // The table only exists once the client has loaded its UI module, and the
-    // signature scan waits for it; never do that on the loader's worker thread.
-    std::thread::spawn(move || legacy::extend_bandwidth(|message| log.info(message)));
-
-    0
-}
-
-parsec_orbit_plugin_sdk::parsec_orbit_plugin! {
+parsec_orbit_plugin_sdk_std::declare_plugin! {
     id = "com.parsec-orbit.native",
     name = "Native UI Patches",
     version = "0.1.0",
     author = "Parsec Orbit contributors",
     description = "Adds bandwidth limits above 50 Mbps to the native (legacy) UI",
     license = "MIT",
-    init = init,
+    plugin = Native,
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use parsec_orbit_plugin_sdk::{ABI_VERSION, LOG_INFO};
+    use parsec_orbit_plugin_sdk_std::testing::MockHost;
+    use parsec_orbit_plugin_sdk_std::{ParsecOrbitHost, ABI_VERSION, LOG_INFO};
     use std::ffi::CStr;
-    use std::sync::Mutex;
 
     #[test]
     fn plugin_is_enabled_unless_patches_are_switched_off() {
@@ -144,37 +134,20 @@ mod tests {
         assert_eq!(in_script, EXTRA_BANDWIDTH_MBPS);
     }
 
-    // ---- init --------------------------------------------------------------------
-
-    static LOGGED: Mutex<Vec<(u32, String)>> = Mutex::new(Vec::new());
-
-    unsafe extern "system" fn record(level: u32, message: *const u8, len: usize) {
-        let bytes = unsafe { std::slice::from_raw_parts(message, len) };
-        LOGGED
-            .lock()
-            .unwrap()
-            .push((level, String::from_utf8_lossy(bytes).into_owned()));
-    }
-
-    fn host(log: Option<unsafe extern "system" fn(u32, *const u8, usize)>) -> ParsecOrbitHost {
-        ParsecOrbitHost {
-            log,
-            ..ParsecOrbitHost::blank()
-        }
-    }
-
-    fn logged(text: &str) -> bool {
-        LOGGED
-            .lock()
-            .unwrap()
-            .iter()
-            .any(|(_, message)| message.contains(text))
-    }
+    // ---- init ------------------------------------------------------------------
 
     #[test]
-    fn init_refuses_a_missing_host_or_a_host_without_logging() {
-        assert_eq!(unsafe { init(std::ptr::null()) }, 1);
-        assert_eq!(unsafe { init(&host(None)) }, 1);
+    fn init_refuses_a_missing_or_too_small_host_table() {
+        assert_eq!(
+            unsafe { ParsecOrbitPluginInit(std::ptr::null()) },
+            parsec_orbit_plugin_sdk_std::ERR_INVALID
+        );
+        let mut tiny = ParsecOrbitHost::blank();
+        tiny.struct_size = 8;
+        assert_eq!(
+            unsafe { ParsecOrbitPluginInit(&tiny) },
+            parsec_orbit_plugin_sdk_std::ERR_INVALID
+        );
     }
 
     /// The only test that touches the environment. The enabled path starts a
@@ -182,24 +155,21 @@ mod tests {
     /// it patches nothing.
     #[test]
     fn init_logs_its_start_and_honours_the_off_switch() {
-        let host = host(Some(record));
+        let host = MockHost::new("com.parsec-orbit.native");
 
         std::env::set_var("PARSEC_ORBIT_PATCHES", "off");
-        assert_eq!(unsafe { init(&host) }, 0);
-        assert!(logged("native ui patches"));
-        assert!(logged("native ui plugin stays idle"));
+        assert!(host.init::<Native>().1.is_ok());
+        assert!(host.logged("native ui patches"));
+        assert!(host.logged("native ui plugin stays idle"));
         std::env::remove_var("PARSEC_ORBIT_PATCHES");
 
-        assert_eq!(
-            unsafe { init(&host) },
-            0,
+        let started = std::time::Instant::now();
+        assert!(
+            host.init::<Native>().1.is_ok(),
             "returns at once; the work is on a thread"
         );
-        assert!(LOGGED
-            .lock()
-            .unwrap()
-            .iter()
-            .any(|(level, _)| *level == LOG_INFO));
+        assert!(started.elapsed() < std::time::Duration::from_secs(5));
+        assert!(host.logs().iter().any(|line| line.level == LOG_INFO));
     }
 
     // ---- descriptor ------------------------------------------------------------------
