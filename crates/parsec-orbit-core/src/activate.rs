@@ -99,6 +99,9 @@ pub fn activate(
     if descriptor.is_null() {
         return Err("query returned no descriptor".to_string());
     }
+    if (descriptor as usize) % std::mem::align_of::<ParsecOrbitPluginDesc>() != 0 {
+        return Err("query returned a misaligned descriptor".to_string());
+    }
     // Safety: the query export must return a readable descriptor of at least
     // `size_of::<ParsecOrbitPluginDesc>()` bytes; the following size check
     // rejects a smaller `struct_size` before any tail fields are read.
@@ -264,6 +267,13 @@ mod tests {
         std::ptr::null()
     }
 
+    unsafe extern "system" fn query_misaligned(_abi: u32) -> *const ParsecOrbitPluginDesc {
+        #[repr(C, align(8))]
+        struct Aligned([u8; 64]);
+        static BYTES: Aligned = Aligned([0; 64]);
+        (BYTES.0.as_ptr() as usize + 1) as *const ParsecOrbitPluginDesc
+    }
+
     static INIT_CALLS: AtomicUsize = AtomicUsize::new(0);
     static SEEN_HOST_ABI: AtomicUsize = AtomicUsize::new(0);
 
@@ -350,6 +360,12 @@ mod tests {
     fn activate_rejects_a_null_descriptor() {
         let error = run(exports(Some(query_null), Some(init_ok)), None).unwrap_err();
         assert_eq!(error, "query returned no descriptor");
+    }
+
+    #[test]
+    fn activate_rejects_a_misaligned_descriptor() {
+        let error = run(exports(Some(query_misaligned), Some(init_ok)), None).unwrap_err();
+        assert_eq!(error, "query returned a misaligned descriptor");
     }
 
     #[test]

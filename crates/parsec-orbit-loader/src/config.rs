@@ -52,6 +52,20 @@ impl Config {
             plugin_dirs.push(Path::new(&appdata).join("ParsecOrbit").join("plugins"));
         }
 
+        // The same directory can arrive twice from the environment override
+        // and the default locations; loading it twice would call `init` twice.
+        let mut unique_dirs: Vec<PathBuf> = Vec::with_capacity(plugin_dirs.len());
+        for dir in plugin_dirs {
+            let duplicate = unique_dirs.iter().any(|existing| {
+                existing
+                    .to_string_lossy()
+                    .eq_ignore_ascii_case(&dir.to_string_lossy())
+            });
+            if !duplicate {
+                unique_dirs.push(dir);
+            }
+        }
+
         // Every candidate is probed at start-up, so a path that cannot be
         // written (missing `%APPDATA%`, an unelevated client directory, a file
         // someone else holds without sharing write) costs the next one, not
@@ -99,7 +113,7 @@ impl Config {
 
         Config {
             log_candidates: unique,
-            plugin_dirs,
+            plugin_dirs: unique_dirs,
             data_root,
             devtools_port,
             any_host: matches!(env("PARSEC_ORBIT_HOST").as_deref(), Some("any")),
@@ -165,6 +179,28 @@ mod tests {
                 "D:\\two",
                 "C:\\Parsec\\plugins",
                 "C:\\Users\\me\\AppData\\Roaming\\ParsecOrbit\\plugins",
+            ]
+        );
+    }
+
+    #[test]
+    fn plugin_dirs_drop_duplicates_ignoring_case() {
+        let config = load(
+            Some("C:\\Parsec"),
+            &[
+                (
+                    "PARSEC_ORBIT_PLUGIN_DIR",
+                    "c:\\PARSEC\\plugins;D:\\other;d:\\OTHER",
+                ),
+                ("APPDATA", "C:\\Roaming"),
+            ],
+        );
+        assert_eq!(
+            paths(&config.plugin_dirs),
+            [
+                "c:\\PARSEC\\plugins",
+                "D:\\other",
+                "C:\\Roaming\\ParsecOrbit\\plugins",
             ]
         );
     }

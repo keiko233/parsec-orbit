@@ -90,7 +90,19 @@ pub struct ParsecOrbitPluginDesc {
 }
 
 /// Size of [`ParsecOrbitHost`] in revision 1, which ended with `reserved`.
+#[cfg(target_pointer_width = "64")]
 pub const HOST_REVISION_1_SIZE: usize = 96;
+#[cfg(target_pointer_width = "32")]
+pub const HOST_REVISION_1_SIZE: usize = 52;
+
+/// Size of the revision 2 [`ParsecOrbitHost`] layout. This is fixed at the
+/// time the SDK is built rather than derived from the current struct, so a
+/// plugin compiled against a future revision still recognises an older
+/// revision 2 loader.
+#[cfg(target_pointer_width = "64")]
+pub const HOST_REVISION_2_SIZE: usize = 208;
+#[cfg(target_pointer_width = "32")]
+pub const HOST_REVISION_2_SIZE: usize = 108;
 
 /// Services the loader offers to a plugin.
 ///
@@ -204,7 +216,7 @@ impl ParsecOrbitHost {
     /// Whether the loader's table is large enough to hold the revision 2
     /// fields. A revision 1 loader reports [`HOST_REVISION_1_SIZE`] bytes.
     pub fn has_revision_2(&self) -> bool {
-        self.struct_size as usize >= core::mem::size_of::<ParsecOrbitHost>()
+        self.struct_size as usize >= HOST_REVISION_2_SIZE
     }
 
     /// Id of the plugin this table was made for (revision 2).

@@ -30,13 +30,16 @@ pub fn interface_name(kind: &str) -> String {
 /// 1 table with a `load_plugin` function.
 pub fn handler_for(kind: &str) -> Lookup {
     let name = interface_name(kind);
-    let header = host::find(&name);
-    if header.is_null() {
+    let table = host::find(&name);
+    if table.is_null() {
         return Lookup::Missing;
+    }
+    if (table as usize) % std::mem::align_of::<ParsecOrbitKindHandlerV1>() != 0 {
+        return Lookup::Unusable(format!("{name} is misaligned for a kind handler"));
     }
     // Safety: registered tables start with a header and live for the whole
     // process.
-    let header = unsafe { *header };
+    let header = unsafe { *table };
     if header.major() != 1 {
         return Lookup::Unusable(format!(
             "{name} is version {}.{}, this loader serves 1.x",
@@ -52,8 +55,9 @@ pub fn handler_for(kind: &str) -> Lookup {
             header.size
         ));
     }
-    // Safety: the table is at least as large as the part read.
-    let handler = unsafe { &*(host::find(&name) as *const ParsecOrbitKindHandlerV1) };
+    // Safety: one lookup is used for both the validation and the cast, and the
+    // registry guarantees the table outlives this reference.
+    let handler = unsafe { &*table.cast::<ParsecOrbitKindHandlerV1>() };
     if handler.load_plugin.is_none() {
         return Lookup::Unusable(format!("{name} has no load_plugin"));
     }
@@ -83,7 +87,10 @@ pub fn load(handler: &ParsecOrbitKindHandlerV1, request: &LoadRequest) -> Result
             .into_owned()
     };
     // The strings only need to outlive the call, but a handler may keep the
-    // pointers, so they are leaked like the host tables' strings.
+    // pointers, so they are leaked like the host tables' strings. The manifest
+    // is owned by the candidate and would otherwise be freed when `scan`
+    // returns, so it is copied and leaked too.
+    let manifest = Box::leak(request.manifest.as_bytes().to_vec().into_boxed_slice());
     let info = ParsecOrbitPluginLoadInfo {
         size: std::mem::size_of::<ParsecOrbitPluginLoadInfo>() as u32,
         id: leak_c_string(request.id),
@@ -92,7 +99,7 @@ pub fn load(handler: &ParsecOrbitKindHandlerV1, request: &LoadRequest) -> Result
         data_dir: request
             .data_dir
             .map_or(std::ptr::null(), |dir| leak_c_string(&absolute(dir))),
-        manifest: request.manifest.as_ptr(),
+        manifest: manifest.as_ptr(),
         manifest_len: request.manifest.len(),
     };
     match unsafe { load_plugin(&info) } {

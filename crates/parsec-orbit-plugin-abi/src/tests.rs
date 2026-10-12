@@ -42,6 +42,14 @@ fn host_layout_is_frozen() {
     assert_eq!(offset_of!(ParsecOrbitHost, unregister_interface), 136);
     assert_eq!(offset_of!(ParsecOrbitHost, reserved2), 144);
     assert_eq!(size_of::<ParsecOrbitHost>(), 208);
+    assert_eq!(HOST_REVISION_2_SIZE, 208);
+}
+
+#[test]
+#[cfg(target_pointer_width = "32")]
+fn host_size_constants_match_the_32_bit_layout() {
+    assert_eq!(HOST_REVISION_1_SIZE, 52);
+    assert_eq!(HOST_REVISION_2_SIZE, 108);
 }
 
 #[test]
@@ -240,9 +248,12 @@ fn loader_version_is_none_for_null_or_invalid_utf8() {
 
 #[test]
 fn a_blank_host_is_the_current_revision_with_nothing_filled_in() {
-    let host = ParsecOrbitHost::blank();
+    let mut host = ParsecOrbitHost::blank();
     assert_eq!(host.abi_version, ABI_VERSION);
     assert_eq!(host.struct_size as usize, size_of::<ParsecOrbitHost>());
+    assert!(host.has_revision_2());
+    // A future SDK can still be talking to this exact revision 2 loader.
+    host.struct_size = (HOST_REVISION_2_SIZE + 64) as u32;
     assert!(host.has_revision_2());
     assert!(host.log.is_none() && host.log_ex.is_none());
     assert!(host.query_interface.is_none());

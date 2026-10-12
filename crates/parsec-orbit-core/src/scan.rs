@@ -35,7 +35,7 @@ fn manifest_entry_stays_inside(entry: &Path) -> bool {
 }
 
 use crate::activate::{activate, Plugin};
-use crate::host::data_dir_for;
+use crate::host::{data_dir_for, valid_plugin_id};
 use crate::kind::{self, Lookup};
 use crate::manifest::{describe, read_manifest};
 use crate::plan::{self, Node, Verdict};
@@ -146,6 +146,24 @@ fn discover_dir(
         log.warn(&format!("{label}: {warning}"));
     }
 
+    let id = manifest.id.clone().unwrap_or_else(|| {
+        dir.file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_else(|| dir.display().to_string())
+    });
+    if manifest.id.is_some() && !valid_plugin_id(&id) {
+        log.error(&format!(
+            "{label}: id \"{id}\" is not a valid plugin id, failed"
+        ));
+        summary.failed += 1;
+        return None;
+    }
+    if !seen.insert(id.clone()) {
+        log.debug(&format!("{label}: already loaded, skipped"));
+        summary.skipped += 1;
+        return None;
+    }
+
     if !manifest.enabled {
         log.info(&format!("{label}: disabled in the manifest, skipped"));
         summary.skipped += 1;
@@ -157,17 +175,6 @@ fn discover_dir(
             manifest.api
         ));
         summary.failed += 1;
-        return None;
-    }
-
-    let id = manifest.id.clone().unwrap_or_else(|| {
-        dir.file_name()
-            .map(|name| name.to_string_lossy().into_owned())
-            .unwrap_or_else(|| dir.display().to_string())
-    });
-    if !seen.insert(id.clone()) {
-        log.debug(&format!("{label}: already loaded, skipped"));
-        summary.skipped += 1;
         return None;
     }
 
@@ -220,11 +227,17 @@ fn discover(env: Env, plugin_dirs: &[PathBuf], summary: &mut Summary) -> Vec<Can
             }
             // A DLL dropped straight into a plugin directory is loaded without
             // metadata, which is what the first proof of concept did.
+            let id = entry.display().to_string();
+            if !seen.insert(id.clone()) {
+                log.debug(&format!("{}: already loaded, skipped", entry.display()));
+                summary.skipped += 1;
+                continue;
+            }
             candidates.push(Candidate {
                 label: entry.display().to_string(),
                 dir: entry.parent().unwrap_or(dir).to_path_buf(),
                 manifest: None,
-                id: entry.display().to_string(),
+                id,
                 kind: KIND_DLL.to_string(),
                 loose: Some(entry),
             });
@@ -551,6 +564,25 @@ mod tests {
         let (result, _) = run(&Unloadable, &[first.path(), second.path()]);
         assert_eq!(result.summary.skipped, 3);
         assert_eq!(result.summary.failed, 0);
+    }
+
+    #[test]
+    fn scan_does_not_scan_a_duplicate_plugin_directory_twice() {
+        let dir = TempDir::new("scan-duplicate-dir");
+        dir.write("loose.dll", "not a dll");
+        let (result, _) = run(&Unloadable, &[dir.path(), dir.path()]);
+        assert_eq!(result.summary.loaded, 0);
+        assert_eq!(result.summary.skipped, 1);
+        assert_eq!(result.summary.failed, 1);
+    }
+
+    #[test]
+    fn scan_rejects_a_manifest_id_that_is_not_a_plugin_id() {
+        let dir = TempDir::new("scan-invalid-id");
+        dir.write("bad/plugin.toml", "id = \"a b\"\n");
+        let (result, log) = run(&Unloadable, &[dir.path()]);
+        assert_eq!(counts(&result), (0, 0, 1));
+        assert!(log.mentions("is not a valid plugin id"));
     }
 
     #[test]

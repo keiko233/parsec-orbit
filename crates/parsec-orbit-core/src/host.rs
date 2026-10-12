@@ -5,6 +5,7 @@
 //! so the state they work on is process wide: one registry and one log sink.
 //! Both are reachable only through this module.
 
+use std::collections::HashSet;
 use std::ffi::{c_void, CStr, CString};
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard, OnceLock};
@@ -53,6 +54,30 @@ pub fn valid_name(name: &str) -> bool {
         && name.split('.').all(|part| !part.is_empty())
 }
 
+/// Windows device names (`CON`, `NUL`, `COM1` and friends) are not ordinary
+/// file-system components even below a real directory.
+fn is_windows_device_name(name: &str) -> bool {
+    let base = name.split('.').next().unwrap_or(name);
+    if matches!(
+        base.to_ascii_uppercase().as_str(),
+        "CON" | "PRN" | "AUX" | "NUL"
+    ) {
+        return true;
+    }
+    if base.len() != 4
+        || !base[..3].eq_ignore_ascii_case("COM") && !base[..3].eq_ignore_ascii_case("LPT")
+    {
+        return false;
+    }
+    matches!(base.as_bytes()[3], b'1'..=b'9')
+}
+
+/// Whether `id` is a usable plugin id. Manifest ids use the same dotted-name
+/// syntax as interface names and must not name a Windows device.
+pub fn valid_plugin_id(id: &str) -> bool {
+    valid_name(id) && !is_windows_device_name(id)
+}
+
 impl Registry {
     pub const fn new() -> Self {
         Registry {
@@ -73,7 +98,7 @@ impl Registry {
     ) -> i32 {
         if !valid_name(name)
             || table.is_null()
-            || (table as usize) % std::mem::align_of::<ParsecOrbitInterfaceHeader>() != 0
+            || (table as usize) % std::mem::align_of::<usize>() != 0
         {
             return ERR_INVALID;
         }
@@ -207,6 +232,23 @@ fn log(level: u32, message: &str) {
     }
 }
 
+/// Folds line breaks and other control characters out of a plugin-supplied
+/// message so it cannot forge extra lines in the line-oriented loader log.
+fn sanitize_log_text<'a>(text: std::borrow::Cow<'a, str>) -> std::borrow::Cow<'a, str> {
+    if !text.chars().any(char::is_control) {
+        return text;
+    }
+    let cleaned: String = text
+        .chars()
+        .map(|character| match character {
+            '\r' | '\n' => ' ',
+            character if character.is_control() => '?',
+            character => character,
+        })
+        .collect();
+    std::borrow::Cow::Owned(cleaned)
+}
+
 // ---- host callbacks -------------------------------------------------------
 
 unsafe fn utf8<'a>(pointer: *const u8, len: usize) -> Option<std::borrow::Cow<'a, str>> {
@@ -234,7 +276,7 @@ unsafe fn owner_of<'a>(host: *const ParsecOrbitHost) -> Option<&'a str> {
 /// `ParsecOrbitHost::log`.
 pub unsafe extern "system" fn host_log(level: u32, message: *const u8, len: usize) {
     if let Some(message) = unsafe { utf8(message, len) } {
-        log(level, &message);
+        log(level, &sanitize_log_text(message));
     }
 }
 
@@ -249,8 +291,16 @@ pub unsafe extern "system" fn host_log_ex(
     let Some(message) = (unsafe { utf8(message, len) }) else {
         return;
     };
+    let message = sanitize_log_text(message);
     match unsafe { utf8(target, target_len) } {
-        Some(target) if !target.is_empty() => log(level, &format!("{target}: {message}")),
+        Some(target) => {
+            let target = sanitize_log_text(target);
+            if !target.is_empty() {
+                log(level, &format!("{target}: {message}"));
+            } else {
+                log(level, &message);
+            }
+        }
         _ => log(level, &message),
     }
 }
@@ -273,6 +323,9 @@ pub unsafe extern "system" fn host_register_interface(
     name: *const u8,
     table: *const ParsecOrbitInterfaceHeader,
 ) -> i32 {
+    if !host_table_is_known(host) {
+        return ERR_INVALID;
+    }
     let (Some(owner), Some(name)) = (unsafe { owner_of(host) }, unsafe { c_str(name) }) else {
         return ERR_INVALID;
     };
@@ -284,6 +337,9 @@ pub unsafe extern "system" fn host_unregister_interface(
     host: *const ParsecOrbitHost,
     name: *const u8,
 ) -> i32 {
+    if !host_table_is_known(host) {
+        return ERR_INVALID;
+    }
     let (Some(owner), Some(name)) = (unsafe { owner_of(host) }, unsafe { c_str(name) }) else {
         return ERR_INVALID;
     };
@@ -307,8 +363,30 @@ pub fn data_dir_for(root: &Path, id: &str) -> PathBuf {
         .collect();
     if name.is_empty() || name.chars().all(|c| c == '.') {
         name = format!("_{name}");
+    } else if is_windows_device_name(&name) {
+        name = format!("_{name}");
     }
     root.join(name)
+}
+
+static HOST_TABLES: OnceLock<Mutex<HashSet<usize>>> = OnceLock::new();
+
+fn host_tables() -> &'static Mutex<HashSet<usize>> {
+    HOST_TABLES.get_or_init(|| Mutex::new(HashSet::new()))
+}
+
+/// Host pointers are issued by [`host_for`]. The callbacks use this set so a
+/// plugin cannot pass an arbitrary table and claim to be someone else. Native
+/// plugins can still bypass any in-process check, so this is a convention for
+/// cooperative plugins, not a sandbox.
+fn host_table_is_known(host: *const ParsecOrbitHost) -> bool {
+    if host.is_null() {
+        return false;
+    }
+    host_tables()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .contains(&(host as usize))
 }
 
 /// Leaks a NUL-terminated copy of `text` for the lifetime of the process.
@@ -327,7 +405,7 @@ pub fn host_for(
     dir: &Path,
     data_dir: Option<&Path>,
 ) -> &'static ParsecOrbitHost {
-    Box::leak(Box::new(ParsecOrbitHost {
+    let host = Box::leak(Box::new(ParsecOrbitHost {
         log: Some(host_log),
         query_interface: Some(host_query_interface),
         loader_version: leak_c_string(loader_version),
@@ -340,7 +418,12 @@ pub fn host_for(
         register_interface: Some(host_register_interface),
         unregister_interface: Some(host_unregister_interface),
         ..ParsecOrbitHost::blank()
-    }))
+    }));
+    host_tables()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .insert(host as *const ParsecOrbitHost as usize);
+    host
 }
 
 #[cfg(test)]
@@ -385,6 +468,16 @@ mod tests {
             assert!(!valid_name(bad), "{bad:?}");
         }
         assert!(valid_name(&"x".repeat(128)));
+    }
+
+    #[test]
+    fn plugin_ids_reject_windows_device_names() {
+        for good in ["com.example.p", "com0.software", "a"] {
+            assert!(valid_plugin_id(good), "{good}");
+        }
+        for bad in ["CON", "nul", "com1", "lpt9.foo", "a b"] {
+            assert!(!valid_plugin_id(bad), "{bad}");
+        }
     }
 
     // ---- registry ----
@@ -481,6 +574,8 @@ mod tests {
         assert_eq!(data_dir_for(root, ".."), root.join("_.."));
         assert_eq!(data_dir_for(root, ""), root.join("_"));
         assert_eq!(data_dir_for(root, "C:\\x\\y.dll"), root.join("C__x_y.dll"));
+        assert_eq!(data_dir_for(root, "CON"), root.join("_CON"));
+        assert_eq!(data_dir_for(root, "com1.plugin"), root.join("_com1.plugin"));
     }
 
     // ---- host tables ----
@@ -582,9 +677,18 @@ mod tests {
     #[test]
     fn callbacks_reject_missing_arguments() {
         let host = host_for("1", "com.example.args", Path::new("."), None);
+        let forged = &ParsecOrbitHost::blank() as *const ParsecOrbitHost;
         unsafe {
             assert_eq!(
                 host_register_interface(std::ptr::null(), c"x.y".as_ptr() as *const u8, table()),
+                ERR_INVALID
+            );
+            assert_eq!(
+                host_register_interface(forged, c"x.y".as_ptr() as *const u8, table()),
+                ERR_INVALID
+            );
+            assert_eq!(
+                host_unregister_interface(forged, c"x.y".as_ptr() as *const u8),
                 ERR_INVALID
             );
             assert_eq!(
@@ -619,5 +723,24 @@ mod tests {
             .contains(&(3, "line without a target".to_string())));
         // Not UTF-8: replaced, never a panic.
         unsafe { host_log(2, [0xffu8, 0xfe].as_ptr(), 2) };
+    }
+
+    #[test]
+    fn plugin_log_text_cannot_forge_extra_lines() {
+        install_logger(&RECORDER);
+        let message = b"first\r\nsecond\x01third";
+        unsafe {
+            host_log(2, message.as_ptr(), message.len());
+            host_log_ex(
+                3,
+                b"target\r\n".as_ptr(),
+                b"target\r\n".len(),
+                b"payload\nnext".as_ptr(),
+                b"payload\nnext".len(),
+            );
+        }
+        let logged = SEEN.lock().unwrap();
+        assert!(logged.contains(&(2, "first  second?third".to_string())));
+        assert!(logged.contains(&(3, "target  : payload next".to_string())));
     }
 }

@@ -1,5 +1,6 @@
 //! `plugin.toml`.
 
+use std::collections::HashSet;
 use std::path::Path;
 
 use parsec_orbit_plugin_abi::ABI_VERSION;
@@ -42,43 +43,62 @@ pub struct Manifest {
     pub source: String,
 }
 
-/// Splits `id@constraint`. Constraints are reserved syntax: the id is used
-/// and the caller is told the constraint was not applied.
-fn bare_id(entry: &str) -> (&str, bool) {
-    match entry.split_once('@') {
-        Some((id, _)) => (id.trim(), true),
-        None => (entry.trim(), false),
+/// Splits `id@constraint` only when the constraint has a non-empty tail.
+/// Constraints are reserved syntax: the id is used and the caller is told the
+/// constraint was not applied.
+fn bare_id(entry: &str) -> Option<(&str, bool)> {
+    let (id, constraint) = entry.split_once('@')?;
+    if constraint.trim().is_empty() {
+        return None;
     }
+    let id = id.trim();
+    Some((id, !id.is_empty()))
 }
 
 /// Reads an array of ids, dropping junk with a warning. One copy for all four
-/// lists: the loader is size sensitive (ADR 0004).
+/// lists: the loader is size sensitive (ADR 0004). Version constraints are
+/// only meaningful on dependency fields; other lists keep `@` verbatim.
 #[inline(never)]
-fn id_list(table: &toml::de::DeTable<'_>, key: &str, warnings: &mut Vec<String>) -> Vec<String> {
+fn id_list(
+    table: &toml::de::DeTable<'_>,
+    key: &str,
+    allow_constraints: bool,
+    warnings: &mut Vec<String>,
+) -> Vec<String> {
     let Some(items) = table.get(key).and_then(|value| value.get_ref().as_array()) else {
         return Vec::new();
     };
     let mut out: Vec<String> = Vec::new();
-    for item in items.iter() {
+    let mut seen: HashSet<String> = HashSet::new();
+    for (index, item) in items.iter().enumerate() {
         let Some(entry) = item.get_ref().as_str() else {
-            warnings.push(format!(
-                "`{key}` holds a value that is not a string, ignored"
-            ));
+            warnings.push(format!("`{key}` entry {index} is not a string, ignored"));
             continue;
         };
-        let (id, constrained) = bare_id(entry);
+        let mut id = entry.trim();
+        let mut constrained = false;
+        if allow_constraints {
+            if let Some((bare, found)) = bare_id(id) {
+                id = bare;
+                constrained = found;
+            }
+        }
         if id.is_empty() {
-            warnings.push(format!("`{key}` holds an empty id, ignored"));
+            warnings.push(format!("`{key}` entry {index} is empty, ignored"));
+            continue;
+        }
+        if !seen.insert(id.to_string()) {
+            warnings.push(format!(
+                "`{key}` entry {index} \"{entry}\" repeats \"{id}\", ignored"
+            ));
             continue;
         }
         if constrained {
             warnings.push(format!(
-                "`{key}` entry \"{entry}\": version constraints are not supported yet, using \"{id}\""
+                "`{key}` entry {index} \"{entry}\": version constraints are not supported yet, using \"{id}\""
             ));
         }
-        if !out.iter().any(|existing| existing == id) {
-            out.push(id.to_string());
-        }
+        out.push(id.to_string());
     }
     out
 }
@@ -97,10 +117,10 @@ pub fn read_manifest(path: &Path) -> Result<Manifest, String> {
     };
 
     let mut warnings = Vec::new();
-    let requires = id_list(table, "requires", &mut warnings);
-    let optional = id_list(table, "optional", &mut warnings);
-    let provides = id_list(table, "provides", &mut warnings);
-    let permissions = id_list(table, "permissions", &mut warnings);
+    let requires = id_list(table, "requires", true, &mut warnings);
+    let optional = id_list(table, "optional", true, &mut warnings);
+    let provides = id_list(table, "provides", false, &mut warnings);
+    let permissions = id_list(table, "permissions", false, &mut warnings);
 
     Ok(Manifest {
         id: string("id"),
@@ -309,7 +329,48 @@ mod tests {
     fn dependency_lists_drop_junk_and_duplicates_with_a_warning() {
         let manifest = manifest_of(r#"requires = ["a", 5, "", " a ", "b"]"#).unwrap();
         assert_eq!(manifest.requires, ["a", "b"]);
+        assert_eq!(manifest.warnings.len(), 3, "{:?}", manifest.warnings);
+        assert!(manifest
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("repeats \"a\"")));
+    }
+
+    #[test]
+    fn constraints_are_only_stripped_from_dependency_fields() {
+        let manifest = manifest_of(
+            r#"
+            requires = ["com.example.base@^1"]
+            optional = ["com.example.opt@2"]
+            provides = ["net@v2"]
+            permissions = ["net@v2", "webview"]
+            "#,
+        )
+        .unwrap();
+        assert_eq!(manifest.requires, ["com.example.base"]);
+        assert_eq!(manifest.optional, ["com.example.opt"]);
+        assert_eq!(manifest.provides, ["net@v2"]);
+        assert_eq!(manifest.permissions, ["net@v2", "webview"]);
         assert_eq!(manifest.warnings.len(), 2, "{:?}", manifest.warnings);
+    }
+
+    #[test]
+    fn a_constraint_without_a_value_is_kept_as_part_of_the_id() {
+        let manifest = manifest_of(r#"requires = ["a@", "@v1"]"#).unwrap();
+        assert_eq!(manifest.requires, ["a@"]);
+        assert_eq!(manifest.warnings.len(), 1, "{:?}", manifest.warnings);
+        assert!(manifest.warnings[0].contains("empty"));
+    }
+
+    #[test]
+    fn constrained_duplicates_are_dropped_without_a_misleading_warning() {
+        let manifest = manifest_of(r#"requires = ["a@^1", "a@^2"]"#).unwrap();
+        assert_eq!(manifest.requires, ["a"]);
+        assert_eq!(manifest.warnings.len(), 2, "{:?}", manifest.warnings);
+        assert!(manifest
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("repeats \"a\"")));
     }
 
     #[test]
