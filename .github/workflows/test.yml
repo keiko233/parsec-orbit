@@ -26,7 +26,7 @@ jobs:
       # instead of silently skipping if it is ever missing.
       PARSEC_ORBIT_REQUIRE_NODE: '1'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
