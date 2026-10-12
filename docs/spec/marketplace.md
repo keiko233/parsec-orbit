@@ -88,7 +88,7 @@ parsec-orbit-market verify index.json [--keys file]
 
 ## Publishing
 
-The release workflow packages the plugins (`scripts/package.ps1`), builds `index.json` from the zips, and signs it if the repository has the secret `MARKET_SIGNING_KEY` (the content of the `.key` file made by `keygen`). Everything is attached to the GitHub release, so the index of a release is `https://github.com/<owner>/<repo>/releases/download/<tag>/index.json`. Without the secret the index is published unsigned. Generating and guarding the real key is the maintainer's job; the repository contains none.
+The market tool is not shipped yet: the workspace still builds and tests it, but `scripts/package.ps1` leaves `parsec-orbit-market.exe` out of `dist\` and no `index.json` is published with a release. When it does ship, the plan is for the release workflow to build `index.json` from the zips in `dist` and sign it with the `MARKET_SIGNING_KEY` secret (the content of the `.key` file made by `keygen`), so the index of a release is `https://github.com/<owner>/<repo>/releases/download/<tag>/index.json`. Generating and guarding the real key is the maintainer's job; the repository contains none.
 
 ## Not (yet) provided
 

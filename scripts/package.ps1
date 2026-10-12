@@ -1,7 +1,6 @@
 # Stages the release files into dist\:
 #
 #   bcrypt.dll                        the loader, goes next to parsecd.exe
-#   parsec-orbit-market.exe           finds, checks and installs plugins (see docs/spec/marketplace.md)
 #   parsec-orbit-plugin-webview-bridge.zip         official plugin, provides parsec-orbit.webview
 #                                                  (the webview patch below needs it)
 #   parsec-orbit-plugin-hooks.zip                  official plugin, provides parsec-orbit.hooks (optional download)
@@ -43,7 +42,6 @@ try {
     }
 
     Copy-Item -LiteralPath (Join-Path $release 'bcrypt.dll') -Destination $dist
-    Copy-Item -LiteralPath (Join-Path $release 'parsec-orbit-market.exe') -Destination $dist
 
     $plugins = @(
         @{
