@@ -50,14 +50,15 @@ parsec-orbit-plugin-abi      no_std, zero deps. repr(C) types, constants, servic
                 ^
                 +-- parsec-orbit-loader   cdylib named `bcrypt`
 
-plugins/    parsec-orbit-plugin-high-bitrate-native, parsec-orbit-plugin-high-bitrate-webview (official)   -> sdk-std
-            webview-bridge (serde_json), js-runtime (Boa)                         -> sdk-std + heavy deps
+crates/     every Rust crate: the loader and SDK above, the official plugins and
+            the verification tools; high-bitrate-native and high-bitrate-webview -> sdk-std
+            (official), webview-bridge (serde_json), js-runtime (Boa)             -> sdk-std + heavy deps
 examples/   parsec-orbit-plugin-hello (-> sdk-std), parsec-orbit-plugin-hello-nostd (-> sdk)
 sdk/js/     @parsec-orbit/sdk (TypeScript: types, definePlugin, ui helper, mock host)  [npm]
-tests/      parsec-orbit-e2e;  verify/  verification tools
+tests/      parsec-orbit-e2e;  crates/parsec-orbit-verify-*  verification tools
 ```
 
-Directory layout: the loader and the SDK live under `crates/` (done); the SDK is split into `-abi` and `-sdk` (done); `-core` holds the Win32-free loading logic (done).
+Directory layout: every Rust crate - the loader, the SDKs, the official plugins and the verification tools - lives under `crates/` (done); the SDK is split into `-abi` and `-sdk` (done); `-core` holds the Win32-free loading logic (done).
 
 ## Size policy
 

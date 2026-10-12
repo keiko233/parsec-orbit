@@ -17,25 +17,25 @@ client. It uses a `bcrypt.dll` proxy and does not modify Parsec files.
   discovery, dependency ordering, the service registry, per-plugin host tables.
   Specifications, design notes and the roadmap are indexed in
   [docs/](docs/README.md).
-* `plugins/parsec-orbit-plugin-webview-bridge/` - official plugin that provides
+* `crates/parsec-orbit-plugin-webview-bridge/` - official plugin that provides
   `parsec-orbit.webview` (scripts, evaluation and messages for the WebView2 UI
   over the DevTools endpoint); see its
-  [README](plugins/parsec-orbit-plugin-webview-bridge/README.md).
-* `plugins/parsec-orbit-plugin-js-runtime/` - official plugin that runs JavaScript
+  [README](crates/parsec-orbit-plugin-webview-bridge/README.md).
+* `crates/parsec-orbit-plugin-js-runtime/` - official plugin that runs JavaScript
   and TypeScript plugins (`kind = "js"`) on Boa; see its
-  [README](plugins/parsec-orbit-plugin-js-runtime/README.md).
+  [README](crates/parsec-orbit-plugin-js-runtime/README.md).
 * `sdk/js/` - `@parsec-orbit/sdk` for JavaScript/TypeScript plugins;
   `examples/parsec-orbit-plugin-bandwidth-ts/` is the TypeScript sample (see
   [Write a TypeScript plugin](docs/guides/typescript-plugin.md)).
-* `plugins/parsec-orbit-plugin-high-bitrate-webview/` - official plugin that widens the
+* `crates/parsec-orbit-plugin-high-bitrate-webview/` - official plugin that widens the
   "Bandwidth Limit" choices in the WebView2 UI; see its
-  [README](plugins/parsec-orbit-plugin-high-bitrate-webview/README.md).
-* `plugins/parsec-orbit-plugin-high-bitrate-native/` - official plugin for the same options
+  [README](crates/parsec-orbit-plugin-high-bitrate-webview/README.md).
+* `crates/parsec-orbit-plugin-high-bitrate-native/` - official plugin for the same options
   in the native (libmatoya) UI; see its
-  [README](plugins/parsec-orbit-plugin-high-bitrate-native/README.md).
+  [README](crates/parsec-orbit-plugin-high-bitrate-native/README.md).
 * `examples/parsec-orbit-plugin-hello-nostd/` - smallest possible plugin (10 KB, `no_std`).
 * `examples/parsec-orbit-plugin-hello/` - the same idea with `std`.
-* `verify/parsec-orbit-verify-*` - verification tools for the loader and the
+* `crates/parsec-orbit-verify-*` - verification tools for the loader and the
   WebView patch delivery.
 * `tests/parsec-orbit-e2e/` - end-to-end tests that run the built loader and
   plugins inside a real process; see [Tests](#tests).
@@ -75,15 +75,15 @@ test is skipped (set `PARSEC_ORBIT_REQUIRE_NODE=1` to make it fail instead).
   plugin discovery and the descriptor checks (`core`), the DevTools client and
   the bridge session (`webview-bridge`) and the signature scan and in-memory
   patch, run against a fake PE image (`native`).
-* **Integration tests** in `plugins/parsec-orbit-plugin-webview-bridge/tests/` drive
+* **Integration tests** in `crates/parsec-orbit-plugin-webview-bridge/tests/` drive
   the DevTools client and the bridge session against a fake endpoint;
-  `plugins/parsec-orbit-plugin-high-bitrate-webview/tests/` runs
+  `crates/parsec-orbit-plugin-high-bitrate-webview/tests/` runs
   `assets/bandwidth.js` in a fake browser under Node.
 * **End-to-end tests** in `tests/parsec-orbit-e2e/` build the loader and the
   plugins into `target/e2e`, install them into a throwaway client directory
   next to a host process named `parsecd.exe`, and check the log, the files the
   plugins write and the environment the host ends up with. They also run
-  `verify/*` (`callpaths`, `roundtrip`), so the forwarding checks of
+  the `crates/parsec-orbit-verify-*` tools (`callpaths`, `roundtrip`), so the forwarding checks of
   `scripts\verify.ps1` are part of `cargo test`.
 
 The tests redirect `%APPDATA%` and `%TEMP%` into temporary directories and

@@ -8,7 +8,7 @@ import vm from "node:vm";
 
 const SCRIPT = readFileSync(new URL("../dist/ui.js", import.meta.url), "utf8");
 const ORBIT = readFileSync(
-  new URL("../../../plugins/parsec-orbit-plugin-webview-bridge/assets/orbit.js", import.meta.url),
+  new URL("../../../crates/parsec-orbit-plugin-webview-bridge/assets/orbit.js", import.meta.url),
   "utf8",
 );
 

@@ -109,14 +109,10 @@ pub fn plugin_manifest(kind: Plugin) -> PathBuf {
     let root = workspace_root();
     match kind {
         Plugin::Hello => root.join("examples/parsec-orbit-plugin-hello/plugin.toml"),
-        Plugin::Webview => {
-            root.join("plugins/parsec-orbit-plugin-high-bitrate-webview/plugin.toml")
-        }
-        Plugin::Native => root.join("plugins/parsec-orbit-plugin-high-bitrate-native/plugin.toml"),
-        Plugin::JsRuntime => root.join("plugins/parsec-orbit-plugin-js-runtime/plugin.toml"),
-        Plugin::WebviewBridge => {
-            root.join("plugins/parsec-orbit-plugin-webview-bridge/plugin.toml")
-        }
+        Plugin::Webview => root.join("crates/parsec-orbit-plugin-high-bitrate-webview/plugin.toml"),
+        Plugin::Native => root.join("crates/parsec-orbit-plugin-high-bitrate-native/plugin.toml"),
+        Plugin::JsRuntime => root.join("crates/parsec-orbit-plugin-js-runtime/plugin.toml"),
+        Plugin::WebviewBridge => root.join("crates/parsec-orbit-plugin-webview-bridge/plugin.toml"),
         Plugin::Fixture => root.join("tests/parsec-orbit-fixture-plugin/plugin.toml"),
         Plugin::FixtureNostd => root.join("tests/parsec-orbit-fixture-nostd/plugin.toml"),
         Plugin::HelloNostd => root.join("examples/parsec-orbit-plugin-hello-nostd/plugin.toml"),

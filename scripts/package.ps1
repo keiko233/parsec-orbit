@@ -44,22 +44,22 @@ try {
     $plugins = @(
         @{
             Name = 'parsec-orbit-plugin-js-runtime'
-            Source = 'plugins\parsec-orbit-plugin-js-runtime'
+            Source = 'crates\parsec-orbit-plugin-js-runtime'
             Dll = 'parsec_orbit_plugin_js_runtime.dll'
         },
         @{
             Name = 'parsec-orbit-plugin-webview-bridge'
-            Source = 'plugins\parsec-orbit-plugin-webview-bridge'
+            Source = 'crates\parsec-orbit-plugin-webview-bridge'
             Dll = 'parsec_orbit_plugin_webview_bridge.dll'
         },
         @{
             Name = 'parsec-orbit-plugin-high-bitrate-webview'
-            Source = 'plugins\parsec-orbit-plugin-high-bitrate-webview'
+            Source = 'crates\parsec-orbit-plugin-high-bitrate-webview'
             Dll = 'parsec_orbit_plugin_high_bitrate_webview.dll'
         },
         @{
             Name = 'parsec-orbit-plugin-high-bitrate-native'
-            Source = 'plugins\parsec-orbit-plugin-high-bitrate-native'
+            Source = 'crates\parsec-orbit-plugin-high-bitrate-native'
             Dll = 'parsec_orbit_plugin_high_bitrate_native.dll'
         },
         @{

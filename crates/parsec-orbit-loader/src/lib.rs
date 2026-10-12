@@ -59,7 +59,7 @@ static REAL_BCRYPT: OnceLock<usize> = OnceLock::new();
 #[allow(dead_code)]
 static LAST_ARGS: [AtomicUsize; 4] = [const { AtomicUsize::new(0) }; 4];
 
-/// Address of [`LAST_ARGS`], used by `verify/parsec-orbit-verify-callpaths`.
+/// Address of [`LAST_ARGS`], used by `crates/parsec-orbit-verify-callpaths`.
 #[cfg(feature = "diagnostics")]
 #[no_mangle]
 pub extern "system" fn ParsecOrbitLoaderLastArgs() -> *const AtomicUsize {
