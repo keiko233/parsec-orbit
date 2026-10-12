@@ -1,0 +1,12 @@
+# Metadata for the loader. `dll` is the only kind implemented so far; a
+# `js` plugin uses the same file with kind = "js" and entry = "main.js".
+id = "com.example.hello"
+name = "Hello Plugin"
+version = "0.1.0"
+kind = "dll"
+entry = "hello_plugin.dll"
+author = "Parsec Orbit contributors"
+description = "Example plugin that logs and writes a report file"
+license = "MIT"
+api = 1
+enabled = true

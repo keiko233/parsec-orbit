@@ -1,0 +1,15 @@
+[package]
+name = "parsec-orbit-plugin-hello"
+description = "Minimal Parsec Orbit plugin: logs through the host and writes a report file"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[lib]
+name = "hello_plugin"
+crate-type = ["cdylib"]
+
+[dependencies]
+parsec-orbit-plugin-sdk = { path = "../../sdk" }

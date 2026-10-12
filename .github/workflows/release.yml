@@ -1,0 +1,78 @@
+# Builds and publishes a release when a version tag is pushed:
+#
+#   git tag v0.1.0
+#   git push origin v0.1.0
+#
+# The tag must match the workspace version in Cargo.toml. The release contains
+# the loader (bcrypt.dll), a ready-to-copy example plugin, and checksums.
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      # A tag that disagrees with Cargo.toml would publish a mislabelled
+      # release, so fail before spending time on the build.
+      - name: Check the tag against the workspace version
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        run: |
+          $match = Select-String -Path Cargo.toml -Pattern '^version = "(.+)"' | Select-Object -First 1
+          if (-not $match) { throw 'could not read the workspace version from Cargo.toml' }
+          $version = 'v' + $match.Matches[0].Groups[1].Value
+          if ('${{ github.ref_name }}' -ne $version) {
+            throw "tag ${{ github.ref_name }} does not match the workspace version $version"
+          }
+          Write-Host "releasing $version"
+
+      - name: Build
+        run: cargo build --release --locked
+
+      # Loads the freshly built loader and checks the forwarding paths against
+      # known-answer vectors. Also rebuilds without the diagnostics feature, so
+      # the artifact staged below is the plain release build.
+      - name: Verify the loader
+        shell: pwsh
+        run: ./scripts/verify.ps1
+
+      - name: Stage the release files
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Copy-Item target\release\bcrypt.dll dist\
+          # The archive holds plugin.toml and hello_plugin.dll at its root, so
+          # extracting it into a plugin folder yields a loadable plugin.
+          Compress-Archive -Path target\release\hello_plugin.dll, examples\hello-plugin\plugin.toml `
+            -DestinationPath dist\parsec-orbit-example-plugin.zip
+          Get-ChildItem dist -File | ForEach-Object {
+            '{0}  {1}' -f (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower(), $_.Name
+          } | Set-Content -Encoding ascii dist\SHA256SUMS.txt
+          Get-ChildItem dist | Format-Table Name, Length | Out-Host
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: parsec-orbit-${{ github.ref_name }}
+          path: dist/*
+
+      - name: Publish the GitHub release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true

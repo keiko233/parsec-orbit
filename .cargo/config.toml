@@ -1,0 +1,5 @@
+# The loader is injected into a foreign process by the Windows loader, and the
+# plugins it maps should not depend on the MSVC runtime DLLs being present in
+# that process, so everything links against the static CRT.
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]

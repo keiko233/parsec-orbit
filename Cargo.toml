@@ -1,0 +1,20 @@
+[workspace]
+resolver = "2"
+members = [
+    "loader",
+    "sdk",
+    "examples/hello-plugin",
+    "verify/callpaths",
+    "verify/roundtrip",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/keiko233/parsec-orbit"
+
+[profile.release]
+panic = "abort"
+lto = "thin"
+codegen-units = 1
