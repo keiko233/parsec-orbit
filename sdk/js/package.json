@@ -1,0 +1,33 @@
+{
+  "name": "@parsec-orbit/sdk",
+  "version": "0.1.0",
+  "description": "SDK for Parsec Orbit JavaScript and TypeScript plugins: types, definePlugin, the page-side helper and a mock host for tests",
+  "keywords": ["parsec", "plugin", "sdk"],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/keiko233/parsec-orbit.git",
+    "directory": "sdk/js"
+  },
+  "type": "module",
+  "sideEffects": false,
+  "files": ["dist", "README.md"],
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" },
+    "./ui": { "types": "./dist/ui.d.ts", "default": "./dist/ui.js" },
+    "./ui/events": { "types": "./dist/events.d.ts", "default": "./dist/events.js" },
+    "./testing": { "types": "./dist/testing.d.ts", "default": "./dist/testing.js" }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "tsc -p tsconfig.test.json && node --test dist-test/test/",
+    "prepublishOnly": "pnpm run build"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.6.0"
+  },
+  "engines": { "node": ">=20" }
+}

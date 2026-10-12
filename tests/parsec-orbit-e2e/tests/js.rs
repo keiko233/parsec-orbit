@@ -182,3 +182,55 @@ fn a_native_plugin_evaluates_script_through_parsec_orbit_js() {
         "fixture[fx.native-js]: js_eval [1, 2, 3].map((n) => n * 2) -> [2,4,6]",
     );
 }
+
+/// The TypeScript sample, as built by `pnpm run build` in
+/// `examples/parsec-orbit-plugin-bandwidth-ts`, on the real runtime and bridge.
+/// CI builds it first (`PARSEC_ORBIT_REQUIRE_NODE` is set there); elsewhere the
+/// test is skipped when the build output is missing.
+#[test]
+fn the_typescript_bandwidth_sample_runs_on_the_runtime_and_reaches_the_page() {
+    let sample = common::workspace_root().join("examples/parsec-orbit-plugin-bandwidth-ts");
+    let built = sample.join("dist/main.js");
+    if !built.is_file() {
+        if std::env::var_os("PARSEC_ORBIT_REQUIRE_NODE").is_some() {
+            panic!(
+                "{} is missing: run `pnpm install && pnpm run build` first",
+                built.display()
+            );
+        }
+        eprintln!("skipping: {} is not built", built.display());
+        return;
+    }
+
+    let devtools = FakeDevTools::start();
+    let sandbox = client("js-ts-sample");
+    sandbox.install_plugin("webview-bridge", Plugin::WebviewBridge);
+    sandbox.install_plugin("js-runtime", Plugin::JsRuntime);
+    for file in ["plugin.toml", "dist/main.js", "dist/ui.js"] {
+        let target = sandbox.client.join("plugins/bandwidth-ts").join(file);
+        std::fs::create_dir_all(target.parent().unwrap()).unwrap();
+        std::fs::copy(sample.join(file), target).unwrap();
+    }
+
+    let run = sandbox.run(
+        CLIENT,
+        "loaded com.example.bandwidth-ts through the \"js\" handler",
+        |command| {
+            command
+                .env_remove("PARSEC_ORBIT_DEVTOOLS")
+                .env("PARSEC_ORBIT_DEVTOOLS_PORT", devtools.port.to_string());
+        },
+    );
+    run.assert_success()
+        .assert_log_contains("com.example.bandwidth-ts: bandwidth ladder 0.1.0 starting")
+        .assert_log_contains("loaded com.example.bandwidth-ts through the \"js\" handler");
+
+    let ui = std::fs::read_to_string(sample.join("dist/ui.js")).unwrap();
+    let commands = devtools.wait_for_commands(6);
+    assert!(
+        commands
+            .iter()
+            .any(|c| c["method"] == "Runtime.evaluate" && c["params"]["expression"] == ui.as_str()),
+        "the page script was delivered"
+    );
+}

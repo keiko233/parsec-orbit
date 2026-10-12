@@ -21,6 +21,12 @@ client. It uses a `bcrypt.dll` proxy and does not modify Parsec files.
   `parsec-orbit.webview` (scripts, evaluation and messages for the WebView2 UI
   over the DevTools endpoint); see its
   [README](plugins/parsec-orbit-plugin-webview-bridge/README.md).
+* `plugins/parsec-orbit-plugin-js-runtime/` - official plugin that runs JavaScript
+  and TypeScript plugins (`kind = "js"`) on Boa; see its
+  [README](plugins/parsec-orbit-plugin-js-runtime/README.md).
+* `sdk/js/` - `@parsec-orbit/sdk` for JavaScript/TypeScript plugins;
+  `examples/parsec-orbit-plugin-bandwidth-ts/` is the TypeScript sample (see
+  [Write a TypeScript plugin](docs/guides/typescript-plugin.md)).
 * `plugins/parsec-orbit-plugin-high-bitrate-webview/` - official plugin that widens the
   "Bandwidth Limit" choices in the WebView2 UI; see its
   [README](plugins/parsec-orbit-plugin-high-bitrate-webview/README.md).
@@ -56,6 +62,7 @@ directory and `%TEMP%`, and mirrors every line to the debugger output.
 ## Tests
 
 ```powershell
+pnpm install; pnpm -r test    # the JavaScript SDK and the TypeScript sample (builds it)
 cargo test --workspace
 ```
 

@@ -1,10 +1,10 @@
 # JavaScript / TypeScript SDK
 
-Status: draft. Decisions: [ADR 0003](../design/decisions/0003-js-runtime-is-a-plugin.md), [ADR 0005](../design/decisions/0005-boa-as-js-engine.md).
+Status: implemented (`parsec-orbit-plugin-js-runtime`, `sdk/js`, `examples/parsec-orbit-plugin-bandwidth-ts`); `config` is runtime-local until the config service exists. Decisions: [ADR 0003](../design/decisions/0003-js-runtime-is-a-plugin.md), [ADR 0005](../design/decisions/0005-boa-as-js-engine.md).
 
 ## Model
 
-A JS plugin is a directory with a `plugin.toml` (`kind = "js"`, `requires = ["com.parsec-orbit.js-runtime"]`) and a bundled script. The JS runtime plugin is **not part of the default install**; without it the loader skips JS plugins with `needs com.parsec-orbit.js-runtime, not installed` ([loading.md](loading.md#3-ordering)).
+A JS plugin is a directory with a `plugin.toml` (`kind = "js"`, `requires = ["com.parsec-orbit.js-runtime"]`) and a bundled script. The JS runtime plugin is **not part of the default install**; without it the loader skips JS plugins with `skipped, needs com.parsec-orbit.js-runtime, not installed` ([loading.md](loading.md#3-ordering)). A plugin with the `webview` permission also lists `com.parsec-orbit.webview-bridge` in `requires`.
 
 Two realms exist and the SDK keeps them apart:
 
@@ -31,9 +31,9 @@ export default definePlugin({
 ```
 
 * The entry is an ES module whose default export is the result of `definePlugin` (an identity function that fixes the types). Bundlers produce a single file (`esbuild`/`tsup` recipe in the template), target ES2020.
-* `setup(host)` may be async; the runtime waits for it before the plugin counts as *loaded*. A rejection marks the plugin *failed* and the error is logged with the stack.
+* `setup(host)` may be async; the runtime waits for it before the plugin counts as *loaded*, for 30 seconds at most. A throw, a rejection or the timeout marks the plugin *failed* (`kind handler returned 1`) and the error is logged under the plugin id. The loader waits too, so `setup` registers things and returns: `inject` works before the page exists (the bridge installs the script when it attaches), while `await host.webview.ready` may wait forever.
 * `teardown()` is reserved for the future unload (never called today).
-* Unhandled rejections and exceptions in callbacks are caught by the runtime, logged under the plugin id, and never reach the client.
+* Unhandled rejections and exceptions in callbacks and timers are caught by the runtime and logged under the plugin id (`unhandled promise rejection: ...`, `uncaught error in a timer: ...`); they never reach the client. A loop of more than 20 million iterations or a recursion deeper than 400 calls throws a `RangeError`.
 
 ## `Host` API (plugin realm)
 
@@ -41,13 +41,15 @@ export default definePlugin({
 interface Host {
   plugin: { id: string; version: string; dir: string; dataDir: string };
   log: { trace(...a: unknown[]): void; debug(...): void; info(...): void; warn(...): void; error(...): void };
-  config: { get<T>(key: string): Promise<T | undefined>; set(key: string, value: unknown): Promise<void> };   // Phase 5 service; typed now
+  config: Config;             // requires permission "config"; JSON in <dataDir>/config.json until the config service exists
   webview: WebView;           // requires permission "webview"
-  setTimeout/clearTimeout/setInterval/clearInterval;   // runtime-provided timers
+  setTimeout/clearTimeout/setInterval/clearInterval;   // runtime-provided timers (also global, with console.*)
 }
 
+Without a permission the property is absent (`typeof host.webview === "undefined"`): default-deny, enforced by the runtime. `permissions` entries other than `webview` and `config` are ignored with a warning.
+
 interface WebView {
-  readonly ready: Promise<void>;
+  readonly ready: Promise<void>;                                           // resolves once a page is attached; asking starts the connection
   inject(source: string, opts?: { key?: string }): Promise<ScriptHandle>;  // add_script
   injectFile(path: string, opts?: { key?: string }): Promise<ScriptHandle>;
   evaluate<T = unknown>(expression: string): Promise<T>;                   // evaluate, JSON in/out
@@ -69,32 +71,32 @@ const info = await orbit.rpc("appversn");                    // Parsec UI<->clie
 await orbit.rpc("cfg_seti", { name: "encoder_bitrate", value: 100 });
 ```
 
-`orbit.rpc` implements the request/reply envelope documented in the research notes (`request_id` as event channel, 10 s timeout, `protocol_version: 1`). Known event names and their payloads are typed in `@parsec-orbit/sdk/ui/events` as they are verified, starting with those `bandwidth.js` uses (`cfg_get_`, `cfg_seti`, `parsec_config_update`).
+`orbit.rpc` implements the request/reply envelope (`request_id` as event channel, 10 s timeout by default, `protocol_version: 1`); unlike the inline helper of the first `bandwidth.js` it rejects on a missing bridge or a timeout instead of resolving `null`. Known event names and their payloads are typed in `@parsec-orbit/sdk/ui/events` as they are verified, starting with those `bandwidth.js` uses (`cfg_get_`, `cfg_seti`, `parsec_config_update`).
 
 ## Packages
 
 | Package | Content |
 | --- | --- |
-| `@parsec-orbit/sdk` | Types (`Host`, `WebView`, `definePlugin`), `./ui` page helper, `./testing` (a mock `Host` with an in-memory webview, runnable under Node/Vitest). Published as ESM with `.d.ts`. Lives in `sdk/js/`. |
+| `@parsec-orbit/sdk` | Types (`Host`, `WebView`, `Config`, `definePlugin`), `./ui` page helper (`orbit`, typed `rpc`), `./ui/events` (known Parsec UI events), `./testing` (`createMockHost`, `loadPlugin`: a mock `Host` with an in-memory webview, runnable under the Node test runner or Vitest). Published as ESM with `.d.ts`. Lives in `sdk/js/`; built with `tsc`. |
 | `create-parsec-orbit-plugin` (later) | Template generator: `plugin.toml`, `main.ts`, `ui.ts`, bundler config, test, packaging script. |
 
 Versioning: the SDK's major tracks the `parsec-orbit.js` / `.webview` interface major. `plugin.toml` `api` and an `engines`-style field in the package state which runtime versions a plugin was built for.
 
 ## Runtime (JS runtime plugin)
 
-* Boa, one `Context` per plugin, each driven by its own `ractor` actor on a dedicated thread (contexts are not `Send`). Messages in: `Load`, `Callback`, `Timer`; the actor loop owns the job queue.
+* Boa 0.22, one `Context` per plugin, each on a dedicated thread (contexts are not `Send`) that owns an inbox of commands (`Load`, `Eval`, `Settled`, `Message`, `Stop`), the timers and the promise job queue - an actor, without `ractor` or an async runtime ([ADR 0004](../design/decisions/0004-loader-stays-light.md)). Blocking work (`evaluate`, `post`, `ready`) runs on short-lived helper threads and settles its promise through the inbox, so a context never blocks on the page.
 * Registers `parsec-orbit.kind.js` (load: read `entry`, evaluate as module, call `setup`) and `parsec-orbit.js`.
-* Gets WebView access from the `parsec-orbit.webview` service, so the JS runtime plugin itself `requires` the webview-bridge plugin when any JS plugin has `permissions = ["webview"]` (declared in the runtime's own manifest as `optional`).
-* No fs/net/process access in the plugin realm. `permissions` in the manifest are default-deny and enforced by the runtime.
+* Gets WebView access from the `parsec-orbit.webview` service when a plugin is loaded (the runtime lists the bridge as `optional`, so it is initialised first when installed; a JS plugin that needs it lists it in `requires`).
+* No fs/net/process access in the plugin realm: no `require`, `process`, `fetch`, `window`. `injectFile` reads below the plugin directory only (canonicalised; `..` and absolute paths are refused). `permissions` in the manifest are default-deny and enforced by the runtime.
 
 ## Testing and baselines
 
 * Unit tests of plugin logic run on Node with `@parsec-orbit/sdk/testing` (mock `Host`).
-* Page-realm scripts keep the existing approach: run in a fake browser under Node (see `plugins/parsec-orbit-plugin-high-bitrate-webview/tests/bandwidth.test.js`).
-* End-to-end: the e2e host loads the runtime plugin plus the TS port of the bandwidth sample; the native `native` plugin and this JS sample are the two baselines the SDKs are validated against.
+* Page-realm scripts run in a fake browser under Node with the real `window.__orbit` helper (`examples/parsec-orbit-plugin-bandwidth-ts/test/ui.test.mjs`, derived from `plugins/parsec-orbit-plugin-high-bitrate-webview/tests/bandwidth.test.js`, which keeps testing the original script).
+* End-to-end: the e2e host (`tests/parsec-orbit-e2e/tests/js.rs`) loads the runtime, the bridge and the built TypeScript sample against a fake DevTools endpoint; the `native` plugin and this JS sample are the two baselines the SDKs are validated against.
 
 ## Open questions
 
-* Whether to expose Node-style `require()` inside the plugin realm for multi-file plugins, or insist on bundling (leaning: bundling only).
+* Node-style `require()` for multi-file plugins: not provided; plugins are bundled (decided for now).
 * Source maps for stack traces in the log.
-* Where `config` lands first: runtime-local storage (JSON under `data_dir`) before the `parsec-orbit.config` service exists.
+* A crash or panic inside the engine is a crash of the client (plugins are native code; the workspace builds with `panic = "abort"`).

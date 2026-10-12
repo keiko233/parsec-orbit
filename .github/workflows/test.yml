@@ -38,6 +38,15 @@ jobs:
         with:
           node-version: 22
 
+      - name: Install pnpm
+        run: npm install --global pnpm@11
+
+      # Builds the TypeScript sample that the end-to-end tests load.
+      - name: JavaScript SDK and sample
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm -r test
+
       - name: Check formatting
         run: cargo fmt --all -- --check
 
