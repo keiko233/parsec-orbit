@@ -11,7 +11,10 @@
 //! This crate must stay light (see ADR 0004): no async runtime, no serde.
 
 pub mod activate;
+pub mod host;
+pub mod kind;
 pub mod manifest;
+pub mod plan;
 pub mod scan;
 #[cfg(any(test, feature = "testutil"))]
 pub mod testutil;
@@ -19,8 +22,7 @@ pub mod testutil;
 use std::path::Path;
 
 use parsec_orbit_plugin_abi::{
-    InitFn, LegacyInitFn, ParsecOrbitHost, QueryFn, ShutdownFn, LOG_DEBUG, LOG_ERROR, LOG_INFO,
-    LOG_WARN,
+    InitFn, LegacyInitFn, QueryFn, ShutdownFn, LOG_DEBUG, LOG_ERROR, LOG_INFO, LOG_WARN,
 };
 
 pub use manifest::{read_manifest, Manifest, KIND_DLL, KIND_JS, MANIFEST};
@@ -81,5 +83,9 @@ pub struct Loaded {
 pub struct Env<'a> {
     pub platform: &'a dyn Platform,
     pub logger: &'a dyn Logger,
-    pub host: &'a ParsecOrbitHost,
+    /// Reported to plugins as `ParsecOrbitHost::loader_version`.
+    pub loader_version: &'a str,
+    /// Parent of the per-plugin data directories
+    /// (`%APPDATA%\ParsecOrbit\data`); `None` when there is no `%APPDATA%`.
+    pub data_root: Option<&'a Path>,
 }

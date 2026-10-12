@@ -51,38 +51,45 @@ fn bare_id(entry: &str) -> (&str, bool) {
     }
 }
 
+/// Reads an array of ids, dropping junk with a warning. One copy for all four
+/// lists: the loader is size sensitive (ADR 0004).
+#[inline(never)]
+fn id_list(
+    table: &toml::de::DeTable<'_>,
+    key: &str,
+    warnings: &mut Vec<String>,
+) -> Vec<String> {
+    let Some(items) = table.get(key).and_then(|value| value.get_ref().as_array()) else {
+        return Vec::new();
+    };
+    let mut out: Vec<String> = Vec::new();
+    for item in items.iter() {
+        let Some(entry) = item.get_ref().as_str() else {
+            warnings.push(format!("`{key}` holds a value that is not a string, ignored"));
+            continue;
+        };
+        let (id, constrained) = bare_id(entry);
+        if id.is_empty() {
+            warnings.push(format!("`{key}` holds an empty id, ignored"));
+            continue;
+        }
+        if constrained {
+            warnings.push(format!(
+                "`{key}` entry \"{entry}\": version constraints are not supported yet, using \"{id}\""
+            ));
+        }
+        if !out.iter().any(|existing| existing == id) {
+            out.push(id.to_string());
+        }
+    }
+    out
+}
+
 /// Parses `plugin.toml`.
 pub fn read_manifest(path: &Path) -> Result<Manifest, String> {
     let source = std::fs::read_to_string(path).map_err(|error| error.to_string())?;
     let document = toml::de::DeTable::parse(&source).map_err(|error| error.to_string())?;
     let table = document.get_ref();
-
-    let list = |key: &str, warnings: &mut Vec<String>| -> Vec<String> {
-        let Some(items) = table.get(key).and_then(|value| value.get_ref().as_array()) else {
-            return Vec::new();
-        };
-        let mut out: Vec<String> = Vec::new();
-        for item in items.iter() {
-            let Some(entry) = item.get_ref().as_str() else {
-                warnings.push(format!("`{key}` holds a value that is not a string, ignored"));
-                continue;
-            };
-            let (id, constrained) = bare_id(entry);
-            if id.is_empty() {
-                warnings.push(format!("`{key}` holds an empty id, ignored"));
-                continue;
-            }
-            if constrained {
-                warnings.push(format!(
-                    "`{key}` entry \"{entry}\": version constraints are not supported yet, using \"{id}\""
-                ));
-            }
-            if !out.iter().any(|existing| existing == id) {
-                out.push(id.to_string());
-            }
-        }
-        out
-    };
 
     let string = |key: &str| {
         table
@@ -92,10 +99,10 @@ pub fn read_manifest(path: &Path) -> Result<Manifest, String> {
     };
 
     let mut warnings = Vec::new();
-    let requires = list("requires", &mut warnings);
-    let optional = list("optional", &mut warnings);
-    let provides = list("provides", &mut warnings);
-    let permissions = list("permissions", &mut warnings);
+    let requires = id_list(table, "requires", &mut warnings);
+    let optional = id_list(table, "optional", &mut warnings);
+    let provides = id_list(table, "provides", &mut warnings);
+    let permissions = id_list(table, "permissions", &mut warnings);
 
     Ok(Manifest {
         id: string("id"),

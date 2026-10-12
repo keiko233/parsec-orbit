@@ -1,0 +1,7 @@
+id = "com.example.fixture"
+name = "Fixture"
+version = "0.1.0"
+entry = "parsec_orbit_fixture_plugin.dll"
+author = "Parsec Orbit contributors"
+description = "Scripted by fixture.cfg"
+license = "MIT"

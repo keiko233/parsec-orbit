@@ -53,6 +53,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "parsec-orbit-fixture-plugin"
+version = "0.1.0"
+dependencies = [
+ "parsec-orbit-plugin-sdk",
+]
+
+[[package]]
 name = "parsec-orbit-loader"
 version = "0.1.0"
 dependencies = [

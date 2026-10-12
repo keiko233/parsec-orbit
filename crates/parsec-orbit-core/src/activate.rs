@@ -8,8 +8,20 @@ use parsec_orbit_plugin_abi::{
     EXPORT_QUERY,
 };
 
+use crate::host::{data_dir_for, host_for};
 use crate::manifest::describe;
 use crate::{Env, Exports, Loaded, Manifest};
+
+/// The plugin a mapped library belongs to.
+#[derive(Clone, Copy)]
+pub struct Plugin<'a> {
+    /// Plugin directory, the base of everything relative.
+    pub dir: &'a Path,
+    /// The library that was mapped.
+    pub entry: &'a Path,
+    /// `None` for a loose DLL.
+    pub manifest: Option<&'a Manifest>,
+}
 
 unsafe fn text(pointer: *const u8) -> Option<String> {
     if pointer.is_null() {
@@ -23,22 +35,48 @@ unsafe fn text(pointer: *const u8) -> Option<String> {
         .map(str::to_string)
 }
 
+/// Names of the fields the manifest sets to something other than the
+/// descriptor's value.
+fn mismatches(manifest: &Manifest, descriptor: [(&'static str, &str); 6]) -> Vec<&'static str> {
+    let declared = [
+        manifest.id.as_deref(),
+        manifest.name.as_deref(),
+        manifest.version.as_deref(),
+        manifest.author.as_deref(),
+        manifest.description.as_deref(),
+        manifest.license.as_deref(),
+    ];
+    descriptor
+        .iter()
+        .zip(declared)
+        .filter_map(|((field, actual), declared)| match declared {
+            Some(declared) if declared != *actual => Some(*field),
+            _ => None,
+        })
+        .collect()
+}
+
 /// Validates the descriptor of a mapped plugin and runs its entry points.
 ///
 /// A plugin whose `init` ran is pushed onto `registry` even when `init`
 /// reports failure: the module stays mapped, so it stays on record.
 ///
-/// Returns the plugin id on success.
+/// The plugin is identified by its manifest id, then by the descriptor id,
+/// then by the path of the library. The id is what its host table carries and
+/// what dependents wait for. Returns it on success.
 pub fn activate(
     env: Env,
-    path: &Path,
-    manifest: Option<&Manifest>,
+    plugin: Plugin,
     module: usize,
     exports: Exports,
     registry: &mut Vec<Loaded>,
 ) -> Result<String, String> {
+    let Plugin {
+        dir,
+        entry: path,
+        manifest,
+    } = plugin;
     let label = describe(manifest, path);
-    let host: &ParsecOrbitHost = env.host;
     let Some(query) = exports.query else {
         // Plugin from before the descriptor existed: single legacy entry point.
         let Some(legacy) = exports.legacy_init else {
@@ -80,7 +118,11 @@ pub fn activate(
         ));
     }
 
-    let id = unsafe { text(descriptor.id) }.unwrap_or_else(|| path.display().to_string());
+    let descriptor_id = unsafe { text(descriptor.id) };
+    let id = manifest
+        .and_then(|manifest| manifest.id.clone())
+        .or_else(|| descriptor_id.clone())
+        .unwrap_or_else(|| path.display().to_string());
     let version = unsafe { text(descriptor.version) }.unwrap_or_else(|| "-".to_string());
     let display = unsafe { text(descriptor.name) }.unwrap_or_default();
     let author = unsafe { text(descriptor.author) }.unwrap_or_default();
@@ -90,6 +132,30 @@ pub fn activate(
     let Some(init) = exports.init else {
         return Err(format!("descriptor found but {EXPORT_INIT} is missing"));
     };
+
+    if let Some(manifest) = manifest {
+        let mismatches = mismatches(
+            manifest,
+            [
+                ("id", descriptor_id.as_deref().unwrap_or("")),
+                ("name", &display),
+                ("version", &version),
+                ("author", &author),
+                ("description", &description),
+                ("license", &license),
+            ],
+        );
+        if !mismatches.is_empty() {
+            env.logger.warn(&format!(
+                "{label}: manifest and descriptor disagree on {} (the descriptor is shown)",
+                mismatches.join(", ")
+            ));
+        }
+    }
+
+    let absolute = std::path::absolute(dir).unwrap_or_else(|_| dir.to_path_buf());
+    let data_dir = env.data_root.map(|root| data_dir_for(root, &id));
+    let host = host_for(env.loader_version, &id, &absolute, data_dir.as_deref());
     let result = unsafe { init(host as *const ParsecOrbitHost) };
 
     env.logger.info(&format!(
@@ -126,14 +192,6 @@ mod tests {
     impl Platform for NoPlatform {
         fn load(&self, _path: &Path) -> Result<Module, String> {
             Err("not used".into())
-        }
-    }
-
-    fn host() -> ParsecOrbitHost {
-        ParsecOrbitHost {
-            log: None,
-            loader_version: b"test\0".as_ptr(),
-            ..ParsecOrbitHost::blank()
         }
     }
 
@@ -244,10 +302,14 @@ mod tests {
             Env {
                 platform: &NoPlatform,
                 logger: &Quiet,
-                host: &host(),
+                loader_version: "test",
+                data_root: Some(Path::new("data")),
             },
-            Path::new("C:\\plugins\\fake.dll"),
-            manifest,
+            Plugin {
+                dir: Path::new("C:\\plugins"),
+                entry: Path::new("C:\\plugins\\fake.dll"),
+                manifest,
+            },
             0,
             exports,
             registry,

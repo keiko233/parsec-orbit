@@ -1,0 +1,15 @@
+[package]
+name = "parsec-orbit-fixture-plugin"
+description = "Test fixture: a plugin whose behaviour is scripted by a fixture.cfg next to it"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[lib]
+name = "parsec_orbit_fixture_plugin"
+crate-type = ["cdylib"]
+
+[dependencies]
+parsec-orbit-plugin-sdk = { path = "../../crates/parsec-orbit-plugin-sdk" }

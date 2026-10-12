@@ -116,8 +116,8 @@ pub struct ParsecOrbitHost {
     pub reserved: [usize; 8],
 
     // ---- revision 2 ----
-    /// Manifest id of the plugin this table belongs to (the DLL path for a
-    /// plugin without a manifest). NUL-terminated UTF-8.
+    /// Id of the plugin this table belongs to: the manifest id, or the
+    /// descriptor id of a plugin without a manifest. NUL-terminated UTF-8.
     pub plugin_id: *const u8,
     /// Absolute directory of the plugin. NUL-terminated UTF-8.
     pub plugin_dir: *const u8,
