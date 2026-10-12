@@ -54,6 +54,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "parsec-orbit-plugin-abi"
+version = "0.1.0"
+
+[[package]]
 name = "parsec-orbit-plugin-hello"
 version = "0.1.0"
 dependencies = [
@@ -71,6 +75,9 @@ dependencies = [
 [[package]]
 name = "parsec-orbit-plugin-sdk"
 version = "0.1.0"
+dependencies = [
+ "parsec-orbit-plugin-abi",
+]
 
 [[package]]
 name = "parsec-orbit-plugin-webview"

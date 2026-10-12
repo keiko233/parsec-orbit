@@ -91,8 +91,12 @@ fn the_official_plugins_load_with_their_shipped_manifests() {
     let v = env!("CARGO_PKG_VERSION");
     let run = run_client(&sandbox);
     run.assert_success()
-        .assert_log_contains(&format!("loaded com.parsec-orbit.webview {v} (WebView UI Patches) ABI 1"))
-        .assert_log_contains(&format!("loaded com.parsec-orbit.native {v} (Native UI Patches) ABI 1"))
+        .assert_log_contains(&format!(
+            "loaded com.parsec-orbit.webview {v} (WebView UI Patches) ABI 1"
+        ))
+        .assert_log_contains(&format!(
+            "loaded com.parsec-orbit.native {v} (Native UI Patches) ABI 1"
+        ))
         .assert_log_contains(&format!("webview ui patches {v} starting"))
         .assert_log_contains(&format!("native ui patches {v} starting"))
         .assert_log_contains("ready: 2 loaded, 0 skipped, 0 failed");

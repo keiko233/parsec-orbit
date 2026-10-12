@@ -1,0 +1,13 @@
+[package]
+name = "parsec-orbit-plugin-abi"
+description = "C ABI definitions shared by the Parsec Orbit loader and its plugins: descriptor, host table, constants"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+readme = "../../README.md"
+publish = false
+
+[lib]
+name = "parsec_orbit_plugin_abi"
+path = "src/lib.rs"
