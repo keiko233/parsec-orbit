@@ -117,11 +117,30 @@ pub struct LoadRequest {
     pub manifest: String,
 }
 
+/// The permissions the runtime understands. Anything else is ignored with a
+/// warning, so the host object and the warning list cannot drift apart.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Permission {
+    Webview,
+    Config,
+}
+
+impl Permission {
+    pub const ALL: [Permission; 2] = [Permission::Webview, Permission::Config];
+
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Permission::Webview => "webview",
+            Permission::Config => "config",
+        }
+    }
+}
+
 /// Starts the plugin's context and waits for its `setup`.
 pub fn load_plugin(request: LoadRequest) -> Result<(), String> {
     let runtime = runtime().ok_or("the runtime is not initialised")?;
     let manifest = parse_manifest(&request.manifest)?;
-    let known = ["webview", "config"];
+    let known = Permission::ALL.map(Permission::as_str);
     for permission in &manifest.permissions {
         if !known.contains(&permission.as_str()) {
             runtime.cx.log(

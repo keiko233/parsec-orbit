@@ -26,6 +26,7 @@ use parsec_orbit_plugin_sdk_std::Level;
 use serde_json::Value;
 
 use crate::engine::{describe, log, with_state, Channel, Command, PluginInfo, Timer};
+use crate::loader::Permission;
 
 type Native = fn(&JsValue, &[JsValue], &mut JsContext) -> JsResult<JsValue>;
 
@@ -806,11 +807,11 @@ pub fn build_host(context: &mut JsContext, plugin: &PluginInfo) -> JsResult<JsOb
 
     // Capabilities are default-deny: the object is simply absent without the
     // permission in the manifest.
-    if plugin.permits("webview") {
+    if plugin.permits(Permission::Webview.as_str()) {
         let webview = webview_object(context);
         host.set(js_string!("webview"), webview, true, context)?;
     }
-    if plugin.permits("config") {
+    if plugin.permits(Permission::Config.as_str()) {
         let config = config_object(context);
         host.set(js_string!("config"), config, true, context)?;
     }
