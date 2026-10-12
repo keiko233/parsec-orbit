@@ -9,7 +9,7 @@ use std::os::windows::ffi::OsStrExt;
 use std::path::Path;
 use std::sync::{Mutex, OnceLock};
 
-use parsec_orbit_core::{Env, Exports, Loaded, Logger, Module, Platform};
+use parsec_orbit_core::{Env, Exports, Level, Loaded, Logger, Module, Platform};
 use parsec_orbit_plugin_abi::{
     InitFn, LegacyInitFn, QueryFn, ShutdownFn, EXPORT_INIT, EXPORT_LEGACY_INIT, EXPORT_QUERY,
     EXPORT_SHUTDOWN,
@@ -109,8 +109,8 @@ impl Platform for Win32Platform {
 struct FileLogger;
 
 impl Logger for FileLogger {
-    fn log(&self, level: u32, message: &str) {
-        log::by_level(level, message);
+    fn log(&self, level: Level, message: &str) {
+        log::log(level, message);
     }
 }
 

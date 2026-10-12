@@ -188,7 +188,7 @@ mod tests {
 
     struct Quiet;
     impl Logger for Quiet {
-        fn log(&self, _level: u32, _message: &str) {}
+        fn log(&self, _level: crate::Level, _message: &str) {}
     }
 
     struct NoPlatform;

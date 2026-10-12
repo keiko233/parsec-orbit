@@ -433,7 +433,7 @@ mod tests {
     #[derive(Default)]
     struct Recording(RefCell<Vec<String>>);
     impl Logger for Recording {
-        fn log(&self, _level: u32, message: &str) {
+        fn log(&self, _level: crate::Level, message: &str) {
             self.0.borrow_mut().push(message.to_string());
         }
     }

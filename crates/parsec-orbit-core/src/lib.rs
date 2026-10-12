@@ -19,30 +19,84 @@ pub mod scan;
 #[cfg(any(test, feature = "testutil"))]
 pub mod testutil;
 
+use std::fmt;
 use std::path::Path;
 
-use parsec_orbit_plugin_abi::{
-    InitFn, LegacyInitFn, QueryFn, ShutdownFn, LOG_DEBUG, LOG_ERROR, LOG_INFO, LOG_WARN,
-};
+use parsec_orbit_plugin_abi::{InitFn, LegacyInitFn, QueryFn, ShutdownFn};
 
 pub use manifest::{read_manifest, Manifest, KIND_DLL, KIND_JS, MANIFEST};
 pub use scan::{scan, Scan, Summary};
 
-/// Sink for the loader's log lines. `level` uses the ABI's `LOG_*` values.
-pub trait Logger {
-    fn log(&self, level: u32, message: &str);
+/// Severity of a log line, in the order the ABI's `LOG_*` values use.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Level {
+    Trace,
+    Debug,
+    Info,
+    Warn,
+    Error,
+}
 
+impl Level {
+    /// The level behind an ABI `LOG_*` value. Unknown numbers are `Info`,
+    /// which is what the loader logged before the values had a type.
+    pub fn from_abi(level: u32) -> Level {
+        match level {
+            0 => Level::Trace,
+            1 => Level::Debug,
+            3 => Level::Warn,
+            4 => Level::Error,
+            _ => Level::Info,
+        }
+    }
+
+    /// The ABI `LOG_*` value of this level.
+    pub const fn to_abi(self) -> u32 {
+        match self {
+            Level::Trace => 0,
+            Level::Debug => 1,
+            Level::Info => 2,
+            Level::Warn => 3,
+            Level::Error => 4,
+        }
+    }
+
+    /// The tag a log line carries.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Level::Trace => "trace",
+            Level::Debug => "debug",
+            Level::Info => "info",
+            Level::Warn => "warn",
+            Level::Error => "error",
+        }
+    }
+}
+
+impl fmt::Display for Level {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(self.as_str())
+    }
+}
+
+/// Sink for the loader's log lines.
+pub trait Logger {
+    fn log(&self, level: Level, message: &str);
+
+    fn trace(&self, message: &str) {
+        self.log(Level::Trace, message);
+    }
     fn debug(&self, message: &str) {
-        self.log(LOG_DEBUG, message);
+        self.log(Level::Debug, message);
     }
     fn info(&self, message: &str) {
-        self.log(LOG_INFO, message);
+        self.log(Level::Info, message);
     }
     fn warn(&self, message: &str) {
-        self.log(LOG_WARN, message);
+        self.log(Level::Warn, message);
     }
     fn error(&self, message: &str) {
-        self.log(LOG_ERROR, message);
+        self.log(Level::Error, message);
     }
 }
 
