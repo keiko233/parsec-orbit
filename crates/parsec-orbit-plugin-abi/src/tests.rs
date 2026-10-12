@@ -75,6 +75,26 @@ fn interface_layouts_are_frozen() {
 }
 
 #[test]
+#[cfg(target_pointer_width = "64")]
+fn service_table_layouts_are_frozen() {
+    assert_eq!(offset_of!(ParsecOrbitWebViewV1, header), 0);
+    assert_eq!(offset_of!(ParsecOrbitWebViewV1, is_ready), 8);
+    assert_eq!(offset_of!(ParsecOrbitWebViewV1, add_script), 16);
+    assert_eq!(offset_of!(ParsecOrbitWebViewV1, remove_script), 24);
+    assert_eq!(offset_of!(ParsecOrbitWebViewV1, evaluate), 32);
+    assert_eq!(offset_of!(ParsecOrbitWebViewV1, subscribe), 40);
+    assert_eq!(offset_of!(ParsecOrbitWebViewV1, unsubscribe), 48);
+    assert_eq!(offset_of!(ParsecOrbitWebViewV1, post), 56);
+    assert_eq!(size_of::<ParsecOrbitWebViewV1>(), 64);
+
+    assert_eq!(offset_of!(ParsecOrbitJsV1, header), 0);
+    assert_eq!(offset_of!(ParsecOrbitJsV1, create_context), 8);
+    assert_eq!(offset_of!(ParsecOrbitJsV1, eval), 16);
+    assert_eq!(offset_of!(ParsecOrbitJsV1, destroy_context), 24);
+    assert_eq!(size_of::<ParsecOrbitJsV1>(), 32);
+}
+
+#[test]
 fn optional_function_pointers_use_the_null_pointer_niche() {
     // The C side passes plain (nullable) function pointers.
     assert_eq!(
@@ -182,6 +202,8 @@ fn abi_document_matches_the_definitions() {
         "ParsecOrbitInterfaceHeader",
         "ParsecOrbitPluginLoadInfo",
         "ParsecOrbitKindHandlerV1",
+        "ParsecOrbitWebViewV1",
+        "ParsecOrbitJsV1",
         "ERR_NOT_FOUND",
         INTERFACE_KIND_PREFIX,
         INTERFACE_WEBVIEW,

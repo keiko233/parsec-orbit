@@ -46,42 +46,34 @@ Name: `parsec-orbit.kind.<kind>` (for example `parsec-orbit.kind.js`). Registere
 
 ## Core services
 
-The names and shapes are fixed here so SDKs can be written ahead of the providers.
+The C layouts are in [plugin-abi.md](plugin-abi.md#core-service-tables) and in `parsec-orbit-plugin-abi`; the typed Rust bindings are `services::{WebView, WebViewClient, Js, JsClient}` in the SDK. This section is what the functions mean.
 
 ### `parsec-orbit.webview` (provided by the webview-bridge plugin), version 1.0
 
-Wraps the WebView2 UI of the client (the DevTools endpoint the loader opens). All strings are UTF-8 `(ptr, len)`.
+Wraps the WebView2 UI of the client through the DevTools endpoint the loader opens. All strings are UTF-8 `(ptr, len)`. Every function is thread-safe; callbacks run on the bridge's thread.
 
-```c
-typedef void (*ParsecOrbitMessageCallback)(void *user, const uint8_t *msg, size_t len);
+| Function | Behaviour |
+| --- | --- |
+| `is_ready()` | `1` when a page target is attached, `0` otherwise. |
+| `add_script(key, script)` | Registers `script` to run in every new document (it survives reloads) and also in the current one. Returns a script id `> 0` or a negative error. **Idempotent per `key`**: registering a key again replaces the script. Keys are global, so a client prefixes its plugin id (`WebViewClient` does: `<plugin id>/<key>`); an earlier draft promised idempotence per (plugin id, key) but the functions carry no caller identity. Scripts registered before a page is attached are kept and run when it attaches. |
+| `remove_script(id)` | Stops the script from running in new documents. `0` or `-3`. |
+| `evaluate(expression, out, user)` | Evaluates in the current document (`awaitPromise`, `returnByValue`) and passes the JSON result to `out`, valid only during the call. `0`, `-4` not ready, `-5` timeout (10 s), `-6` the script threw. |
+| `subscribe(channel, cb, user)` | Calls `cb` with the JSON payload for each `window.__orbit.emit(channel, payload)` of the page. Returns a subscription id `> 0` or an error. Subscriptions survive page reloads. |
+| `unsubscribe(id)` | `0` or `-3`. |
+| `post(channel, payload)` | Delivers the JSON `payload` to `window.__orbit.on(channel, handler)` handlers. `-4` when no page is attached. |
 
-typedef struct ParsecOrbitWebViewV1 {
-    ParsecOrbitInterfaceHeader header;
-    /* 1 when a page target is attached, 0 otherwise */
-    int32_t (*is_ready)(void);
-    /* Registers `script` to run in every new document (survives reloads) and also in the current
-       one. Returns a script id > 0, or a negative error. Idempotent per (plugin id, key). */
-    int64_t (*add_script)(const uint8_t *key, size_t key_len, const uint8_t *script, size_t script_len);
-    int32_t (*remove_script)(int64_t script_id);
-    /* Evaluates `expression` in the current document. The JSON result is passed to `out`
-       (valid only during the call). Returns 0 or a negative error
-       (-4 not ready, -5 timeout, -6 script exception). */
-    int32_t (*evaluate)(const uint8_t *expression, size_t len, ParsecOrbitMessageCallback out, void *user);
-    /* Subscribes to messages the page sends with `window.__orbit.emit(channel, payload)`. */
-    int64_t (*subscribe)(const uint8_t *channel, size_t channel_len, ParsecOrbitMessageCallback cb, void *user);
-    int32_t (*unsubscribe)(int64_t subscription);
-    /* Sends a message to the page, delivered to `window.__orbit.on(channel, handler)`. */
-    int32_t (*post)(const uint8_t *channel, size_t channel_len, const uint8_t *payload, size_t len);
-} ParsecOrbitWebViewV1;
-```
+**Page side.** The bridge registers a helper script before any plugin script. It defines `window.__orbit`:
 
-The page-side helper `window.__orbit` (`emit`, `on`, and `rpc(event, data)` for the Parsec UI/client RPC protocol) is installed by the bridge before any plugin script.
+* `emit(channel, payload)` - to the plugin side (`subscribe`),
+* `on(channel, handler)` / `off(channel, handler)` - from the plugin side (`post`),
+* `rpc(event, data)` - the Parsec UI/client request/reply protocol of the web UI (`protocol_version: 1` envelope on `window.MTY_NativeSendText`, reply through the same channel, 10 s timeout),
+* `version` - the helper's version.
+
+The page talks to the bridge through a CDP binding (`Runtime.addBinding` named `__orbitSend`), so no network port beyond the DevTools endpoint is involved.
 
 ### `parsec-orbit.js` (provided by the JS runtime plugin), version 1.0
 
-For native plugins that want to evaluate script: create/destroy a named
-context and `eval(context, source) -> json`. The name is reserved; the
-signatures are not fixed until the runtime is implemented.
+For native plugins that want to evaluate script. `create_context(name)` makes a context of its own (`-2` if the name is taken), `eval(context, source, out, user)` evaluates a script and passes the result as JSON, `destroy_context(context)` drops it. Contexts are independent of those of JavaScript plugins, run on a thread of their own and have no `host` object; they have the timers and nothing else.
 
 ### Reserved
 
@@ -93,5 +85,5 @@ signatures are not fixed until the runtime is implemented.
 
 ## Open questions
 
-* Whether `evaluate` should be asynchronous (completion callback) instead of blocking up to a timeout. Blocking is simpler for native callers; the JS runtime can wrap it in a promise.
+* Whether `evaluate` should be asynchronous (completion callback) instead of blocking up to a timeout. Blocking is simpler for native callers; the JS runtime wraps it in a promise on its own threads.
 * Subscription callbacks run on the bridge's thread; whether the SDK should marshal them onto an executor the plugin chooses.
