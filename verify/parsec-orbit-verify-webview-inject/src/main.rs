@@ -10,7 +10,7 @@ fn main() {
         .map(|value| value.parse().unwrap_or(9222))
         .unwrap_or(9222);
 
-    match parsec_orbit_plugin_webview::webview::inject_once(port) {
+    match parsec_orbit_plugin_high_bitrate_webview::webview::inject_once(port) {
         Ok(injection) => {
             println!("target: {}", injection.target_url);
             println!(

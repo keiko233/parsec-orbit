@@ -1,0 +1,18 @@
+[package]
+name = "parsec-orbit-core"
+description = "Platform-independent plugin loading logic of the Parsec Orbit loader: manifests, discovery, validation"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+readme = "../../README.md"
+publish = false
+
+[features]
+# Test helpers (`testutil`) for crates that test against this one.
+testutil = []
+
+[dependencies]
+parsec-orbit-plugin-abi = { path = "../parsec-orbit-plugin-abi" }
+# Parse-only, like in the loader: no serde, no writer.
+toml = { version = "1", default-features = false, features = ["parse", "std"] }

@@ -1,0 +1,16 @@
+[package]
+name = "parsec-orbit-plugin-sdk"
+description = "SDK for writing Parsec Orbit plugins: the ABI re-exported plus the export macro"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+readme = "../../README.md"
+publish = false
+
+[dependencies]
+parsec-orbit-plugin-abi = { version = "0.1.0", path = "../parsec-orbit-plugin-abi" }
+
+[lib]
+name = "parsec_orbit_plugin_sdk"
+path = "src/lib.rs"

@@ -7,4 +7,4 @@ license.workspace = true
 publish = false
 
 [dependencies]
-parsec-orbit-plugin-webview = { path = "../../plugins/parsec-orbit-plugin-webview" }
+parsec-orbit-plugin-high-bitrate-webview = { path = "../../plugins/parsec-orbit-plugin-high-bitrate-webview" }
