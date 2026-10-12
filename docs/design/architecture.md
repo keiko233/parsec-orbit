@@ -43,14 +43,16 @@
 ```text
 parsec-orbit-plugin-abi      no_std, zero deps. repr(C) types, constants, service structs.      [crates.io]
         ^
-        |-- parsec-orbit-plugin-sdk   safe Rust API on top of the ABI; no_std by default.        [crates.io]
+        |-- parsec-orbit-plugin-sdk   safe Rust API + freestanding runtime; no_std, never std. [crates.io]
+        |       ^
+        |       +-- parsec-orbit-plugin-sdk-std   threads, panic hook, tracing bridge, MockHost   [crates.io]
         |-- parsec-orbit-core         loader logic (std; toml parse-only)
                 ^
                 +-- parsec-orbit-loader   cdylib named `bcrypt`
 
-plugins/    parsec-orbit-plugin-high-bitrate-native, parsec-orbit-plugin-high-bitrate-webview (official)   -> sdk
+plugins/    parsec-orbit-plugin-high-bitrate-native, parsec-orbit-plugin-high-bitrate-webview (official)   -> sdk-std
             (Phase 4) js-runtime, webview-bridge                                  -> sdk + heavy deps
-examples/   parsec-orbit-plugin-hello  (+ nostd variant)                          -> sdk
+examples/   parsec-orbit-plugin-hello (-> sdk-std), parsec-orbit-plugin-hello-nostd (-> sdk)
 sdk/js/     @parsec-orbit/sdk (TypeScript)                                        [npm]
 tests/      parsec-orbit-e2e;  verify/  verification tools
 ```

@@ -8,13 +8,14 @@ client. It uses a `bcrypt.dll` proxy and does not modify Parsec files.
 * `crates/parsec-orbit-loader/` - the `bcrypt.dll` proxy. It forwards every export to
   the real `bcrypt.dll`, opens the WebView2 DevTools endpoint and hosts the
   plugin system.
-* `crates/parsec-orbit-plugin-abi/` - the C ABI types, constants and frozen-layout
-  tests shared by the loader and plugins.
-* `crates/parsec-orbit-plugin-sdk/` - the plugin macro and Rust API, re-exporting
-  the ABI; see the [plugin ABI reference](docs/spec/plugin-abi.md).
-* `crates/parsec-orbit-core/` - Win32-free manifest parsing, discovery and load
-  decisions behind the `Platform` and `Logger` traits.
-* Specifications, design notes and the SDK roadmap are indexed in
+* `crates/parsec-orbit-plugin-abi/`, `crates/parsec-orbit-plugin-sdk/`,
+  `crates/parsec-orbit-plugin-sdk-std/` - the plugin ABI, the Rust SDK
+  (`Plugin`, `Context`, a `no_std` runtime for 10 KB plugins) and its `std`
+  companions; see the [plugin ABI reference](docs/spec/plugin-abi.md) and
+  [Write a Rust plugin](docs/guides/rust-plugin.md).
+* `crates/parsec-orbit-core/` - the loader's Win32-free logic: manifests,
+  discovery, dependency ordering, the service registry, per-plugin host tables.
+  Specifications, design notes and the roadmap are indexed in
   [docs/](docs/README.md).
 * `plugins/parsec-orbit-plugin-high-bitrate-webview/` - official plugin that widens the
   "Bandwidth Limit" choices in the WebView2 UI; see its
@@ -22,7 +23,8 @@ client. It uses a `bcrypt.dll` proxy and does not modify Parsec files.
 * `plugins/parsec-orbit-plugin-high-bitrate-native/` - official plugin for the same options
   in the native (libmatoya) UI; see its
   [README](plugins/parsec-orbit-plugin-high-bitrate-native/README.md).
-* `examples/parsec-orbit-plugin-hello/` - smallest useful sample plugin.
+* `examples/parsec-orbit-plugin-hello-nostd/` - smallest possible plugin (10 KB, `no_std`).
+* `examples/parsec-orbit-plugin-hello/` - the same idea with `std`.
 * `verify/parsec-orbit-verify-*` - verification tools for the loader and the
   WebView patch delivery.
 * `tests/parsec-orbit-e2e/` - end-to-end tests that run the built loader and

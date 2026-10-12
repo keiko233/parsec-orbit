@@ -5,9 +5,14 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-readme = "../../README.md"
-publish = false
+keywords = ["parsec", "plugin", "abi", "no_std", "windows"]
+categories = ["development-tools", "no-std", "os::windows-apis"]
+rust-version = "1.81"
 
 [lib]
 name = "parsec_orbit_plugin_abi"
 path = "src/lib.rs"
+
+[package.metadata.docs.rs]
+default-target = "x86_64-pc-windows-msvc"
+targets = ["x86_64-pc-windows-msvc"]

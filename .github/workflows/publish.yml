@@ -79,6 +79,14 @@ jobs:
           out, n = re.subn(r'(?m)^version = "[^"]+"$', 'version = "' + version + '"', src, count=1)
           if n != 1:
               raise SystemExit("workspace version line not found in Cargo.toml")
+          # The crates published to crates.io name each other with a version.
+          out, n = re.subn(
+              r'(?m)^(parsec-orbit-plugin-[a-z-]+ = \{ path = "[^"]+", version = ")[^"]+(" \})$',
+              lambda m: m.group(1) + version + m.group(2),
+              out,
+          )
+          if n < 1:
+              raise SystemExit("workspace dependency versions not found in Cargo.toml")
           with open(path, "w", encoding="utf-8", newline="") as f:
               f.write(out)
           EOF

@@ -8,7 +8,6 @@ repository.workspace = true
 keywords = ["parsec", "plugin", "sdk", "testing", "windows"]
 categories = ["development-tools", "os::windows-apis"]
 rust-version = "1.81"
-publish = false
 
 [features]
 default = []
@@ -16,7 +15,7 @@ default = []
 tracing = ["dep:tracing-core"]
 
 [dependencies]
-parsec-orbit-plugin-sdk = { path = "../parsec-orbit-plugin-sdk" }
+parsec-orbit-plugin-sdk.workspace = true
 tracing-core = { version = "0.1", optional = true }
 
 [dev-dependencies]

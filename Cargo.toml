@@ -24,6 +24,12 @@ edition = "2021"
 license = "MIT"
 repository = "https://github.com/keiko233/parsec-orbit"
 
+# Versions of the crates published to crates.io. The Publish workflow bumps
+# these together with `[workspace.package] version`.
+[workspace.dependencies]
+parsec-orbit-plugin-abi = { path = "crates/parsec-orbit-plugin-abi", version = "0.1.0" }
+parsec-orbit-plugin-sdk = { path = "crates/parsec-orbit-plugin-sdk", version = "0.1.0" }
+
 # A `no_std` plugin cannot unwind, so it needs `panic = "abort"` in every
 # profile it is built with, not only in release.
 [profile.dev]
