@@ -87,12 +87,14 @@ fn the_official_plugins_load_with_their_shipped_manifests() {
     sandbox.install_plugin("webview", Plugin::Webview);
     sandbox.install_plugin("native", Plugin::Native);
 
+    // The official plugins share the workspace version.
+    let v = env!("CARGO_PKG_VERSION");
     let run = run_client(&sandbox);
     run.assert_success()
-        .assert_log_contains("loaded com.parsec-orbit.webview 0.1.0 (WebView UI Patches) ABI 1")
-        .assert_log_contains("loaded com.parsec-orbit.native 0.1.0 (Native UI Patches) ABI 1")
-        .assert_log_contains("webview ui patches 0.0.0 starting")
-        .assert_log_contains("native ui patches 0.0.0 starting")
+        .assert_log_contains(&format!("loaded com.parsec-orbit.webview {v} (WebView UI Patches) ABI 1"))
+        .assert_log_contains(&format!("loaded com.parsec-orbit.native {v} (Native UI Patches) ABI 1"))
+        .assert_log_contains(&format!("webview ui patches {v} starting"))
+        .assert_log_contains(&format!("native ui patches {v} starting"))
         .assert_log_contains("ready: 2 loaded, 0 skipped, 0 failed");
 }
 
