@@ -1,0 +1,23 @@
+[package]
+name = "parsec-orbit-e2e"
+description = "End-to-end tests: the built loader and plugins running inside a real process"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+# Stands in for the client process: it loads the loader the way the Windows
+# loader does and reports what it sees. The tests copy it to `parsecd.exe`.
+[[bin]]
+name = "loader-host"
+path = "src/bin/loader-host.rs"
+
+[dependencies]
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_System_LibraryLoader",
+] }
+
+[dev-dependencies]
+serde_json = "1"

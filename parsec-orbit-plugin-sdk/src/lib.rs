@@ -12,6 +12,9 @@
 
 #![no_std]
 
+#[cfg(test)]
+extern crate std;
+
 use core::ffi::{c_void, CStr};
 
 /// ABI version implemented by this SDK.
@@ -214,3 +217,6 @@ macro_rules! parsec_orbit_plugin {
         )?
     };
 }
+
+#[cfg(test)]
+mod tests;

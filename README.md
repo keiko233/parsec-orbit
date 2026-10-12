@@ -19,6 +19,8 @@ client. It uses a `bcrypt.dll` proxy and does not modify Parsec files.
 * `examples/parsec-orbit-plugin-hello/` - smallest useful sample plugin.
 * `verify/parsec-orbit-verify-*` - verification tools for the loader and the
   WebView patch delivery.
+* `tests/parsec-orbit-e2e/` - end-to-end tests that run the built loader and
+  plugins inside a real process; see [Tests](#tests).
 
 ## Build and install
 
@@ -38,3 +40,31 @@ hand, copy `bcrypt.dll` next to `parsecd.exe` (typically
 The client loads the proxy at start-up. It appends to the first writable path
 of `PARSEC_ORBIT_LOG`, `%APPDATA%\ParsecOrbit\parsec-orbit.log`, the client
 directory and `%TEMP%`, and mirrors every line to the debugger output.
+
+## Tests
+
+```powershell
+cargo test --workspace
+```
+
+Windows only (the loader is a `bcrypt.dll` proxy). Node.js is needed for the
+behaviour tests of the script injected into the WebView UI; without it that one
+test is skipped (set `PARSEC_ORBIT_REQUIRE_NODE=1` to make it fail instead).
+
+* **Unit tests** sit next to the code: ABI layout and macro (`sdk`), settings,
+  manifests, plugin discovery and the descriptor checks, logging and the
+  forwarding thunks (`loader`), the DevTools client (`webview`) and the
+  signature scan and in-memory patch, run against a fake PE image (`native`).
+* **Integration tests** in `plugins/parsec-orbit-plugin-webview/tests/` drive
+  the DevTools client against a fake endpoint and run `assets/bandwidth.js` in
+  a fake browser under Node.
+* **End-to-end tests** in `tests/parsec-orbit-e2e/` build the loader and the
+  plugins into `target/e2e`, install them into a throwaway client directory
+  next to a host process named `parsecd.exe`, and check the log, the files the
+  plugins write and the environment the host ends up with. They also run
+  `verify/*` (`callpaths`, `roundtrip`), so the forwarding checks of
+  `scripts\verify.ps1` are part of `cargo test`.
+
+The tests redirect `%APPDATA%` and `%TEMP%` into temporary directories and
+never touch an installed Parsec client. CI (`.github/workflows/test.yml`) runs
+the same command plus `cargo fmt --check`.

@@ -9,6 +9,7 @@ members = [
     "verify/parsec-orbit-verify-callpaths",
     "verify/parsec-orbit-verify-roundtrip",
     "verify/parsec-orbit-verify-webview-inject",
+    "tests/parsec-orbit-e2e",
 ]
 
 [workspace.package]

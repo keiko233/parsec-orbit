@@ -1,0 +1,45 @@
+# Runs the whole test suite on every push to main and on every pull request.
+#
+# The suite covers the SDK, the loader, both official plugins and the example,
+# plus end-to-end tests that build the loader and the plugins and run them in
+# a real process. It needs Windows: the loader is a bcrypt.dll proxy.
+name: Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: test-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: windows-latest
+    env:
+      # The behaviour tests of the injected WebView script run on Node; fail
+      # instead of silently skipping if it is ever missing.
+      PARSEC_ORBIT_REQUIRE_NODE: '1'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+          components: rustfmt
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Test
+        run: cargo test --workspace --locked

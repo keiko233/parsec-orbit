@@ -175,18 +175,31 @@ fn write_line(path: Option<&Path>, line: &str) {
     unsafe { OutputDebugStringW(text.as_ptr()) };
 }
 
+/// `[MM-DD hh:mm:ss.mmm] [tag] [process pid=N] message`, newline terminated.
+fn format_line(
+    (month, day, hour, minute, second, millisecond): (u16, u16, u16, u16, u16, u16),
+    tag: &str,
+    process: &str,
+    pid: u32,
+    message: &str,
+) -> String {
+    format!(
+        "[{month:02}-{day:02} {hour:02}:{minute:02}:{second:02}.{millisecond:03}] [{tag}] [{process} pid={pid}] {message}\n"
+    )
+}
+
 macro_rules! level_fn {
     ($name:ident, $tag:literal) => {
         /// Writes one log line to the log file and the debugger output.
         pub fn $name(message: &str) {
-            let (month, day, hour, minute, second, millisecond) = timestamp();
             write_line(
                 LOG_PATH.get().map(PathBuf::as_path),
-                &format!(
-                    "[{month:02}-{day:02} {hour:02}:{minute:02}:{second:02}.{millisecond:03}] [{tag}] [{} pid={}] {message}\n",
+                &format_line(
+                    timestamp(),
+                    $tag,
                     process_name(),
                     std::process::id(),
-                    tag = $tag
+                    message,
                 ),
             );
         }
@@ -207,5 +220,192 @@ pub fn by_level(level: u32, message: &str) {
         3 => warn(message),
         4 => error(message),
         _ => info(message),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::testutil::TempDir;
+
+    const ERROR_PATH_NOT_FOUND: u32 = 3;
+    const ERROR_ACCESS_DENIED: u32 = 5;
+
+    #[test]
+    fn line_format_is_stable() {
+        assert_eq!(
+            format_line((3, 7, 4, 5, 6, 89), "info", "parsecd.exe", 42, "hello"),
+            "[03-07 04:05:06.089] [info] [parsecd.exe pid=42] hello\n"
+        );
+        assert_eq!(
+            format_line((12, 31, 23, 59, 59, 999), "error", "x.exe", 4_000_000, ""),
+            "[12-31 23:59:59.999] [error] [x.exe pid=4000000] \n"
+        );
+    }
+
+    #[test]
+    fn timestamp_is_a_plausible_local_time() {
+        let (month, day, hour, minute, second, millisecond) = timestamp();
+        assert!((1..=12).contains(&month));
+        assert!((1..=31).contains(&day));
+        assert!(hour < 24 && minute < 60 && second < 61 && millisecond < 1000);
+    }
+
+    #[test]
+    fn wide_is_nul_terminated_utf16() {
+        assert_eq!(wide(""), [0]);
+        assert_eq!(wide("a\u{30ed}"), [0x61, 0x30ed, 0]);
+        // Outside the BMP: a surrogate pair.
+        assert_eq!(wide("\u{1F600}"), [0xD83D, 0xDE00, 0]);
+    }
+
+    #[test]
+    fn process_name_is_the_bare_executable_name() {
+        let name = process_name();
+        assert!(!name.is_empty());
+        assert!(!name.contains('\\') && !name.contains('/'), "{name}");
+        assert!(name.to_ascii_lowercase().ends_with(".exe"), "{name}");
+    }
+
+    #[test]
+    fn probe_accepts_a_new_file_and_does_not_truncate_an_existing_one() {
+        let dir = TempDir::new("probe");
+        let fresh = dir.path().join("fresh.log");
+        assert_eq!(probe(&fresh), Ok(()));
+        assert!(fresh.is_file(), "the probe creates the file");
+
+        let existing = dir.write("existing.log", "keep me\n");
+        assert_eq!(probe(&existing), Ok(()));
+        assert_eq!(std::fs::read_to_string(existing).unwrap(), "keep me\n");
+    }
+
+    #[test]
+    fn probe_reports_the_win32_error_for_unusable_paths() {
+        let dir = TempDir::new("probe-bad");
+        assert_eq!(
+            probe(&dir.path().join("no-such-dir").join("x.log")),
+            Err(ERROR_PATH_NOT_FOUND)
+        );
+        assert_eq!(probe(dir.path()), Err(ERROR_ACCESS_DENIED));
+    }
+
+    #[test]
+    fn write_line_appends_in_order() {
+        let dir = TempDir::new("write");
+        let path = dir.path().join("a.log");
+        write_line(Some(&path), "first\n");
+        write_line(Some(&path), "second \u{30ed}\n");
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            "first\nsecond \u{30ed}\n"
+        );
+    }
+
+    #[test]
+    fn write_line_without_a_usable_file_does_not_panic() {
+        write_line(None, "debugger output only\n");
+        let dir = TempDir::new("write-bad");
+        // A directory cannot be opened for append; every retry fails quietly.
+        write_line(Some(dir.path()), "lost\n");
+        write_line(Some(&dir.path().join("missing").join("x.log")), "lost\n");
+    }
+
+    #[test]
+    fn concurrent_writers_never_interleave_inside_a_line() {
+        let dir = TempDir::new("write-threads");
+        let path = dir.path().join("threads.log");
+        let threads: Vec<_> = (0..8)
+            .map(|thread| {
+                let path = path.clone();
+                std::thread::spawn(move || {
+                    for index in 0..50 {
+                        write_line(
+                            Some(&path),
+                            &format!("t{thread} line {index} {}\n", "x".repeat(200)),
+                        );
+                    }
+                })
+            })
+            .collect();
+        for thread in threads {
+            thread.join().unwrap();
+        }
+        let content = std::fs::read_to_string(&path).unwrap();
+        let lines: Vec<&str> = content.lines().collect();
+        assert_eq!(lines.len(), 8 * 50);
+        for line in lines {
+            assert!(
+                line.starts_with('t') && line.ends_with(&"x".repeat(200)),
+                "{line}"
+            );
+        }
+    }
+
+    #[test]
+    fn init_without_candidates_leaves_logging_off() {
+        let result = init(&[]);
+        assert_eq!(result.path, None);
+        assert!(result.rejected.is_empty());
+    }
+
+    /// The only test that activates the process-wide log file: `init` can
+    /// succeed once per process.
+    #[test]
+    fn init_skips_unwritable_candidates_and_then_logs_every_level() {
+        let dir = TempDir::new("init");
+        let blocked = dir.path().to_path_buf(); // a directory is not writable as a file
+        let good = dir
+            .path()
+            .join("nested")
+            .join("deeper")
+            .join("parsec-orbit.log");
+        let unused = dir.path().join("unused.log");
+
+        let result = init(&[blocked.clone(), good.clone(), unused.clone()]);
+
+        assert_eq!(result.path.as_deref(), Some(good.as_path()));
+        assert_eq!(result.rejected, vec![(blocked, ERROR_ACCESS_DENIED)]);
+        assert!(good.is_file(), "missing parent directories are created");
+        assert!(
+            !unused.exists(),
+            "candidates after the winner are never touched"
+        );
+
+        by_level(0, "level-test trace");
+        by_level(1, "level-test debug");
+        by_level(2, "level-test info");
+        by_level(3, "level-test warn");
+        by_level(4, "level-test error");
+        by_level(99, "level-test unknown");
+        trace("direct trace");
+
+        let content = std::fs::read_to_string(&good).unwrap();
+        let tag_of = |message: &str| {
+            let line = content
+                .lines()
+                .find(|line| line.ends_with(message))
+                .unwrap_or_else(|| panic!("no line for {message:?} in:\n{content}"));
+            // [MM-DD hh:mm:ss.mmm] [tag] [process pid=N] message
+            assert_eq!(line.as_bytes()[0], b'[');
+            assert_eq!(line.as_bytes()[3], b'-');
+            assert_eq!(line.as_bytes()[9], b':');
+            assert_eq!(line.as_bytes()[15], b'.');
+            assert!(
+                line.contains(&format!("[{} pid={}]", process_name(), std::process::id())),
+                "{line}"
+            );
+            line.split("] [").nth(1).unwrap().to_string()
+        };
+        assert_eq!(tag_of("level-test trace"), "trace");
+        assert_eq!(tag_of("level-test debug"), "debug");
+        assert_eq!(tag_of("level-test info"), "info");
+        assert_eq!(tag_of("level-test warn"), "warn");
+        assert_eq!(tag_of("level-test error"), "error");
+        assert_eq!(
+            tag_of("level-test unknown"),
+            "info",
+            "unknown levels log as info"
+        );
+        assert_eq!(tag_of("direct trace"), "trace");
     }
 }

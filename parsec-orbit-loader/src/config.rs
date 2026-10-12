@@ -19,10 +19,6 @@ pub struct Config {
     pub any_host: bool,
 }
 
-fn env(name: &str) -> Option<String> {
-    std::env::var(name).ok().filter(|value| !value.is_empty())
-}
-
 fn split_paths(value: &str) -> Vec<PathBuf> {
     value
         .split(';')
@@ -36,6 +32,13 @@ impl Config {
     /// `loader_dir` is the directory holding `bcrypt.dll`, i.e. the client
     /// application directory.
     pub fn load(loader_dir: Option<&Path>) -> Self {
+        Self::from_lookup(loader_dir, |name| std::env::var(name).ok())
+    }
+
+    /// Same as [`Config::load`], reading variables through `lookup` instead of
+    /// the process environment. An empty value counts as unset.
+    pub fn from_lookup(loader_dir: Option<&Path>, lookup: impl Fn(&str) -> Option<String>) -> Self {
+        let env = |name: &str| lookup(name).filter(|value| !value.is_empty());
         let mut plugin_dirs = Vec::new();
         if let Some(extra) = env("PARSEC_ORBIT_PLUGIN_DIR") {
             plugin_dirs.extend(split_paths(&extra));
@@ -95,5 +98,211 @@ impl Config {
             devtools_port,
             any_host: matches!(env("PARSEC_ORBIT_HOST").as_deref(), Some("any")),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    fn load(dir: Option<&str>, vars: &[(&str, &str)]) -> Config {
+        let vars: HashMap<String, String> = vars
+            .iter()
+            .map(|(name, value)| (name.to_string(), value.to_string()))
+            .collect();
+        Config::from_lookup(dir.map(Path::new), |name| vars.get(name).cloned())
+    }
+
+    fn paths(list: &[PathBuf]) -> Vec<String> {
+        list.iter()
+            .map(|path| path.to_string_lossy().replace('/', "\\"))
+            .collect()
+    }
+
+    #[test]
+    fn split_paths_trims_and_drops_empty_parts() {
+        assert_eq!(
+            split_paths(" C:\\a ;; D:\\b;  ;E:\\c;"),
+            vec![
+                PathBuf::from("C:\\a"),
+                PathBuf::from("D:\\b"),
+                PathBuf::from("E:\\c")
+            ]
+        );
+        assert!(split_paths("").is_empty());
+        assert!(split_paths(" ; ;").is_empty());
+    }
+
+    #[test]
+    fn defaults_without_any_environment() {
+        let config = load(None, &[]);
+        assert!(config.log_candidates.is_empty());
+        assert!(config.plugin_dirs.is_empty());
+        assert_eq!(config.devtools_port, Some(DEFAULT_DEVTOOLS_PORT));
+        assert!(!config.any_host);
+    }
+
+    #[test]
+    fn plugin_dirs_are_ordered_override_then_client_then_appdata() {
+        let config = load(
+            Some("C:\\Parsec"),
+            &[
+                ("PARSEC_ORBIT_PLUGIN_DIR", "D:\\one;D:\\two"),
+                ("APPDATA", "C:\\Users\\me\\AppData\\Roaming"),
+            ],
+        );
+        assert_eq!(
+            paths(&config.plugin_dirs),
+            [
+                "D:\\one",
+                "D:\\two",
+                "C:\\Parsec\\plugins",
+                "C:\\Users\\me\\AppData\\Roaming\\ParsecOrbit\\plugins",
+            ]
+        );
+    }
+
+    #[test]
+    fn plugin_dirs_skip_what_is_not_available() {
+        let config = load(None, &[("APPDATA", "C:\\Roaming")]);
+        assert_eq!(
+            paths(&config.plugin_dirs),
+            ["C:\\Roaming\\ParsecOrbit\\plugins"]
+        );
+
+        let config = load(Some("C:\\Parsec"), &[]);
+        assert_eq!(paths(&config.plugin_dirs), ["C:\\Parsec\\plugins"]);
+    }
+
+    #[test]
+    fn log_candidates_are_ordered_by_priority() {
+        let config = load(
+            Some("C:\\Parsec"),
+            &[
+                ("PARSEC_ORBIT_LOG", "D:\\custom.log"),
+                ("APPDATA", "C:\\Roaming"),
+                ("TEMP", "C:\\Temp"),
+            ],
+        );
+        assert_eq!(
+            paths(&config.log_candidates),
+            [
+                "D:\\custom.log",
+                "C:\\Roaming\\ParsecOrbit\\parsec-orbit.log",
+                "C:\\Parsec\\parsec-orbit.log",
+                "C:\\Temp\\parsec-orbit.log",
+            ]
+        );
+    }
+
+    #[test]
+    fn log_candidates_survive_a_missing_appdata() {
+        // Service environments have no %APPDATA%; the other locations still
+        // have to be offered.
+        let config = load(Some("C:\\Parsec"), &[("TEMP", "C:\\Temp")]);
+        assert_eq!(
+            paths(&config.log_candidates),
+            ["C:\\Parsec\\parsec-orbit.log", "C:\\Temp\\parsec-orbit.log"]
+        );
+    }
+
+    #[test]
+    fn log_candidates_drop_duplicates_ignoring_case() {
+        let config = load(
+            Some("C:\\Parsec"),
+            &[
+                ("PARSEC_ORBIT_LOG", "c:\\PARSEC\\Parsec-Orbit.log"),
+                ("TEMP", "C:\\Temp"),
+            ],
+        );
+        assert_eq!(
+            paths(&config.log_candidates),
+            ["c:\\PARSEC\\Parsec-Orbit.log", "C:\\Temp\\parsec-orbit.log"],
+            "the first spelling wins and the later duplicate is dropped"
+        );
+    }
+
+    #[test]
+    fn empty_values_count_as_unset() {
+        let config = load(
+            Some("C:\\Parsec"),
+            &[
+                ("PARSEC_ORBIT_LOG", ""),
+                ("PARSEC_ORBIT_PLUGIN_DIR", ""),
+                ("APPDATA", ""),
+                ("TEMP", ""),
+                ("PARSEC_ORBIT_DEVTOOLS_PORT", ""),
+                ("PARSEC_ORBIT_HOST", ""),
+            ],
+        );
+        assert_eq!(
+            paths(&config.log_candidates),
+            ["C:\\Parsec\\parsec-orbit.log"]
+        );
+        assert_eq!(paths(&config.plugin_dirs), ["C:\\Parsec\\plugins"]);
+        assert_eq!(config.devtools_port, Some(DEFAULT_DEVTOOLS_PORT));
+        assert!(!config.any_host);
+    }
+
+    #[test]
+    fn devtools_can_be_switched_off() {
+        for off in ["0", "off", "false"] {
+            let config = load(None, &[("PARSEC_ORBIT_DEVTOOLS", off)]);
+            assert_eq!(config.devtools_port, None, "PARSEC_ORBIT_DEVTOOLS={off}");
+        }
+    }
+
+    #[test]
+    fn devtools_other_values_keep_it_on() {
+        for on in ["1", "on", "true", "OFF", "anything"] {
+            let config = load(None, &[("PARSEC_ORBIT_DEVTOOLS", on)]);
+            assert_eq!(
+                config.devtools_port,
+                Some(DEFAULT_DEVTOOLS_PORT),
+                "PARSEC_ORBIT_DEVTOOLS={on}"
+            );
+        }
+    }
+
+    #[test]
+    fn devtools_port_is_parsed_and_falls_back_to_the_default() {
+        let port = |value: &str| load(None, &[("PARSEC_ORBIT_DEVTOOLS_PORT", value)]).devtools_port;
+        assert_eq!(port("9333"), Some(9333));
+        assert_eq!(port("1"), Some(1));
+        assert_eq!(port("65535"), Some(65535));
+        // Not a port: ignored rather than disabling the endpoint.
+        assert_eq!(port("65536"), Some(DEFAULT_DEVTOOLS_PORT));
+        assert_eq!(port("-1"), Some(DEFAULT_DEVTOOLS_PORT));
+        assert_eq!(port("abc"), Some(DEFAULT_DEVTOOLS_PORT));
+        assert_eq!(port(" 9333"), Some(DEFAULT_DEVTOOLS_PORT));
+    }
+
+    #[test]
+    fn switching_devtools_off_wins_over_a_port() {
+        let config = load(
+            None,
+            &[
+                ("PARSEC_ORBIT_DEVTOOLS", "off"),
+                ("PARSEC_ORBIT_DEVTOOLS_PORT", "9333"),
+            ],
+        );
+        assert_eq!(config.devtools_port, None);
+    }
+
+    #[test]
+    fn any_host_only_for_the_exact_value() {
+        assert!(load(None, &[("PARSEC_ORBIT_HOST", "any")]).any_host);
+        for other in ["ANY", "all", "1", "parsecd.exe"] {
+            assert!(
+                !load(None, &[("PARSEC_ORBIT_HOST", other)]).any_host,
+                "PARSEC_ORBIT_HOST={other}"
+            );
+        }
+    }
+
+    #[test]
+    fn client_process_name_is_the_parsec_executable() {
+        assert_eq!(CLIENT_PROCESS, "parsecd.exe");
     }
 }

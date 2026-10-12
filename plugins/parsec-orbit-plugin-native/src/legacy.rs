@@ -285,6 +285,12 @@ fn find_table(base: usize, rdata: &Section) -> Option<usize> {
             Some(position) => offset + position,
             None => break,
         };
+        // The records are read straight from memory, so a candidate whose
+        // twelve records would run past the section is not a table: it could
+        // be the tail of a string, and the bytes after it may not be mapped.
+        if candidate + BUILT_IN_COUNT * RECORD_STRIDE > bytes.len() {
+            break;
+        }
         if is_bandwidth_table(base + rdata.va + candidate) {
             return Some(base + rdata.va + candidate);
         }
@@ -466,4 +472,814 @@ unsafe fn read_name(address: usize) -> String {
 fn utf16_string(buffer: &[u16]) -> String {
     let end = buffer.iter().position(|c| *c == 0).unwrap_or(buffer.len());
     String::from_utf16_lossy(&buffer[..end])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::cell::RefCell;
+    use windows_sys::Win32::System::Memory::{
+        VirtualFree, VirtualQuery, MEMORY_BASIC_INFORMATION, MEM_RELEASE,
+    };
+
+    // ---- a fake client module ---------------------------------------------
+    //
+    // A PE image built in memory with the two sections the patcher looks at:
+    //
+    //   .text   rva 0x1000   code that references the bandwidth table
+    //   .rdata  rva 0x3000   the twelve-record bandwidth table
+    //
+    // The patcher only needs a base address to read from and write to, so a
+    // page-aligned allocation stands in for the mapped `parsecd-*.dll`.
+
+    const TEXT_RVA: usize = 0x1000;
+    const TEXT_SIZE: usize = 0x2000;
+    const RDATA_RVA: usize = 0x3000;
+    const RDATA_SIZE: usize = 0x4000;
+    const IMAGE_SIZE: usize = 0x8000;
+    const TABLE_RVA: usize = 0x3100;
+
+    /// `lea rcx, [rip+table]` followed by `mov r8d, 12`.
+    const SITE_A: usize = 0x1100;
+    /// `lea r8, [rip+table+2 records]` followed by `mov [rsp+20h], 12` and
+    /// `mov ecx, 12`.
+    const SITE_B: usize = 0x1400;
+    /// `lea rax, [rip+...]` that points into .text, not at the table.
+    const DECOY_LEA: usize = 0x1700;
+    /// `mov ecx, 12` before the first reference: not part of any window.
+    const DECOY_BEFORE: usize = 0x10F0;
+    /// `mov ecx, 12` too far behind the reference.
+    const DECOY_FAR: usize = SITE_A + 7 + COUNT_SEARCH_WINDOW + 0x10;
+
+    struct Layout {
+        text_name: &'static str,
+        rdata_name: &'static str,
+        optional_magic: u16,
+        mz: bool,
+        table: bool,
+        code: bool,
+        /// Record whose value is corrupted, if any.
+        corrupt_record: Option<usize>,
+    }
+
+    impl Default for Layout {
+        fn default() -> Layout {
+            Layout {
+                text_name: ".text",
+                rdata_name: ".rdata",
+                optional_magic: 0x20B,
+                mz: true,
+                table: true,
+                code: true,
+                corrupt_record: None,
+            }
+        }
+    }
+
+    struct FakeImage {
+        base: usize,
+    }
+
+    impl FakeImage {
+        fn new(layout: Layout) -> FakeImage {
+            let memory = unsafe {
+                VirtualAlloc(
+                    std::ptr::null(),
+                    IMAGE_SIZE,
+                    MEM_COMMIT | MEM_RESERVE,
+                    PAGE_READWRITE,
+                )
+            };
+            assert!(!memory.is_null(), "VirtualAlloc failed");
+            let image = FakeImage {
+                base: memory as usize,
+            };
+
+            if layout.mz {
+                image.write(0, b"MZ");
+            }
+            image.write(0x3C, &0x80u32.to_le_bytes());
+            image.write(0x80, b"PE\0\0");
+            image.write(0x80 + 6, &2u16.to_le_bytes()); // sections
+            image.write(0x80 + 20, &0xF0u16.to_le_bytes()); // optional header size
+            image.write(0x80 + 24, &layout.optional_magic.to_le_bytes());
+            let sections = 0x80 + 24 + 0xF0;
+            for (index, (name, rva, size)) in [
+                (layout.text_name, TEXT_RVA, TEXT_SIZE),
+                (layout.rdata_name, RDATA_RVA, RDATA_SIZE),
+            ]
+            .into_iter()
+            .enumerate()
+            {
+                let header = sections + index * 40;
+                image.write(header, name.as_bytes());
+                image.write(header + 8, &(size as u32).to_le_bytes());
+                image.write(header + 12, &(rva as u32).to_le_bytes());
+            }
+
+            if layout.table {
+                image.write_table(TABLE_RVA, layout.corrupt_record);
+            }
+            if layout.code {
+                image.write_code();
+            }
+            image
+        }
+
+        fn at(&self, rva: usize) -> usize {
+            self.base + rva
+        }
+
+        fn write(&self, rva: usize, bytes: &[u8]) {
+            unsafe {
+                std::ptr::copy_nonoverlapping(bytes.as_ptr(), self.at(rva) as *mut u8, bytes.len())
+            };
+        }
+
+        fn read(&self, rva: usize, len: usize) -> Vec<u8> {
+            unsafe { std::slice::from_raw_parts(self.at(rva) as *const u8, len) }.to_vec()
+        }
+
+        fn u32(&self, rva: usize) -> u32 {
+            unsafe { read_u32(self.at(rva)) }
+        }
+
+        fn write_table(&self, rva: usize, corrupt: Option<usize>) {
+            for (index, (label, value)) in BUILT_IN_OPTIONS.iter().enumerate() {
+                let record = rva + index * RECORD_STRIDE;
+                self.write(record, label.as_bytes());
+                let value = if corrupt == Some(index) {
+                    *value + 1
+                } else {
+                    *value
+                };
+                self.write(record + VALUE_OFFSET, &value.to_le_bytes());
+            }
+        }
+
+        /// `lea reg, [rip + target]` at `site`.
+        fn lea(&self, site: usize, rex: u8, modrm: u8, target: usize) {
+            let displacement = target as i64 - (site as i64 + 7);
+            let mut bytes = vec![rex, 0x8D, modrm];
+            bytes.extend_from_slice(&(displacement as i32).to_le_bytes());
+            self.write(site, &bytes);
+        }
+
+        fn write_code(&self) {
+            self.write(TEXT_RVA, &vec![0x90; TEXT_SIZE]); // nops
+            self.write(DECOY_BEFORE, &[0xB9, 12, 0, 0, 0]);
+
+            self.lea(SITE_A, 0x48, 0x0D, TABLE_RVA);
+            self.write(SITE_A + 7, &[0x41, 0xB8, 12, 0, 0, 0]);
+            self.write(DECOY_FAR, &[0xB9, 12, 0, 0, 0]);
+
+            self.lea(SITE_B, 0x4C, 0x05, TABLE_RVA + 2 * RECORD_STRIDE);
+            self.write(SITE_B + 7, &[0xC7, 0x44, 0x24, 0x20, 12, 0, 0, 0]);
+            self.write(SITE_B + 15, &[0xB9, 12, 0, 0, 0]);
+
+            self.lea(DECOY_LEA, 0x48, 0x05, TEXT_RVA);
+        }
+
+        fn module(&self) -> ModuleInfo {
+            ModuleInfo {
+                name: "parsecd-test.dll".to_string(),
+                base: self.base,
+            }
+        }
+    }
+
+    impl Drop for FakeImage {
+        fn drop(&mut self) {
+            unsafe { VirtualFree(self.base as *mut c_void, 0, MEM_RELEASE) };
+        }
+    }
+
+    fn extend(image: &FakeImage) -> (Option<Report>, Vec<String>) {
+        let logs = RefCell::new(Vec::new());
+        let report = try_extend(&image.module(), &|message: &str| {
+            logs.borrow_mut().push(message.to_string())
+        });
+        (report, logs.into_inner())
+    }
+
+    fn label_at(address: usize) -> String {
+        let bytes = unsafe { std::slice::from_raw_parts(address as *const u8, 64) };
+        let end = bytes.iter().position(|b| *b == 0).unwrap_or(64);
+        String::from_utf8_lossy(&bytes[..end]).into_owned()
+    }
+
+    fn value_at(record: usize) -> i32 {
+        unsafe { std::ptr::read_unaligned((record + VALUE_OFFSET) as *const i32) }
+    }
+
+    /// Absolute address a patched `lea` at `rva` now points to.
+    fn lea_target(image: &FakeImage, rva: usize) -> usize {
+        let displacement = image.u32(rva + 3) as i32 as i64;
+        (image.at(rva) as i64 + 7 + displacement) as usize
+    }
+
+    // ---- the whole patch ------------------------------------------------------
+
+    #[test]
+    fn extends_the_table_and_repoints_every_reference() {
+        let image = FakeImage::new(Layout::default());
+        let original_table = image.read(TABLE_RVA, BUILT_IN_COUNT * RECORD_STRIDE);
+
+        let (report, logs) = extend(&image);
+        let report = report.expect("the fake client is patchable");
+
+        assert_eq!(report.module, "parsecd-test.dll");
+        assert_eq!(report.table_offset, TABLE_RVA);
+        assert_eq!(report.reference_sites, 2);
+        assert_eq!(report.patched_references, 2);
+        assert_eq!(report.patched_counts, 3);
+        assert_eq!(
+            report.options,
+            BUILT_IN_COUNT + crate::EXTRA_BANDWIDTH_MBPS.len()
+        );
+        assert_eq!(report.options, 22);
+
+        // The new table: the original twelve records, then the extras.
+        let new_table = lea_target(&image, SITE_A);
+        assert_ne!(new_table, image.at(TABLE_RVA));
+        for (index, (label, value)) in BUILT_IN_OPTIONS.iter().enumerate() {
+            let record = new_table + index * RECORD_STRIDE;
+            assert_eq!(label_at(record), *label);
+            assert_eq!(value_at(record), *value);
+        }
+        for (index, mbps) in crate::EXTRA_BANDWIDTH_MBPS.iter().enumerate() {
+            let record = new_table + (BUILT_IN_COUNT + index) * RECORD_STRIDE;
+            assert_eq!(label_at(record), format!("{mbps} Mbps"));
+            assert_eq!(value_at(record), *mbps);
+            // The rest of the record is zeroed.
+            let tail = unsafe {
+                std::slice::from_raw_parts((record + 0x44) as *const u8, RECORD_STRIDE - 0x44)
+            };
+            assert!(tail.iter().all(|b| *b == 0));
+        }
+
+        // A reference into the middle of the table keeps its record offset.
+        let second = lea_target(&image, SITE_B);
+        assert_eq!(second, new_table + 2 * RECORD_STRIDE);
+        assert_eq!(label_at(second), "7 Mbps");
+
+        // The instruction bytes around the displacement are untouched.
+        assert_eq!(image.read(SITE_A, 3), [0x48, 0x8D, 0x0D]);
+        assert_eq!(image.read(SITE_B, 3), [0x4C, 0x8D, 0x05]);
+
+        // Every count immediate now says 22; the opcodes in front are intact.
+        assert_eq!(image.read(SITE_A + 7, 2), [0x41, 0xB8]);
+        assert_eq!(image.u32(SITE_A + 9), 22);
+        assert_eq!(image.read(SITE_B + 7, 4), [0xC7, 0x44, 0x24, 0x20]);
+        assert_eq!(image.u32(SITE_B + 11), 22);
+        assert_eq!(image.read(SITE_B + 15, 1), [0xB9]);
+        assert_eq!(image.u32(SITE_B + 16), 22);
+
+        // Nothing else moved: the original table, the decoys.
+        assert_eq!(
+            image.read(TABLE_RVA, BUILT_IN_COUNT * RECORD_STRIDE),
+            original_table
+        );
+        assert_eq!(image.u32(DECOY_BEFORE + 1), 12);
+        assert_eq!(image.u32(DECOY_FAR + 1), 12);
+        assert_eq!(lea_target(&image, DECOY_LEA), image.at(TEXT_RVA));
+
+        assert!(logs
+            .iter()
+            .any(|line| line.contains("client module parsecd-test.dll")));
+        assert!(logs
+            .iter()
+            .any(|line| line.contains(&format!("bandwidth table at +0x{TABLE_RVA:X}"))));
+        assert!(logs
+            .iter()
+            .any(|line| line
+                .contains("12 -> 22 options, 2 references and 3 count immediates patched")));
+    }
+
+    #[test]
+    fn patching_twice_is_a_no_op() {
+        let image = FakeImage::new(Layout::default());
+        assert!(extend(&image).0.is_some());
+        let patched_code = image.read(TEXT_RVA, TEXT_SIZE);
+
+        let (second, logs) = extend(&image);
+        assert!(
+            second.is_none(),
+            "the original table is no longer referenced"
+        );
+        assert!(logs
+            .iter()
+            .any(|line| line.contains("no code references the bandwidth table")));
+        assert_eq!(
+            image.read(TEXT_RVA, TEXT_SIZE),
+            patched_code,
+            "no second round of edits"
+        );
+    }
+
+    #[test]
+    fn leaves_everything_alone_when_the_table_is_unknown() {
+        // A client build whose table differs (one value changed) is not ours
+        // to patch.
+        let image = FakeImage::new(Layout {
+            corrupt_record: Some(7),
+            ..Layout::default()
+        });
+        let code = image.read(TEXT_RVA, TEXT_SIZE);
+        let (report, _) = extend(&image);
+        assert!(report.is_none());
+        assert_eq!(image.read(TEXT_RVA, TEXT_SIZE), code);
+
+        let image = FakeImage::new(Layout {
+            table: false,
+            ..Layout::default()
+        });
+        assert!(extend(&image).0.is_none());
+    }
+
+    #[test]
+    fn skips_a_client_where_no_code_uses_the_table() {
+        let image = FakeImage::new(Layout {
+            code: false,
+            ..Layout::default()
+        });
+        let (report, logs) = extend(&image);
+        assert!(report.is_none());
+        assert!(logs
+            .iter()
+            .any(|line| line.contains("no code references the bandwidth table, skipped")));
+    }
+
+    #[test]
+    fn refuses_images_it_cannot_parse() {
+        for layout in [
+            Layout {
+                mz: false,
+                ..Layout::default()
+            },
+            Layout {
+                optional_magic: 0x10B,
+                ..Layout::default()
+            }, // PE32
+            Layout {
+                text_name: ".code",
+                ..Layout::default()
+            },
+            Layout {
+                rdata_name: ".data",
+                ..Layout::default()
+            },
+        ] {
+            let image = FakeImage::new(layout);
+            assert!(extend(&image).0.is_none());
+        }
+    }
+
+    #[test]
+    fn a_missing_pe_signature_is_rejected() {
+        let image = FakeImage::new(Layout::default());
+        image.write(0x80, b"XX\0\0");
+        assert!(unsafe { Image::parse(image.base) }.is_none());
+    }
+
+    #[test]
+    fn parse_lists_the_sections_with_their_rvas() {
+        let image = FakeImage::new(Layout::default());
+        let parsed = unsafe { Image::parse(image.base) }.unwrap();
+        let text = parsed.section(".text").unwrap();
+        assert_eq!((text.va, text.size), (TEXT_RVA, TEXT_SIZE));
+        let rdata = parsed.section(".rdata").unwrap();
+        assert_eq!((rdata.va, rdata.size), (RDATA_RVA, RDATA_SIZE));
+        assert!(parsed.section(".data").is_none());
+    }
+
+    // ---- find_table / is_bandwidth_table ---------------------------------------
+
+    /// A heap buffer standing in for a section; `base` is its address and the
+    /// section starts at offset 0.
+    fn section_of(bytes: &[u8]) -> (Vec<u8>, Section) {
+        let owned = bytes.to_vec();
+        let section = Section {
+            name: ".rdata".into(),
+            va: 0,
+            size: owned.len(),
+        };
+        (owned, section)
+    }
+
+    fn table_bytes() -> Vec<u8> {
+        let mut bytes = vec![0u8; BUILT_IN_COUNT * RECORD_STRIDE];
+        for (index, (label, value)) in BUILT_IN_OPTIONS.iter().enumerate() {
+            let record = index * RECORD_STRIDE;
+            bytes[record..record + label.len()].copy_from_slice(label.as_bytes());
+            bytes[record + VALUE_OFFSET..record + VALUE_OFFSET + 4]
+                .copy_from_slice(&value.to_le_bytes());
+        }
+        bytes
+    }
+
+    #[test]
+    fn is_bandwidth_table_requires_every_label_and_value() {
+        let good = table_bytes();
+        assert!(is_bandwidth_table(good.as_ptr() as usize));
+
+        for record in 0..BUILT_IN_COUNT {
+            let mut bad = good.clone();
+            bad[record * RECORD_STRIDE] = b'X';
+            assert!(
+                !is_bandwidth_table(bad.as_ptr() as usize),
+                "label of record {record}"
+            );
+
+            let mut bad = good.clone();
+            bad[record * RECORD_STRIDE + VALUE_OFFSET] ^= 1;
+            assert!(
+                !is_bandwidth_table(bad.as_ptr() as usize),
+                "value of record {record}"
+            );
+        }
+
+        // A label that merely starts like the real one.
+        let mut longer = good.clone();
+        longer[6] = b's'; // "3 Mbpss"
+        assert!(!is_bandwidth_table(longer.as_ptr() as usize));
+    }
+
+    #[test]
+    fn find_table_locates_the_table_after_unrelated_data() {
+        let mut bytes = vec![0xAAu8; 0x40];
+        bytes.extend_from_slice(b"3 Mbps\0 not a table, just text that shares the first label\0");
+        bytes.resize(0x200, 0);
+        let real = bytes.len();
+        bytes.extend(table_bytes());
+        bytes.extend(vec![0u8; 0x80]);
+
+        let (owned, section) = section_of(&bytes);
+        assert_eq!(
+            find_table(owned.as_ptr() as usize, &section),
+            Some(owned.as_ptr() as usize + real)
+        );
+    }
+
+    #[test]
+    fn find_table_returns_the_first_of_two_tables() {
+        let mut bytes = table_bytes();
+        bytes.extend(table_bytes());
+        let (owned, section) = section_of(&bytes);
+        assert_eq!(
+            find_table(owned.as_ptr() as usize, &section),
+            Some(owned.as_ptr() as usize)
+        );
+    }
+
+    #[test]
+    fn find_table_finds_nothing_in_unrelated_data() {
+        let (owned, section) = section_of(&vec![0x41u8; 0x2000]);
+        assert_eq!(find_table(owned.as_ptr() as usize, &section), None);
+        let (owned, section) = section_of(&[]);
+        assert_eq!(find_table(owned.as_ptr() as usize, &section), None);
+        let (owned, section) = section_of(b"3 Mbps\0");
+        assert_eq!(find_table(owned.as_ptr() as usize, &section), None);
+    }
+
+    /// The scan must stay inside the section: a candidate whose twelve records
+    /// would run past the end is not a table, even if the bytes that follow
+    /// the section happen to look like one.
+    #[test]
+    fn find_table_never_accepts_a_table_that_runs_past_the_section() {
+        // Plenty of room before the table, so the scan reaches it.
+        let mut bytes = vec![0u8; 0x1000];
+        bytes.extend(table_bytes());
+        let section_end = bytes.len() - RECORD_STRIDE; // last record sticks out
+        let owned = bytes;
+        let section = Section {
+            name: ".rdata".into(),
+            va: 0,
+            size: section_end,
+        };
+        assert_eq!(find_table(owned.as_ptr() as usize, &section), None);
+    }
+
+    // ---- find_reference_sites -------------------------------------------------------
+
+    #[test]
+    fn reference_sites_are_the_rip_relative_leas_into_the_table() {
+        let image = FakeImage::new(Layout::default());
+        let text = Section {
+            name: ".text".into(),
+            va: TEXT_RVA,
+            size: TEXT_SIZE,
+        };
+        let table = image.at(TABLE_RVA);
+
+        let sites = find_reference_sites(image.base, &text, table);
+        assert_eq!(
+            sites,
+            vec![
+                (image.at(SITE_A), table),
+                (image.at(SITE_B), table + 2 * RECORD_STRIDE),
+            ]
+        );
+    }
+
+    #[test]
+    fn reference_sites_include_the_first_and_last_byte_of_the_table_range() {
+        let image = FakeImage::new(Layout::default());
+        let table = image.at(TABLE_RVA);
+        image.write(TEXT_RVA, &vec![0x90; TEXT_SIZE]);
+        image.lea(0x1200, 0x48, 0x0D, TABLE_RVA); // first byte
+        image.lea(
+            0x1210,
+            0x48,
+            0x0D,
+            TABLE_RVA + BUILT_IN_COUNT * RECORD_STRIDE - 1,
+        ); // last byte
+        image.lea(
+            0x1220,
+            0x48,
+            0x0D,
+            TABLE_RVA + BUILT_IN_COUNT * RECORD_STRIDE,
+        ); // one past
+        image.lea(0x1230, 0x48, 0x0D, TABLE_RVA - 1); // one before
+        let text = Section {
+            name: ".text".into(),
+            va: TEXT_RVA,
+            size: TEXT_SIZE,
+        };
+
+        let sites: Vec<usize> = find_reference_sites(image.base, &text, table)
+            .into_iter()
+            .map(|(site, _)| site - image.base)
+            .collect();
+        assert_eq!(sites, [0x1200, 0x1210]);
+    }
+
+    #[test]
+    fn reference_sites_understand_both_rex_prefixes_and_any_register() {
+        let image = FakeImage::new(Layout::default());
+        let table = image.at(TABLE_RVA);
+        image.write(TEXT_RVA, &vec![0x90; TEXT_SIZE]);
+        // 48 8D /r with modrm 05, 0D, 15, ... and 4C 8D (r8-r15 destinations).
+        for (index, modrm) in [0x05u8, 0x0D, 0x15, 0x1D, 0x25, 0x2D, 0x35, 0x3D]
+            .into_iter()
+            .enumerate()
+        {
+            image.lea(0x1200 + index * 16, 0x48, modrm, TABLE_RVA);
+            image.lea(0x1400 + index * 16, 0x4C, modrm, TABLE_RVA);
+        }
+        // Not a RIP-relative lea (modrm mod != 00): ignored.
+        image.write(0x1600, &[0x48, 0x8D, 0x4C, 0x24, 0x08, 0x90, 0x90]);
+        // A different opcode with the same tail.
+        image.write(0x1610, &[0x48, 0x8B, 0x0D, 0, 0, 0, 0]);
+        let text = Section {
+            name: ".text".into(),
+            va: TEXT_RVA,
+            size: TEXT_SIZE,
+        };
+
+        assert_eq!(find_reference_sites(image.base, &text, table).len(), 16);
+    }
+
+    #[test]
+    fn reference_sites_do_not_read_past_the_end_of_the_section() {
+        let image = FakeImage::new(Layout::default());
+        let table = image.at(TABLE_RVA);
+        image.write(TEXT_RVA, &vec![0x90; TEXT_SIZE]);
+        // A reference whose last bytes fall outside the section is not seen.
+        image.lea(TEXT_RVA + TEXT_SIZE - 7, 0x48, 0x0D, TABLE_RVA);
+        let short = Section {
+            name: ".text".into(),
+            va: TEXT_RVA,
+            size: TEXT_SIZE - 3,
+        };
+        assert!(find_reference_sites(image.base, &short, table).is_empty());
+
+        let whole = Section {
+            name: ".text".into(),
+            va: TEXT_RVA,
+            size: TEXT_SIZE,
+        };
+        assert_eq!(find_reference_sites(image.base, &whole, table).len(), 1);
+    }
+
+    // ---- find_count_immediates ----------------------------------------------------------
+
+    const TWELVE: [u8; 4] = [12, 0, 0, 0];
+
+    fn code(parts: &[&[u8]]) -> Vec<u8> {
+        parts.iter().flat_map(|part| part.iter().copied()).collect()
+    }
+
+    #[test]
+    fn count_immediates_cover_every_mov_encoding_the_client_uses() {
+        // mov eax..edi, 12 (B8..BF), with and without a REX.B prefix, and the
+        // stack store form.
+        for opcode in 0xB8u8..=0xBF {
+            let bytes = code(&[&[0x90, 0x90], &[opcode], &TWELVE]);
+            assert_eq!(
+                find_count_immediates(&bytes, 0),
+                [3],
+                "mov r32, 12 ({opcode:#X})"
+            );
+
+            let bytes = code(&[&[0x90], &[0x41, opcode], &TWELVE]);
+            assert_eq!(
+                find_count_immediates(&bytes, 0),
+                [3],
+                "mov r8d.., 12 ({opcode:#X})"
+            );
+        }
+        let bytes = code(&[&[0xC7, 0x44, 0x24, 0x20], &TWELVE]);
+        assert_eq!(find_count_immediates(&bytes, 0), [4]);
+    }
+
+    #[test]
+    fn count_immediates_ignore_other_values_and_other_stores() {
+        let bytes = code(&[
+            &[0xB9],
+            &[11, 0, 0, 0],
+            &[0xB9],
+            &[13, 0, 0, 0],
+            &[0xB9],
+            &[12, 0, 1, 0],
+        ]);
+        assert!(find_count_immediates(&bytes, 0).is_empty());
+        // Same store form with a different stack slot.
+        let bytes = code(&[&[0xC7, 0x44, 0x24, 0x28], &TWELVE]);
+        assert!(find_count_immediates(&bytes, 0).is_empty());
+    }
+
+    #[test]
+    fn count_immediates_report_every_hit_in_the_window() {
+        let bytes = code(&[
+            &[0xB9],
+            &TWELVE,
+            &[0x90],
+            &[0x41, 0xB8],
+            &TWELVE,
+            &[0xC7, 0x44, 0x24, 0x20],
+            &TWELVE,
+        ]);
+        assert_eq!(find_count_immediates(&bytes, 0), [1, 8, 16]);
+    }
+
+    #[test]
+    fn count_immediates_start_at_the_given_offset() {
+        let bytes = code(&[&[0xB9], &TWELVE, &[0x90, 0x90], &[0xB9], &TWELVE]);
+        assert_eq!(find_count_immediates(&bytes, 0), [1, 8]);
+        assert_eq!(find_count_immediates(&bytes, 5), [8]);
+        assert!(find_count_immediates(&bytes, 9).is_empty());
+        assert!(find_count_immediates(&bytes, 10_000).is_empty());
+    }
+
+    #[test]
+    fn count_immediates_stop_at_the_search_window() {
+        // One hit whose immediate ends exactly at the window edge, one past.
+        let mut inside = vec![0x90; COUNT_SEARCH_WINDOW];
+        let at = COUNT_SEARCH_WINDOW - 5;
+        inside[at] = 0xB9;
+        inside[at + 1..at + 5].copy_from_slice(&TWELVE);
+        inside.extend(vec![0x90; 16]);
+        assert_eq!(find_count_immediates(&inside, 0), [at + 1]);
+
+        let mut outside = vec![0x90; COUNT_SEARCH_WINDOW + 16];
+        let at = COUNT_SEARCH_WINDOW - 4; // would end one byte past the window
+        outside[at] = 0xB9;
+        outside[at + 1..at + 5].copy_from_slice(&TWELVE);
+        assert!(find_count_immediates(&outside, 0).is_empty());
+    }
+
+    #[test]
+    fn count_immediates_tolerate_truncated_instructions_at_the_end() {
+        assert!(find_count_immediates(&[], 0).is_empty());
+        assert!(find_count_immediates(&[0xB9], 0).is_empty());
+        assert!(find_count_immediates(&[0xB9, 12, 0, 0], 0).is_empty());
+        assert!(find_count_immediates(&[0xC7, 0x44, 0x24, 0x20, 12, 0, 0], 0).is_empty());
+        assert!(find_count_immediates(&[0x41], 0).is_empty());
+    }
+
+    // ---- allocate_near -----------------------------------------------------------------------
+
+    #[test]
+    fn allocate_near_returns_writable_memory_within_reach_of_every_site() {
+        let image = FakeImage::new(Layout::default());
+        let sites = [(image.at(SITE_A), 0usize), (image.at(SITE_B), 0usize)];
+        let size = 22 * RECORD_STRIDE;
+
+        let memory =
+            allocate_near(image.base, size, &sites).expect("address space is free near the image");
+        for (site, _) in sites {
+            let displacement = memory as i64 - (site as i64 + 7);
+            assert!(displacement.abs() <= MAX_DISPLACEMENT, "{displacement}");
+        }
+        unsafe {
+            std::ptr::write_bytes(memory as *mut u8, 0xAB, size);
+            assert_eq!(*((memory + size - 1) as *const u8), 0xAB);
+            VirtualFree(memory as *mut c_void, 0, MEM_RELEASE);
+        }
+    }
+
+    #[test]
+    fn allocate_near_gives_up_when_the_sites_are_too_far_apart() {
+        // No single address is within 2 GB of both.
+        let gigabyte = 1024 * 1024 * 1024usize;
+        let sites = [(4 * gigabyte, 0usize), (9 * gigabyte, 0usize)];
+        assert_eq!(allocate_near(6 * gigabyte, 0x1000, &sites), None);
+    }
+
+    // ---- low level helpers --------------------------------------------------------------------
+
+    #[test]
+    fn write_code_u32_changes_protected_memory_and_restores_the_protection() {
+        let page = unsafe {
+            VirtualAlloc(
+                std::ptr::null(),
+                0x1000,
+                MEM_COMMIT | MEM_RESERVE,
+                0x20, /* PAGE_EXECUTE_READ */
+            )
+        } as usize;
+        assert_ne!(page, 0);
+
+        assert!(unsafe { write_code_u32(page + 0x10, 0xDEADBEEF) });
+        assert_eq!(unsafe { read_u32(page + 0x10) }, 0xDEADBEEF);
+
+        let mut info: MEMORY_BASIC_INFORMATION = unsafe { std::mem::zeroed() };
+        unsafe {
+            VirtualQuery(
+                page as *const c_void,
+                &mut info,
+                size_of::<MEMORY_BASIC_INFORMATION>(),
+            )
+        };
+        assert_eq!(info.Protect, 0x20, "protection is restored");
+        unsafe { VirtualFree(page as *mut c_void, 0, MEM_RELEASE) };
+    }
+
+    #[test]
+    fn write_code_u32_reports_failure_on_unmapped_memory() {
+        assert!(!unsafe { write_code_u32(0x10, 1) });
+    }
+
+    #[test]
+    fn small_readers_and_decoders() {
+        let bytes = [0x34u8, 0x12, 0x78, 0x56, 0x34, 0x12, 0xFF];
+        assert_eq!(unsafe { read_u16(bytes.as_ptr() as usize) }, 0x1234);
+        assert_eq!(
+            unsafe { read_u32(bytes.as_ptr() as usize + 2) },
+            0x1234_5678
+        );
+        assert_eq!(imm32(&bytes, 2), 0x1234_5678);
+        assert_eq!(imm32(&[0xFF, 0xFF, 0xFF, 0xFF], 0), -1);
+
+        let name = *b".rdata\0\0";
+        assert_eq!(unsafe { read_name(name.as_ptr() as usize) }, ".rdata");
+        let full = *b"12345678";
+        assert_eq!(unsafe { read_name(full.as_ptr() as usize) }, "12345678");
+
+        let wide: Vec<u16> = "parsecd-1.dll\0garbage".encode_utf16().collect();
+        assert_eq!(utf16_string(&wide), "parsecd-1.dll");
+        let unterminated: Vec<u16> = "abc".encode_utf16().collect();
+        assert_eq!(utf16_string(&unterminated), "abc");
+        assert_eq!(utf16_string(&[]), "");
+    }
+
+    #[test]
+    fn built_in_options_are_the_documented_ladder() {
+        assert_eq!(
+            BUILT_IN_OPTIONS
+                .iter()
+                .map(|(_, value)| *value)
+                .collect::<Vec<_>>(),
+            [3, 5, 7, 10, 15, 20, 25, 30, 35, 40, 45, 50]
+        );
+        for (label, value) in BUILT_IN_OPTIONS {
+            assert_eq!(label, format!("{value} Mbps"));
+        }
+        assert_eq!(BUILT_IN_OPTIONS.len(), BUILT_IN_COUNT);
+        assert_eq!(RECORD_STRIDE, 0x144);
+    }
+
+    // ---- waiting for the client module ------------------------------------------------------------
+
+    #[test]
+    fn no_client_module_is_loaded_in_the_test_process() {
+        assert!(find_client_module().is_none());
+    }
+
+    #[test]
+    fn waiting_gives_up_after_the_timeout_and_says_so() {
+        let logs = RefCell::new(Vec::new());
+        let started = Instant::now();
+        let report = extend_bandwidth_when_ready(
+            &|message: &str| logs.borrow_mut().push(message.to_string()),
+            Duration::from_millis(400),
+        );
+        assert!(report.is_none());
+        assert!(started.elapsed() >= Duration::from_millis(400));
+        assert!(logs
+            .borrow()
+            .iter()
+            .any(|line| line.contains("never loaded")));
+    }
 }
