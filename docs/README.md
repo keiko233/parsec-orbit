@@ -10,10 +10,10 @@
 
 | Document | Status | Summary |
 | --- | --- | --- |
-| [spec/plugin-abi.md](spec/plugin-abi.md) | Implemented (ABI 1) + draft host revision 2 | Exports, descriptor, host table, versioning rules |
-| [spec/plugin-manifest.md](spec/plugin-manifest.md) | Implemented + draft fields | `plugin.toml` |
-| [spec/loading.md](spec/loading.md) | Draft | Discovery, dependency ordering, failure semantics |
-| [spec/services.md](spec/services.md) | Draft | Host service registry, interface headers, kind handlers, core service definitions |
+| [spec/plugin-abi.md](spec/plugin-abi.md) | Implemented (ABI 1, host revision 2) | Exports, descriptor, host table, versioning rules |
+| [spec/plugin-manifest.md](spec/plugin-manifest.md) | Implemented | `plugin.toml` |
+| [spec/loading.md](spec/loading.md) | Implemented | Discovery, dependency ordering, failure semantics |
+| [spec/services.md](spec/services.md) | Registry and kind handlers implemented; core service tables draft | Host service registry, interface headers, kind handlers, core service definitions |
 | [spec/rust-sdk.md](spec/rust-sdk.md) | Draft | `parsec-orbit-plugin-sdk` / `-abi` crates, features, size policy |
 | [spec/js-sdk.md](spec/js-sdk.md) | Draft | JS plugin model, `@parsec-orbit/sdk` TypeScript API, WebView operations |
 

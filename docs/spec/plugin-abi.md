@@ -65,7 +65,7 @@ typedef struct ParsecOrbitHost {
     uintptr_t reserved[8];      /* stays zero */
 
     /* ---- revision 2 (208 bytes on x64) ---- */
-    const char *plugin_id;        /* manifest id (or the DLL path for manifest-less plugins) */
+    const char *plugin_id;        /* manifest id (descriptor id for manifest-less plugins) */
     const char *plugin_dir;       /* absolute, UTF-8 */
     const char *data_dir;         /* %APPDATA%\ParsecOrbit\data\<id>; may not exist yet; NULL without %APPDATA% */
     void (*log_ex)(uint32_t level, const uint8_t *target, size_t target_len,

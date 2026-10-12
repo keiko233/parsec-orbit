@@ -60,7 +60,7 @@ The loader was just reduced from ~520 KB to ~340 KB; that is the baseline to pro
 
 | Artifact | Budget | Mechanism |
 | --- | --- | --- |
-| loader `bcrypt.dll` | <= 360 KB (baseline 346,624 B) | no async runtime, no serde, no `tracing` unless measured to fit |
+| loader `bcrypt.dll` | <= 360 KB (baseline 346,624 B; 368,128 B = 359.5 KiB after phase 2) | no async runtime, no serde, no `tracing` unless measured to fit |
 | minimal Rust plugin | goal: well below the current ~210 KB std `hello` | `no_std` SDK default, `panic=abort`, `opt-level=z`, LTO, strip, CRT static |
 | JS runtime plugin | unconstrained (separate download) | Boa + tokio/ractor live here only |
 
