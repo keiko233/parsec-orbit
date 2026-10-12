@@ -213,7 +213,8 @@ macro_rules! level_fn {
     };
 }
 
-level_fn!(trace, Level::Trace);
+// No `trace` wrapper: nothing in the loader logs at that level. Plugin logs
+// still reach it through `log(Level::Trace, ...)`, which the host calls.
 level_fn!(debug, Level::Debug);
 level_fn!(info, Level::Info);
 level_fn!(warn, Level::Warn);
@@ -373,7 +374,6 @@ mod tests {
         log(Level::from_abi(3), "level-test warn");
         log(Level::from_abi(4), "level-test error");
         log(Level::from_abi(99), "level-test unknown");
-        trace("direct trace");
 
         let content = std::fs::read_to_string(&good).unwrap();
         let tag_of = |message: &str| {
@@ -402,6 +402,5 @@ mod tests {
             "info",
             "unknown levels log as info"
         );
-        assert_eq!(tag_of("direct trace"), "trace");
     }
 }

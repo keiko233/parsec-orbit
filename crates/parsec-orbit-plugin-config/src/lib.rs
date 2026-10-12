@@ -207,7 +207,7 @@ mod tests {
         // so a second mock plugin sees the service the first one registered.
         let consumer = MockHost::new("com.example.consumer");
         let client = ConfigClient::new(&consumer.context()).expect("the service");
-        assert_eq!(client.get("answer", |_| {}).unwrap(), false);
+        assert!(!client.get("answer", |_| {}).unwrap());
         client.set("answer", "{\"n\":42}").unwrap();
         let mut seen = String::new();
         assert!(client
