@@ -14,6 +14,7 @@ members = [
     "crates/parsec-orbit-plugin-js-runtime",
     "crates/parsec-orbit-plugin-high-bitrate-webview",
     "crates/parsec-orbit-plugin-high-bitrate-native",
+    "crates/parsec-orbit-plugin-stun-swap",
     "examples/parsec-orbit-plugin-hello",
     "examples/parsec-orbit-plugin-hello-nostd",
     "crates/parsec-orbit-verify-callpaths",

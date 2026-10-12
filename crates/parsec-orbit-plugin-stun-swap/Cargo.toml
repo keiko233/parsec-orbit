@@ -1,0 +1,16 @@
+[package]
+name = "parsec-orbit-plugin-stun-swap"
+description = "Parsec Orbit plugin that redirects Parsec's STUN lookups to CN-reachable STUN servers"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[lib]
+name = "parsec_orbit_plugin_stun_swap"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+parsec-orbit-plugin-sdk-std = { path = "../../crates/parsec-orbit-plugin-sdk-std" }
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_LibraryLoader"] }

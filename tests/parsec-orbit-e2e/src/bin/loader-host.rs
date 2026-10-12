@@ -1,6 +1,6 @@
 //! Stand-in for the Parsec client process in the end-to-end tests.
 //!
-//! Usage: `loader-host <loader dll> <log file> <text to wait for> <seconds> [thunks]`
+//! Usage: `loader-host <loader dll> <log file> <text to wait for> <seconds> [thunks] [stun]`
 //!
 //! It maps the loader with `LoadLibraryW` (what the Windows loader does for the
 //! client's static import of `bcrypt.dll`), waits until the loader's log file
@@ -18,6 +18,7 @@
 //! timed out (3).
 
 use std::ffi::c_void;
+use std::net::ToSocketAddrs;
 use std::time::{Duration, Instant};
 
 use windows_sys::Win32::System::LibraryLoader::{GetProcAddress, LoadLibraryW};
@@ -32,13 +33,15 @@ fn main() {
     let args: Vec<String> = std::env::args().collect();
     if args.len() < 5 {
         eprintln!(
-            "usage: loader-host <loader dll> <log file> <text to wait for> <seconds> [thunks]"
+            "usage: loader-host <loader dll> <log file> <text to wait for> <seconds> [thunks] [stun]"
         );
         std::process::exit(64);
     }
     let (dll, log, needle) = (&args[1], &args[2], &args[3]);
     let seconds: u64 = args[4].parse().expect("seconds");
-    let thunks = args.get(5).is_some_and(|flag| flag == "thunks");
+    let flags = args.get(5..).unwrap_or_default();
+    let thunks = flags.iter().any(|flag| flag == "thunks");
+    let stun = flags.iter().any(|flag| flag == "stun");
 
     let module = unsafe { LoadLibraryW(wide(dll).as_ptr()) };
     if module.is_null() {
@@ -75,6 +78,18 @@ fn main() {
 
     if thunks {
         print_thunks(module as usize, &args[1]);
+    }
+
+    if stun {
+        let addresses = ("stun.parsec.app", 3478)
+            .to_socket_addrs()
+            .map(|addresses| {
+                addresses
+                    .map(|address| address.to_string())
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        println!("stun_lookup={}", addresses.join(","));
     }
 
     std::process::exit(if found { 0 } else { 3 });

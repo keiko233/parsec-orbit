@@ -7,7 +7,7 @@
 
 mod common;
 
-use std::net::TcpListener;
+use std::net::{TcpListener, UdpSocket};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -100,6 +100,69 @@ fn the_official_plugins_load_with_their_shipped_manifests() {
         .assert_log_contains(&format!("webview ui patches {v} starting"))
         .assert_log_contains(&format!("native ui patches {v} starting"))
         .assert_log_contains("ready: 3 loaded, 0 skipped, 0 failed");
+}
+
+#[test]
+fn the_stun_swap_plugin_installs_its_getaddrinfo_hook() {
+    let sandbox = client("stun-swap");
+    sandbox.install_plugin("hooks", Plugin::Hooks);
+    sandbox.install_plugin("stun-swap", Plugin::StunSwap);
+
+    let run = run_client(&sandbox);
+    run.assert_success()
+        .assert_log_contains("loaded com.parsec-orbit.hooks")
+        .assert_log_contains("loaded com.keiko233.stun-swap")
+        .assert_log_contains("stun swap: hook installed and probe started")
+        .assert_log_contains("ready: 2 loaded, 0 skipped, 0 failed");
+}
+
+#[test]
+fn the_stun_swap_plugin_redirects_a_real_getaddrinfo_lookup() {
+    let responder = UdpSocket::bind(("127.0.0.1", 0)).expect("bind STUN responder");
+    let port = responder.local_addr().expect("responder port").port();
+    let responder_thread = std::thread::spawn(move || {
+        let mut request = [0u8; 2048];
+        loop {
+            let Ok((size, peer)) = responder.recv_from(&mut request) else {
+                break;
+            };
+            if size < 20 {
+                continue;
+            }
+
+            let mut response = [0u8; 32];
+            response[0..2].copy_from_slice(&0x0101u16.to_be_bytes());
+            response[2..4].copy_from_slice(&12u16.to_be_bytes());
+            response[4..8].copy_from_slice(&0x2112_A442u32.to_be_bytes());
+            response[8..20].copy_from_slice(&request[8..20]);
+            response[20..22].copy_from_slice(&0x0020u16.to_be_bytes());
+            response[22..24].copy_from_slice(&8u16.to_be_bytes());
+            response[25] = 0x01;
+            response[26..28].copy_from_slice(&peer.port().to_be_bytes());
+            let mapped = u32::from_be_bytes([127, 0, 0, 1]) ^ 0x2112_A442;
+            response[28..32].copy_from_slice(&mapped.to_be_bytes());
+            let _ = responder.send_to(&response, peer);
+        }
+    });
+
+    let sandbox = client("stun-swap-lookup");
+    sandbox.install_plugin("hooks", Plugin::Hooks);
+    sandbox.install_plugin("stun-swap", Plugin::StunSwap);
+
+    let run = sandbox.run(CLIENT, "stun swap: selected 127.0.0.1", |command| {
+        command.env("PARSEC_ORBIT_STUN_SERVERS", format!("127.0.0.1@{port}"));
+        command.arg("stun");
+    });
+    run.assert_success()
+        .assert_log_contains(&format!("stun swap: 127.0.0.1@{port} -> 127.0.0.1"))
+        .assert_log_contains("stun swap: selected 127.0.0.1");
+    assert_eq!(
+        run.value("stun_lookup").as_deref(),
+        Some("127.0.0.1:3478"),
+        "{}",
+        run.describe()
+    );
+    drop(responder_thread);
 }
 
 #[test]

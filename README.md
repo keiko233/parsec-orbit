@@ -40,6 +40,9 @@ client. It uses a `bcrypt.dll` proxy and does not modify Parsec files.
 * `crates/parsec-orbit-plugin-high-bitrate-native/` - official plugin for the same options
   in the native (libmatoya) UI; see its
   [README](crates/parsec-orbit-plugin-high-bitrate-native/README.md).
+* `crates/parsec-orbit-plugin-stun-swap/` - experimental plugin that redirects
+  `stun.parsec.app` lookups to mainland-China STUN servers; see its
+  [README](crates/parsec-orbit-plugin-stun-swap/README.md).
 * `examples/parsec-orbit-plugin-hello-nostd/` - smallest possible plugin (10 KB, `no_std`).
 * `examples/parsec-orbit-plugin-hello/` - the same idea with `std`.
 * `crates/parsec-orbit-verify-*` - verification tools for the loader and the
