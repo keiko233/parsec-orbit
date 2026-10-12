@@ -1,4 +1,4 @@
-"""Regenerates loader/src/exports.rs from the system bcrypt.dll.
+"""Regenerates parsec-orbit-loader/src/exports.rs from the system bcrypt.dll.
 
 The loader replaces bcrypt.dll, so it has to export every function the real
 DLL exports; otherwise a module in the client process fails to resolve an
@@ -20,7 +20,12 @@ import sys
 import pefile
 
 SYSTEM_BCRYPT = pathlib.Path(r"C:\Windows\System32\bcrypt.dll")
-OUTPUT = pathlib.Path(__file__).resolve().parent.parent / "loader" / "src" / "exports.rs"
+OUTPUT = (
+    pathlib.Path(__file__).resolve().parent.parent
+    / "parsec-orbit-loader"
+    / "src"
+    / "exports.rs"
+)
 
 
 def main() -> int:

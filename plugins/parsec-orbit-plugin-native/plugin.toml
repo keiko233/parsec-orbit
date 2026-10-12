@@ -1,0 +1,12 @@
+# Metadata for the loader. Official plugin that patches the native (libmatoya)
+# UI in memory: it widens the "Bandwidth Limit" option table at runtime.
+id = "com.parsec-orbit.native"
+name = "Native UI Patches"
+version = "0.1.0"
+kind = "dll"
+entry = "parsec_orbit_plugin_native.dll"
+author = "Parsec Orbit contributors"
+description = "Adds bandwidth limits above 50 Mbps to the native (legacy) UI"
+license = "MIT"
+api = 1
+enabled = true

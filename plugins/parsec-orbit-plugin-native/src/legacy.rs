@@ -15,8 +15,8 @@
 //!    code - the allocator asks for addresses near the module), and
 //! 3. patches the two count immediates from `12` to the new length.
 //!
-//! Every patched location is read back afterwards, and the report tells the
-//! loader what happened. All edits are in memory only.
+//! Every patched location is read back afterwards, and the report goes to the
+//! loader log. All edits are in memory only.
 
 use std::ffi::c_void;
 use std::mem::size_of;

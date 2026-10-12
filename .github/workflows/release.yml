@@ -4,7 +4,8 @@
 #   git push origin v0.1.0
 #
 # The tag must match the workspace version in Cargo.toml. The release contains
-# the loader (bcrypt.dll), a ready-to-copy example plugin, and checksums.
+# the loader (bcrypt.dll), the official bandwidth plugin, the example plugin,
+# and checksums.
 name: Release
 
 on:
@@ -51,19 +52,9 @@ jobs:
         shell: pwsh
         run: ./scripts/verify.ps1
 
-      - name: Stage the release files
+      - name: Package the release files
         shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Force dist | Out-Null
-          Copy-Item target\release\bcrypt.dll dist\
-          # The archive holds plugin.toml and hello_plugin.dll at its root, so
-          # extracting it into a plugin folder yields a loadable plugin.
-          Compress-Archive -Path target\release\hello_plugin.dll, examples\hello-plugin\plugin.toml `
-            -DestinationPath dist\parsec-orbit-example-plugin.zip
-          Get-ChildItem dist -File | ForEach-Object {
-            '{0}  {1}' -f (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower(), $_.Name
-          } | Set-Content -Encoding ascii dist\SHA256SUMS.txt
-          Get-ChildItem dist | Format-Table Name, Length | Out-Host
+        run: ./scripts/package.ps1 -SkipBuild
 
       - uses: actions/upload-artifact@v4
         with:

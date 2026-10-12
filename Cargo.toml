@@ -1,13 +1,14 @@
 [workspace]
 resolver = "2"
 members = [
-    "loader",
-    "patches",
-    "sdk",
-    "examples/hello-plugin",
-    "verify/callpaths",
-    "verify/roundtrip",
-    "verify/webview-inject",
+    "parsec-orbit-loader",
+    "parsec-orbit-plugin-sdk",
+    "plugins/parsec-orbit-plugin-webview",
+    "plugins/parsec-orbit-plugin-native",
+    "examples/parsec-orbit-plugin-hello",
+    "verify/parsec-orbit-verify-callpaths",
+    "verify/parsec-orbit-verify-roundtrip",
+    "verify/parsec-orbit-verify-webview-inject",
 ]
 
 [workspace.package]

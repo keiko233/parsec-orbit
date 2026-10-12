@@ -21,8 +21,7 @@ default = []
 diagnostics = []
 
 [dependencies]
-parsec-orbit-plugin-sdk = { path = "../sdk" }
-parsec-orbit-patches = { path = "../patches" }
+parsec-orbit-plugin-sdk = { path = "../parsec-orbit-plugin-sdk" }
 toml = "0.8"
 windows-sys = { version = "0.61", features = [
     "Win32_Foundation",

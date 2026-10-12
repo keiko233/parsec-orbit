@@ -14,8 +14,6 @@ pub struct Config {
     pub plugin_dirs: Vec<PathBuf>,
     /// `None` disables the devtools arguments.
     pub devtools_port: Option<u16>,
-    /// Runtime interface patches (extended bandwidth list) are on by default.
-    pub patches: bool,
     /// Run the full plugin work even when the host is not the client.
     pub any_host: bool,
 }
@@ -72,10 +70,6 @@ impl Config {
                 .unwrap_or(default_log),
             plugin_dirs,
             devtools_port,
-            patches: !matches!(
-                env("PARSEC_ORBIT_PATCHES").as_deref(),
-                Some("0") | Some("off") | Some("false")
-            ),
             any_host: matches!(env("PARSEC_ORBIT_HOST").as_deref(), Some("any")),
         }
     }

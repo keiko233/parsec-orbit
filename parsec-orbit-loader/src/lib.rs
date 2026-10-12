@@ -57,7 +57,7 @@ static REAL_BCRYPT: OnceLock<usize> = OnceLock::new();
 #[allow(dead_code)]
 static LAST_ARGS: [AtomicUsize; 4] = [const { AtomicUsize::new(0) }; 4];
 
-/// Address of [`LAST_ARGS`], used by `verify/callpaths`.
+/// Address of [`LAST_ARGS`], used by `verify/parsec-orbit-verify-callpaths`.
 #[cfg(feature = "diagnostics")]
 #[no_mangle]
 pub extern "system" fn ParsecOrbitLoaderLastArgs() -> *const AtomicUsize {
@@ -233,13 +233,6 @@ unsafe extern "system" fn worker(_parameter: *mut c_void) -> u32 {
 
     if let Some(port) = config.devtools_port {
         webview::prepare(port);
-        if config.patches {
-            std::thread::spawn(move || {
-                parsec_orbit_patches::webview::inject_script_forever(port, |message| {
-                    log::info(message)
-                })
-            });
-        }
     }
 
     let resolved = pre_resolve();
@@ -251,10 +244,6 @@ unsafe extern "system" fn worker(_parameter: *mut c_void) -> u32 {
 
     // Let the client finish its own start-up before plugin images are mapped.
     std::thread::sleep(PLUGIN_WARMUP);
-
-    if config.patches {
-        parsec_orbit_patches::legacy::extend_bandwidth(|message| log::info(message));
-    }
 
     let summary = plugin::scan(&config);
     log::info(&format!(

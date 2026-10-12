@@ -16,7 +16,7 @@
   const existing = window[MARK];
   if (existing && existing.installed) return 'already installed';
 
-  // Keep in sync with EXTRA_BANDWIDTH_MBPS in patches/src/lib.rs.
+  // Keep in sync with EXTRA_BANDWIDTH_MBPS in ../src/lib.rs.
   const EXTRA_MBPS = [60, 75, 100, 125, 150, 200, 250, 300, 400, 500];
   const state = (window[MARK] = {
     installed: true,

@@ -24,7 +24,7 @@ use parsec_orbit_plugin_sdk::{
     EXPORT_INIT, EXPORT_LEGACY_INIT, EXPORT_QUERY, EXPORT_SHUTDOWN,
 };
 use windows_sys::Win32::Foundation::HMODULE;
-use windows_sys::Win32::System::LibraryLoader::{GetProcAddress, LoadLibraryW};
+use windows_sys::Win32::System::LibraryLoader::{GetProcAddress, LoadLibraryExW, LoadLibraryW};
 
 use crate::config::Config;
 use crate::log;
@@ -197,17 +197,29 @@ fn describe(manifest: Option<&Manifest>, path: &Path) -> String {
     }
 }
 
+/// `LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32`: resolve
+/// a plugin's dependencies in its own directory and in System32 only. The
+/// client restricts the process-wide default search path early in its
+/// start-up, so the flagless attempt can fail with `ERROR_MOD_NOT_FOUND` even
+/// though the plugin itself is right there.
+const PLUGIN_LOAD_FLAGS: u32 = 0x0000_0100 | 0x0000_0800;
+
 /// Maps one DLL, validates its descriptor and runs its entry points.
 ///
 /// Returns the plugin id on success.
 fn load_dll(path: &Path, manifest: Option<&Manifest>) -> Result<String, String> {
     let name = wide(path);
-    let module = unsafe { LoadLibraryW(name.as_ptr()) };
+    let mut module = unsafe { LoadLibraryW(name.as_ptr()) };
     if module.is_null() {
-        return Err(format!(
-            "LoadLibraryW failed with Win32 error {}",
-            std::io::Error::last_os_error().raw_os_error().unwrap_or(0)
-        ));
+        let first = std::io::Error::last_os_error().raw_os_error().unwrap_or(0);
+        module = unsafe { LoadLibraryExW(name.as_ptr(), std::ptr::null_mut(), PLUGIN_LOAD_FLAGS) };
+        if module.is_null() {
+            let second = std::io::Error::last_os_error().raw_os_error().unwrap_or(0);
+            return Err(format!(
+                "could not load {} (LoadLibraryW error {first}, LoadLibraryExW error {second})",
+                path.display()
+            ));
+        }
     }
 
     let symbol = |symbol: &str| {

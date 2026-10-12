@@ -7,4 +7,4 @@ license.workspace = true
 publish = false
 
 [dependencies]
-parsec-orbit-patches = { path = "../../patches" }
+parsec-orbit-plugin-webview = { path = "../../plugins/parsec-orbit-plugin-webview" }

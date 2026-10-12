@@ -34,16 +34,8 @@ checksum = "cf8baf1c55e62ffcace7a9f06f4bd9cd3f0c4beb022d3b367256b91b87513d98"
 name = "parsec-orbit-loader"
 version = "0.1.0"
 dependencies = [
- "parsec-orbit-patches",
  "parsec-orbit-plugin-sdk",
  "toml",
- "windows-sys",
-]
-
-[[package]]
-name = "parsec-orbit-patches"
-version = "0.1.0"
-dependencies = [
  "windows-sys",
 ]
 
@@ -55,8 +47,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "parsec-orbit-plugin-native"
+version = "0.1.0"
+dependencies = [
+ "parsec-orbit-plugin-sdk",
+ "windows-sys",
+]
+
+[[package]]
 name = "parsec-orbit-plugin-sdk"
 version = "0.1.0"
+
+[[package]]
+name = "parsec-orbit-plugin-webview"
+version = "0.1.0"
+dependencies = [
+ "parsec-orbit-plugin-sdk",
+]
 
 [[package]]
 name = "parsec-orbit-verify-callpaths"
@@ -76,7 +83,7 @@ dependencies = [
 name = "parsec-orbit-verify-webview-inject"
 version = "0.1.0"
 dependencies = [
- "parsec-orbit-patches",
+ "parsec-orbit-plugin-webview",
 ]
 
 [[package]]

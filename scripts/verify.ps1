@@ -6,11 +6,14 @@
 #   roundtrip  SHA-256 / HMAC-SHA256 known-answer vectors through the loader
 [CmdletBinding()]
 param(
-    [string]$Loader = (Join-Path (Split-Path $PSScriptRoot -Parent) 'target\release\bcrypt.dll')
+    [string]$Loader
 )
 
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
+if (-not $Loader) {
+    $Loader = Join-Path $root 'target\release\bcrypt.dll'
+}
 
 Push-Location $root
 try {

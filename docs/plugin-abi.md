@@ -1,6 +1,7 @@
 # Parsec Orbit plugin ABI reference
 
-This document describes the `parsec-orbit-plugin-sdk` in `sdk/`; the two must
+This document describes the `parsec-orbit-plugin-sdk` in
+`parsec-orbit-plugin-sdk/`; the two must
 stay in sync. Change the ABI, change this document. This ABI uses the
 `ParsecOrbit*` export and type names and the `parsec_orbit_plugin!` SDK macro.
 
@@ -104,7 +105,7 @@ __declspec(dllexport) int32_t ParsecOrbitPluginInit(const ParsecOrbitHost *host)
 ```
 
 Rust plugins generate these three exports with the `parsec_orbit_plugin!` macro; see
-`examples/hello-plugin`.
+`examples/parsec-orbit-plugin-hello`.
 
 ## Reserved extension points
 

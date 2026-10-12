@@ -1,8 +1,8 @@
 //! WebView2 patch delivery over the DevTools protocol.
 //!
 //! The loader sets `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS`, which opens a
-//! loopback DevTools endpoint when the client uses its WebView UI. This module
-//! speaks just enough of HTTP and WebSocket to drive that endpoint:
+//! loopback DevTools endpoint when the client uses its WebView UI; this plugin
+//! then speaks just enough of HTTP and WebSocket to drive that endpoint:
 //!
 //! 1. `GET /json` to find the page target's WebSocket URL.
 //! 2. `Page.addScriptToEvaluateOnNewDocument` so the patch also survives
@@ -16,8 +16,8 @@ use std::io::{ErrorKind, Read, Write};
 use std::net::{SocketAddr, TcpStream};
 use std::time::{Duration, Instant};
 
-/// Injected into the web UI; see `scripts/webview-bitrate-extend.js`.
-pub const BITRATE_SCRIPT: &str = include_str!("../../scripts/webview-bitrate-extend.js");
+/// Injected into the web UI; see `assets/bandwidth.js`.
+pub const BITRATE_SCRIPT: &str = include_str!("../assets/bandwidth.js");
 
 /// RFC 6455 sample key. The server response is not verified; the endpoint is
 /// loopback-only and speaks to a known local process.

@@ -8,8 +8,8 @@ repository.workspace = true
 publish = false
 
 [lib]
-name = "hello_plugin"
+name = "parsec_orbit_plugin_hello"
 crate-type = ["cdylib"]
 
 [dependencies]
-parsec-orbit-plugin-sdk = { path = "../../sdk" }
+parsec-orbit-plugin-sdk = { path = "../../parsec-orbit-plugin-sdk" }
