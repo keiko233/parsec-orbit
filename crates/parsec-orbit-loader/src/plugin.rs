@@ -13,7 +13,7 @@ use std::sync::{Mutex, OnceLock};
 use parsec_orbit_core::{Env, Exports, Loaded, Logger, Module, Platform};
 use parsec_orbit_plugin_abi::{
     InitFn, LegacyInitFn, ParsecOrbitHost, QueryFn, ShutdownFn, ABI_VERSION, EXPORT_INIT,
-    EXPORT_LEGACY_INIT, EXPORT_QUERY, EXPORT_SHUTDOWN,
+    EXPORT_LEGACY_INIT, EXPORT_QUERY, EXPORT_SHUTDOWN, HOST_REVISION_1_SIZE,
 };
 use windows_sys::Win32::System::LibraryLoader::{GetProcAddress, LoadLibraryExW, LoadLibraryW};
 
@@ -29,13 +29,14 @@ struct HostCell(ParsecOrbitHost);
 // Safety: the host table is immutable for the lifetime of the process.
 unsafe impl Sync for HostCell {}
 
+// Revision 2 is switched on once the per-plugin tables exist; until then the
+// shared table advertises revision 1 only.
 static HOST: HostCell = HostCell(ParsecOrbitHost {
-    abi_version: ABI_VERSION,
-    struct_size: std::mem::size_of::<ParsecOrbitHost>() as u32,
+    struct_size: HOST_REVISION_1_SIZE as u32,
     log: Some(host_log),
     query_interface: Some(query_interface),
     loader_version: LOADER_VERSION.as_ptr(),
-    reserved: [0; 8],
+    ..ParsecOrbitHost::blank()
 });
 
 // Safety: the registry is only touched through its mutex, and a module handle
@@ -178,10 +179,7 @@ mod tests {
     fn host_table_describes_this_loader() {
         let host = &HOST.0;
         assert_eq!(host.abi_version, ABI_VERSION);
-        assert_eq!(
-            host.struct_size as usize,
-            std::mem::size_of::<ParsecOrbitHost>()
-        );
+        assert_eq!(host.struct_size as usize, HOST_REVISION_1_SIZE);
         assert!(host.log.is_some());
         assert!(host.query_interface.is_some());
         assert_eq!(host.reserved, [0; 8]);

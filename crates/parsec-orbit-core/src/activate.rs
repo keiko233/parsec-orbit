@@ -131,12 +131,9 @@ mod tests {
 
     fn host() -> ParsecOrbitHost {
         ParsecOrbitHost {
-            abi_version: ABI_VERSION,
-            struct_size: std::mem::size_of::<ParsecOrbitHost>() as u32,
             log: None,
-            query_interface: None,
             loader_version: b"test\0".as_ptr(),
-            reserved: [0; 8],
+            ..ParsecOrbitHost::blank()
         }
     }
 

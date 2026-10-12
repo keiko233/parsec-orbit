@@ -7,16 +7,14 @@ crate fails when they drift. Change the ABI, change this document. This ABI uses
 the `ParsecOrbit*` export and type names and the `parsec_orbit_plugin!` SDK
 macro.
 
-Status: everything up to "Reserved extension points" is implemented (ABI 1).
-[Host revision 2](#host-revision-2-draft) is specified here but not yet
-implemented.
+Status: implemented, ABI 1 with host revision 2.
 
 ## Lifecycle
 
 ```text
 client starts
   -> loader is loaded (bcrypt.dll proxy)
-       -> plugin directories are scanned
+       -> plugin directories are scanned, manifests read, load order decided
             -> LoadLibraryW(plugin)
                  -> ParsecOrbitPluginQuery(loader ABI version) -> plugin descriptor
                  -> abi_version / struct_size are validated
@@ -52,14 +50,30 @@ typedef struct ParsecOrbitPluginDesc {
     const char *license;       /* SPDX identifier */
     uint64_t    capabilities;  /* reserved capability bits; the loader only records them */
 } ParsecOrbitPluginDesc;
+```
 
+### Host table
+
+```c
 typedef struct ParsecOrbitHost {
+    /* ---- revision 1 (96 bytes on x64) ---- */
     uint32_t abi_version;      /* ABI version implemented by the loader */
     uint32_t struct_size;      /* struct size on the loader side */
     void (*log)(uint32_t level, const uint8_t *message, size_t len);
-    void *(*query_interface)(const char *name);
+    void *(*query_interface)(const char *name);   /* ParsecOrbitInterfaceHeader * or NULL */
     const char *loader_version; /* loader version, UTF-8, NUL terminated */
-    uintptr_t reserved[8];      /* future host services */
+    uintptr_t reserved[8];      /* stays zero */
+
+    /* ---- revision 2 (208 bytes on x64) ---- */
+    const char *plugin_id;        /* manifest id (or the DLL path for manifest-less plugins) */
+    const char *plugin_dir;       /* absolute, UTF-8 */
+    const char *data_dir;         /* %APPDATA%\ParsecOrbit\data\<id>; may not exist yet; NULL without %APPDATA% */
+    void (*log_ex)(uint32_t level, const uint8_t *target, size_t target_len,
+                   const uint8_t *message, size_t len);
+    int32_t (*register_interface)(const ParsecOrbitHost *host, const char *name,
+                                  const ParsecOrbitInterfaceHeader *table);
+    int32_t (*unregister_interface)(const ParsecOrbitHost *host, const char *name);
+    uintptr_t reserved2[8];     /* stays zero */
 } ParsecOrbitHost;
 ```
 
@@ -67,11 +81,92 @@ Conventions:
 
 - All strings are **UTF-8, NUL terminated** and must live for the whole module
   lifetime (the macro generates static literals with `concat!(..., "\0")`).
-- The `log` string is a `(pointer, length)` pair and does **not** need to be NUL
-  terminated.
+  `log` and `log_ex` take `(pointer, length)` pairs that do **not** need to be
+  NUL terminated.
 - Log levels: `0=trace 1=debug 2=info 3=warn 4=error`.
 - Structs only grow at the tail; nothing before `reserved` is changed, removed,
   or reordered.
+- Callbacks use `extern "system"`, never unwind across the boundary and may be
+  called from any thread unless an interface says otherwise.
+
+## Host revision 2
+
+Revision 2 is an *additive* change within ABI 1: the fields after `reserved`
+were appended, so old plugins keep working (they read the first 96 bytes) and
+new plugins detect support from `struct_size`. `ABI_VERSION` stays `1`.
+
+* A plugin may use a revision 2 field only if
+  `host->struct_size >= offsetof(ParsecOrbitHost, <field>) + sizeof(<field>)`
+  and the value is non-null. A plugin that talks to a revision 1 loader still
+  initialises: `log` works, the registry is simply absent.
+* The loader passes **each plugin its own `ParsecOrbitHost`** (allocated once,
+  valid for the process lifetime); revision 1 passed one shared table.
+* `log_ex` writes `target` (usually the plugin id) alongside the message into
+  the loader log; `log` keeps working and logs without a target.
+* `register_interface` and `unregister_interface` take the caller's own host
+  table as their first argument: the callbacks are shared functions, so the
+  loader reads `plugin_id` out of that table to learn who is calling. (The
+  early draft had `(name, table)`; the extra argument is what makes ownership
+  checkable without a trampoline per plugin.)
+* The descriptor is unchanged in revision 2: dependencies and ordering come
+  from the manifest ([loading.md](loading.md)).
+
+### Interfaces
+
+Everything a plugin offers to other plugins is an *interface*: a `repr(C)`
+function table that starts with a header. Semantics, the registry and the core
+services are in [services.md](services.md).
+
+```c
+typedef struct ParsecOrbitInterfaceHeader {
+    uint32_t size;      /* sizeof the whole table, header included */
+    uint32_t version;   /* (major << 16) | minor */
+} ParsecOrbitInterfaceHeader;
+
+typedef struct ParsecOrbitPluginLoadInfo {
+    uint32_t    size;          /* sizeof(ParsecOrbitPluginLoadInfo) */
+    const char *id;            /* manifest id */
+    const char *dir;           /* plugin directory, absolute */
+    const char *entry;         /* entry file, absolute */
+    const char *data_dir;      /* %APPDATA%\ParsecOrbit\data\<id>, NULL if unknown */
+    const uint8_t *manifest;   /* raw plugin.toml text, UTF-8 */
+    size_t      manifest_len;
+} ParsecOrbitPluginLoadInfo;
+
+/* parsec-orbit.kind.<kind>, version 1.0 */
+typedef struct ParsecOrbitKindHandlerV1 {
+    ParsecOrbitInterfaceHeader header;
+    int32_t (*load_plugin)(const ParsecOrbitPluginLoadInfo *info);   /* 0 = success */
+    int32_t (*unload_plugin)(const char *id);                        /* may be NULL */
+} ParsecOrbitKindHandlerV1;
+```
+
+Error codes returned by the host and by interfaces:
+
+| Code | Name | Meaning |
+| --- | --- | --- |
+| `0` | `OK` | success |
+| `-1` | `ERR_INVALID` | invalid argument |
+| `-2` | `ERR_EXISTS` | already exists |
+| `-3` | `ERR_NOT_FOUND` | not found |
+| `-4` | `ERR_NOT_READY` | not ready, or not supported by this loader |
+| `-5` | `ERR_TIMEOUT` | timed out |
+| `-6` | `ERR_EXCEPTION` | script or remote exception |
+
+`<= -1000` is interface specific.
+
+### Interface names
+
+| Name | Service |
+| --- | --- |
+| `parsec-orbit.hooks` | Function hook registration/unregistration (reserved) |
+| `parsec-orbit.webview` | WebView2 bridge (inject scripts, evaluate, messages) |
+| `parsec-orbit.js` | JS runtime handle, for DLL plugins that need eval |
+| `parsec-orbit.kind.<kind>` | Handler that loads plugins of a non-`dll` kind (`kind.js`) |
+| `parsec-orbit.config`, `parsec-orbit.market` | Settings storage, marketplace metadata (reserved) |
+
+`parsec-orbit.*` is reserved for official services; third parties use
+`<reverse.dns>.<name>`.
 
 ## Versioning policy
 
@@ -112,65 +207,6 @@ __declspec(dllexport) int32_t ParsecOrbitPluginInit(const ParsecOrbitHost *host)
 
 Rust plugins generate these three exports with the `parsec_orbit_plugin!` macro; see
 `examples/parsec-orbit-plugin-hello`.
-
-## Reserved extension points
-
-`ParsecOrbitHost::query_interface` is the entry point for host and plugin
-services. In revision 1 it always returns null; the names below are reserved and
-revision 2 gives them semantics (see [services.md](services.md)):
-
-| Name | Service |
-| --- | --- |
-| `parsec-orbit.hooks` | Function hook registration/unregistration |
-| `parsec-orbit.webview` | WebView2 bridge (inject scripts, evaluate, messages) |
-| `parsec-orbit.js` | JS runtime handle, for DLL plugins that need eval |
-| `parsec-orbit.kind.<kind>` | Handler that loads plugins of a non-`dll` kind (`kind.js`) |
-| `parsec-orbit.config`, `parsec-orbit.market` | Settings storage, marketplace metadata |
-
-## Host revision 2 (draft)
-
-Revision 2 is an *additive* change within ABI 1: fields are appended to
-`ParsecOrbitHost` **after** `reserved` (the revision 1 size is 96 bytes on
-x64), so old plugins keep working and new plugins detect support from
-`struct_size`. `reserved` stays zero and unused. `ABI_VERSION` stays `1`.
-
-```c
-typedef struct ParsecOrbitHost {
-    /* ---- revision 1 (96 bytes) ---- */
-    uint32_t abi_version;
-    uint32_t struct_size;
-    void (*log)(uint32_t level, const uint8_t *message, size_t len);
-    void *(*query_interface)(const char *name);   /* rev 2: ParsecOrbitInterfaceHeader * or NULL */
-    const char *loader_version;
-    uintptr_t reserved[8];
-
-    /* ---- revision 2: one table per plugin, so identity is data, not a callback argument ---- */
-    const char *plugin_id;        /* manifest id (or the DLL path for manifest-less plugins) */
-    const char *plugin_dir;       /* absolute, UTF-8 */
-    const char *data_dir;         /* %APPDATA%\ParsecOrbit\data\<id>; may not exist yet */
-    void (*log_ex)(uint32_t level, const uint8_t *target, size_t target_len,
-                   const uint8_t *message, size_t len);
-    int32_t (*register_interface)(const char *name, const ParsecOrbitInterfaceHeader *table);
-    int32_t (*unregister_interface)(const char *name);
-    uintptr_t reserved2[8];
-} ParsecOrbitHost;
-```
-
-Rules:
-
-* A plugin may use a revision 2 field only if
-  `host->struct_size >= offsetof(ParsecOrbitHost, <field>) + sizeof(<field>)`
-  and the pointer is non-null.
-* The loader passes **each plugin its own `ParsecOrbitHost`** (allocated once,
-  valid for the process lifetime); revision 1 passed one shared table.
-* `log_ex` writes `target` (usually the plugin id) alongside the message into
-  the loader log; `log` keeps working and logs without a target.
-* The descriptor is unchanged in revision 2: dependencies and ordering come
-  from the manifest ([loading.md](loading.md)).
-
-Service registration, interface headers and the kind-handler contract are in
-[services.md](services.md). The manifest is specified in
-[plugin-manifest.md](plugin-manifest.md).
 
 ## Security notes
 
