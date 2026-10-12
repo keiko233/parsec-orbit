@@ -7,12 +7,11 @@
 
 mod common;
 
-use std::io::{Read, Write};
-use std::net::{TcpListener, TcpStream};
+use std::net::TcpListener;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use common::{Plugin, Run, Sandbox, LOADER_VERSION};
+use common::{FakeDevTools, Plugin, Run, Sandbox, LOADER_VERSION};
 
 const CLIENT: &str = "parsecd.exe";
 
@@ -643,134 +642,6 @@ fn the_users_own_browser_arguments_are_left_untouched() {
 
 // ---- the webview plugin against a fake DevTools endpoint -----------------------------------------
 
-/// Just enough of a DevTools endpoint to receive the plugin's commands.
-struct FakeDevTools {
-    port: u16,
-    commands: Arc<Mutex<Vec<serde_json::Value>>>,
-    requests: Arc<Mutex<Vec<String>>>,
-}
-
-impl FakeDevTools {
-    fn start() -> FakeDevTools {
-        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
-        let port = listener.local_addr().unwrap().port();
-        let commands = Arc::new(Mutex::new(Vec::new()));
-        let requests = Arc::new(Mutex::new(Vec::new()));
-        let (shared_commands, shared_requests) = (commands.clone(), requests.clone());
-        std::thread::spawn(move || {
-            for stream in listener.incoming().flatten() {
-                let (commands, requests) = (shared_commands.clone(), shared_requests.clone());
-                std::thread::spawn(move || serve(stream, port, commands, requests));
-            }
-        });
-        FakeDevTools {
-            port,
-            commands,
-            requests,
-        }
-    }
-
-    fn wait_for_commands(&self, count: usize) -> Vec<serde_json::Value> {
-        let deadline = Instant::now() + Duration::from_secs(20);
-        while Instant::now() < deadline {
-            let commands = self.commands.lock().unwrap().clone();
-            if commands.len() >= count {
-                return commands;
-            }
-            std::thread::sleep(Duration::from_millis(25));
-        }
-        panic!(
-            "only {} commands arrived",
-            self.commands.lock().unwrap().len()
-        );
-    }
-}
-
-fn serve(
-    mut stream: TcpStream,
-    port: u16,
-    commands: Arc<Mutex<Vec<serde_json::Value>>>,
-    requests: Arc<Mutex<Vec<String>>>,
-) {
-    let mut head = Vec::new();
-    let mut byte = [0u8; 1];
-    while !head.ends_with(b"\r\n\r\n") {
-        if stream.read_exact(&mut byte).is_err() {
-            return;
-        }
-        head.push(byte[0]);
-    }
-    let head = String::from_utf8_lossy(&head).into_owned();
-    requests
-        .lock()
-        .unwrap()
-        .push(head.lines().next().unwrap_or("").to_string());
-
-    if head.starts_with("GET /json") {
-        let body = format!(
-            "[{{\"type\":\"page\",\"url\":\"https://web.parsec.test/\",\"webSocketDebuggerUrl\":\"ws://127.0.0.1:{port}/devtools/page/P\"}}]"
-        );
-        let _ = stream.write_all(
-            format!(
-                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n{body}",
-                body.len()
-            )
-            .as_bytes(),
-        );
-        return;
-    }
-
-    let _ = stream.write_all(
-        b"HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n",
-    );
-    loop {
-        let mut header = [0u8; 2];
-        if stream.read_exact(&mut header).is_err() {
-            return;
-        }
-        let length = match header[1] & 0x7F {
-            126 => {
-                let mut bytes = [0u8; 2];
-                stream.read_exact(&mut bytes).unwrap();
-                u16::from_be_bytes(bytes) as usize
-            }
-            127 => {
-                let mut bytes = [0u8; 8];
-                stream.read_exact(&mut bytes).unwrap();
-                u64::from_be_bytes(bytes) as usize
-            }
-            length => length as usize,
-        };
-        let mut mask = [0u8; 4];
-        stream.read_exact(&mut mask).unwrap();
-        let mut payload = vec![0u8; length];
-        stream.read_exact(&mut payload).unwrap();
-        for (index, byte) in payload.iter_mut().enumerate() {
-            *byte ^= mask[index % 4];
-        }
-        if header[0] & 0x0F != 0x1 {
-            continue;
-        }
-        let command: serde_json::Value = serde_json::from_slice(&payload).unwrap();
-        let id = command["id"].as_u64().unwrap();
-        let reply = if command["method"] == "Runtime.evaluate" {
-            format!("{{\"id\":{id},\"result\":{{\"result\":{{\"type\":\"string\",\"value\":\"installed\"}}}}}}")
-        } else {
-            format!("{{\"id\":{id},\"result\":{{\"identifier\":\"1\"}}}}")
-        };
-        commands.lock().unwrap().push(command);
-        let mut frame = vec![0x81];
-        if reply.len() < 126 {
-            frame.push(reply.len() as u8);
-        } else {
-            frame.push(126);
-            frame.extend_from_slice(&(reply.len() as u16).to_be_bytes());
-        }
-        frame.extend_from_slice(reply.as_bytes());
-        let _ = stream.write_all(&frame);
-    }
-}
-
 fn bandwidth_script() -> String {
     std::fs::read_to_string(
         common::workspace_root()
@@ -979,7 +850,7 @@ fn the_webview_plugin_keeps_retrying_until_the_endpoint_appears() {
     std::thread::spawn(move || {
         for stream in listener.incoming().flatten() {
             let (commands, requests) = (shared_commands.clone(), shared_requests.clone());
-            std::thread::spawn(move || serve(stream, port, commands, requests));
+            std::thread::spawn(move || common::serve(stream, port, commands, requests));
         }
     });
 

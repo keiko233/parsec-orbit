@@ -13,6 +13,7 @@
 //! webview_script=<key>|<script>   hand a script to parsec-orbit.webview
 //! webview_eval=<expression>       evaluate in the page once it is attached
 //! webview_post=<channel>|<json>   post to the page once it is attached
+//! js_eval=<source>                evaluate in a context made through parsec-orbit.js
 //! ```
 //!
 //! Every action logs one `fixture[<id>]: ...` line so a test can assert on it.
@@ -26,7 +27,7 @@
 use std::ffi::CString;
 use std::path::Path;
 
-use parsec_orbit_plugin_sdk::services::WebViewClient;
+use parsec_orbit_plugin_sdk::services::{JsClient, WebViewClient};
 use parsec_orbit_plugin_sdk::{
     Context, ParsecOrbitHost, ParsecOrbitInterfaceHeader, ParsecOrbitKindHandlerV1,
     ParsecOrbitPluginLoadInfo, LOG_INFO,
@@ -194,6 +195,25 @@ unsafe extern "system" fn init(host: *const ParsecOrbitHost) -> i32 {
                     continue;
                 };
                 webview_action(cx, &id, action, argument);
+            }
+            "js_eval" => {
+                let Some(cx) = (unsafe { Context::from_host(host) }) else {
+                    continue;
+                };
+                match JsClient::new(&cx) {
+                    None => say(format!("fixture[{id}]: js_eval -> no js service")),
+                    Some(js) => {
+                        let outcome = js
+                            .create_context("fixture")
+                            .and_then(|context| {
+                                let mut value = String::new();
+                                js.eval(context, argument, |json| value = json.to_string())
+                                    .map(|()| value)
+                            })
+                            .unwrap_or_else(|error| format!("error {}", error.code()));
+                        say(format!("fixture[{id}]: js_eval {argument} -> {outcome}"));
+                    }
+                }
             }
             "fail" => result = argument.parse().unwrap_or(1),
             _ => say(format!("fixture[{id}]: unknown action {action}")),
