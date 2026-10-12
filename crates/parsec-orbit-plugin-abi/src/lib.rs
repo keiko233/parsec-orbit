@@ -505,7 +505,9 @@ pub struct ParsecOrbitConfigV1 {
 ///
 /// A hook redirects calls of `target` to `detour`; `*original` receives a
 /// pointer that calls the unhooked function. Hooks are installed disabled
-/// and cost nothing until enabled.
+/// and cost nothing until enabled. That pointer is only valid while the hook
+/// lives: `remove` puts the original bytes back and frees the trampoline, so
+/// calling through it afterwards is undefined.
 #[repr(C)]
 pub struct ParsecOrbitHooksV1 {
     pub header: ParsecOrbitInterfaceHeader,
@@ -531,7 +533,8 @@ pub struct ParsecOrbitHooksV1 {
     >,
     pub enable: Option<unsafe extern "system" fn(hook: i64) -> i32>,
     pub disable: Option<unsafe extern "system" fn(hook: i64) -> i32>,
-    /// Disables and forgets the hook.
+    /// Disables and forgets the hook, restoring the bytes of `target` and
+    /// invalidating the `*original` pointer `install` handed out.
     pub remove: Option<unsafe extern "system" fn(hook: i64) -> i32>,
 }
 

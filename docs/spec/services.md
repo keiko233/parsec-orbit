@@ -91,7 +91,7 @@ Storage: `%APPDATA%\ParsecOrbit\data\com.parsec-orbit.config\<owner>.json`, the 
 
 ### `parsec-orbit.hooks` (provided by the hooks plugin), version 1.0
 
-Inline hooks on functions of the client process. `resolve(module, symbol)` returns the address of an export of a loaded module (or null). `install(target, detour, &original)` prepares a hook and returns its id (`-2` if `target` is hooked already, `-6` if the function start cannot be relocated); `*original` receives a pointer that calls the unhooked function. Hooks are installed disabled; `enable`, `disable` and `remove` take the id. A detour has the exact signature and calling convention of the target and must never unwind. The functions are thread-safe; the hook itself is applied while the process runs, so a hook on a function that other threads are executing is the plugin's responsibility, as is everything a detour does.
+Inline hooks on functions of the client process. `resolve(module, symbol)` returns the address of an export of a loaded module (or null). `install(target, detour, &original)` prepares a hook and returns its id (`-2` if `target` is hooked already, `-6` if the function start cannot be relocated); `*original` receives a pointer that calls the unhooked function. Hooks are installed disabled; `enable`, `disable` and `remove` take the id. `remove` restores the original bytes and frees the trampoline, so the `*original` pointer of that hook must not be used afterwards. A detour has the exact signature and calling convention of the target and must never unwind. The functions are thread-safe; the hook itself is applied while the process runs, so a hook on a function that other threads are executing is the plugin's responsibility, as is everything a detour does.
 
 ### Reserved
 

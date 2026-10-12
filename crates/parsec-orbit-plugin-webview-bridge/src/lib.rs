@@ -2,9 +2,10 @@
 //!
 //! Provides the `parsec-orbit.webview` interface: scripts that stay installed
 //! in the client's WebView2 UI, evaluation, and messages in both directions.
-//! It drives the DevTools endpoint the loader opens (see [`devtools`]) and
-//! keeps the session alive, attaching again and replaying the scripts when
-//! the page is recreated. Plugins - native ones through
+//! It drives the DevTools endpoint the loader opens (the
+//! `parsec-orbit-devtools` crate) and keeps the session alive, attaching
+//! again and replaying the scripts when the page is recreated. Plugins -
+//! native ones through
 //! `WebViewClient`, JavaScript ones through the runtime - use the interface
 //! instead of carrying an HTTP/WebSocket client of their own.
 

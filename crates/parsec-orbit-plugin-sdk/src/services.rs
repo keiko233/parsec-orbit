@@ -377,7 +377,9 @@ impl HooksClient {
 
     /// Prepares a hook of `target` that runs `detour`. Returns the hook id and
     /// the pointer that calls the original function. The hook is disabled
-    /// until [`HooksClient::enable`].
+    /// until [`HooksClient::enable`]. The returned pointer is valid until
+    /// [`HooksClient::remove`], which restores the original bytes and frees
+    /// the trampoline the pointer points at.
     ///
     /// # Safety
     /// `target` is the start of a function and `detour` has its exact
@@ -403,6 +405,9 @@ impl HooksClient {
         code(unsafe { disable(hook) })
     }
 
+    /// Disables the hook and puts the bytes of the original function back.
+    /// The `original` pointer [`HooksClient::install`] returned is dead
+    /// afterwards: calling through it is undefined.
     pub fn remove(&self, hook: i64) -> Result {
         let remove = self.table.remove.ok_or(Error::new(ERR_NOT_READY))?;
         code(unsafe { remove(hook) })
