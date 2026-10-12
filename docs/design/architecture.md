@@ -5,7 +5,7 @@
 1. A **standard SDK for Rust** (crates.io) and **TypeScript** (npm) so plugins are small, uniform and easy to write.
 2. A loader that stays **tiny and boring**: it sits in front of a foreign process (`bcrypt.dll` proxy) and must not grow into a platform.
 3. **Plugins do not pay for what they do not use**: no statically linked `std`/async stack by default, no JS engine unless a JS plugin is installed.
-4. Reuse established crates (`tracing`, `ractor`, ...) where they pay for themselves - in plugins and tools, not in the loader's hot path.
+4. Reuse established crates (`tracing`, `serde_json`, Boa, ...) where they pay for themselves - in plugins and tools, not in the loader's hot path.
 
 ## Components
 
@@ -67,7 +67,7 @@ The loader was just reduced from ~520 KB to ~340 KB; that is the baseline to pro
 | --- | --- | --- |
 | loader `bcrypt.dll` | <= 360 KiB (368,640 B; the phase-2 release build is 368,128 B = 359.5 KiB, 512 B headroom) | no async runtime, no serde, no `tracing` unless measured to fit |
 | minimal Rust plugin | goal: well below the current ~210 KB std `hello` | CRT-free `no_std` recipe (`freestanding!`), `panic=abort`, `opt-level=z`, LTO, strip |
-| JS runtime plugin | unconstrained (separate download) | Boa + tokio/ractor live here only |
+| JS runtime plugin | unconstrained (separate download) | Boa lives here only |
 
 How the SDK keeps plugins small is specified in [spec/rust-sdk.md](../spec/rust-sdk.md#size-policy): `no_std` + a small freestanding runtime (allocator on the process heap, panic handler that logs and fast-fails), and *services over statically linked functionality* - the host and service plugins expose vtables so a plugin does not embed its own HTTP/WebSocket/JS stack.
 
@@ -78,7 +78,7 @@ How the SDK keeps plugins small is specified in [spec/rust-sdk.md](../spec/rust-
   (`ContextExt::spawn` from `parsec-orbit-plugin-sdk-std`) and return from
   `init`.
 * **Logging**: the loader owns the log file. Plugins log through the host (`log_ex`, with the plugin id as target). The SDK's own macros need no dependencies; the `tracing` feature adds a `tracing::Subscriber` that forwards to the host so ecosystem crates' events end up in the same file. The loader itself adopts `tracing-core` only if the size budget allows ([ADR 0004](decisions/0004-loader-stays-light.md)).
-* **Actors**: `ractor` is adopted in the heavy plugins. The JS runtime runs each JS plugin's Boa context (which is not `Send`) inside its own actor on a dedicated thread; the webview bridge runs the DevTools session as an actor with supervised reconnects. Neither the loader nor the Rust SDK depends on `ractor`.
+* **Actors, without a runtime**: the heavy plugins are one thread that owns a resource plus a command channel - an actor in shape only, no `ractor` and no async runtime ([ADR 0004](decisions/0004-loader-stays-light.md#amendment-phase-4)). The JS runtime gives each Boa context (which is not `Send`) a thread of its own; the webview bridge gives the DevTools session one thread that reconnects and replays the scripts, and runs subscriber callbacks on a second thread so a callback can call back in.
 
 ## Failure model
 
@@ -92,5 +92,5 @@ code in the client process ([security notes](../spec/plugin-abi.md#security-note
 
 ## Open questions
 
-1. Whether the JS runtime and the webview bridge ship as one DLL (shared tokio/ractor, one download) or two. Leaning towards two plugins first, merge if the duplicated runtime proves too heavy.
+1. Whether the JS runtime and the webview bridge should ship as one download. They are two plugins today; they share no runtime, so merging is a packaging question only.
 2. Plugin unload/reload: still out of scope; interfaces registered by a plugin live for the process lifetime.

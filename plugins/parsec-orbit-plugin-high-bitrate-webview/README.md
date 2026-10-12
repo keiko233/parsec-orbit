@@ -66,9 +66,12 @@ The loader log (`%APPDATA%\ParsecOrbit\parsec-orbit.log`) reports the result:
 ```
 loaded com.parsec-orbit.webview 0.1.0 (WebView UI Patches) ABI 1 by Parsec Orbit contributors [MIT]
 webview ui patches 0.1.0 starting
-webview patch registered for future documents (https://builds.parsec.app/webview/release-ui/index.html)
-webview bandwidth list extended: installed
+webview bandwidth patch handed to the bridge (script 3)
 ```
+
+The bridge logs what it does with the script under its own id
+(`com.parsec-orbit.webview-bridge`); a client without the bridge is logged as
+`parsec-orbit.webview is not available ... the web UI is left untouched`.
 
 ## Keeping the two lists in sync
 
