@@ -9,13 +9,12 @@
 //! instead of carrying an HTTP/WebSocket client of their own.
 
 pub mod bridge;
-pub mod devtools;
 pub mod service;
 
 use parsec_orbit_plugin_sdk_std::prelude::*;
 use parsec_orbit_plugin_sdk_std::services::WebView;
 
-pub use devtools::{inject_once, Injection};
+pub use parsec_orbit_devtools::{inject_once, Injection};
 
 /// Port the loader opens the WebView2 DevTools endpoint on by default.
 const DEFAULT_DEVTOOLS_PORT: u16 = 9222;

@@ -47,12 +47,15 @@ parsec-orbit-plugin-abi      no_std, zero deps. repr(C) types, constants, servic
         |       ^
         |       +-- parsec-orbit-plugin-sdk-std   threads, panic hook, tracing bridge, MockHost   [crates.io]
         |-- parsec-orbit-core         loader logic (std; toml parse-only)
+        |-- parsec-orbit-devtools     HTTP + WebSocket + DevTools protocol client (std)
+        |-- parsec-orbit-market       index, sha256/ed25519, safe installation, the market tool
                 ^
                 +-- parsec-orbit-loader   cdylib named `bcrypt`
 
 crates/     every Rust crate: the loader and SDK above, the official plugins and
             the verification tools; high-bitrate-native and high-bitrate-webview -> sdk-std
-            (official), webview-bridge (serde_json), js-runtime (Boa)             -> sdk-std + heavy deps
+            (official), webview-bridge (-> devtools), js-runtime (Boa), config,
+            hooks (retour)                                                          -> sdk-std + heavy deps
 examples/   parsec-orbit-plugin-hello (-> sdk-std), parsec-orbit-plugin-hello-nostd (-> sdk)
 javascript-sdk/  @parsec-orbit/sdk (TypeScript: types, definePlugin, ui helper, mock host)  [npm]
 tests/      parsec-orbit-e2e;  crates/parsec-orbit-verify-*  verification tools

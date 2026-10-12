@@ -16,6 +16,7 @@
 | [spec/services.md](spec/services.md) | Implemented | Host service registry, interface headers, kind handlers, core service definitions |
 | [spec/rust-sdk.md](spec/rust-sdk.md) | Implemented | `parsec-orbit-plugin-abi`, `-sdk` and `-sdk-std` crates, `freestanding!` runtime, size policy |
 | [spec/js-sdk.md](spec/js-sdk.md) | Implemented | JS plugin model, `@parsec-orbit/sdk` TypeScript API, WebView operations |
+| [spec/marketplace.md](spec/marketplace.md) | Implemented | Plugin index, sha256, signatures, safe installation, `parsec-orbit-market` |
 
 "Draft" means agreed direction, not yet implemented; each draft spec lists its
 open questions at the end.

@@ -21,7 +21,7 @@ use parsec_orbit_plugin_sdk_std::{
 };
 use serde_json::Value;
 
-use crate::devtools::{attach, json_string, truncate, Message, Ws};
+use parsec_orbit_devtools::{attach, json_string, truncate, Message, Ws};
 
 /// The page-side helper (`window.__orbit`).
 pub const ORBIT_SCRIPT: &str = include_str!("../assets/orbit.js");

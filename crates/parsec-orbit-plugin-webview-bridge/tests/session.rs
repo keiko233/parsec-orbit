@@ -1,6 +1,8 @@
 //! The bridge session against a fake DevTools endpoint: attach, install,
 //! evaluate, messages in both directions, reattach.
 
+// The fake DevTools endpoint is shared with the DevTools crate's tests.
+#[path = "../../../crates/parsec-orbit-devtools/tests/common/mod.rs"]
 mod common;
 
 use std::ffi::c_void;
