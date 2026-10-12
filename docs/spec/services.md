@@ -1,6 +1,9 @@
 # Host services
 
-Status: the registry, interface headers and kind handlers are implemented (host revision 2); the core service tables below are fixed in shape but have no provider yet. Implements [ADR 0001](../design/decisions/0001-typed-service-vtables.md).
+Status: the registry, interface headers and kind handlers are implemented
+(host revision 2). The core service tables below are fixed in shape except for
+`parsec-orbit.js`, whose signatures stay reserved until its runtime provider is
+implemented. Implements [ADR 0001](../design/decisions/0001-typed-service-vtables.md).
 
 A *service* (interface) is a `repr(C)` function table that a plugin, or the loader, registers under a name and other plugins look up. This is the one mechanism for everything a plugin offers to other plugins: WebView operations, the JS runtime, kind handlers, hooks.
 
@@ -21,13 +24,19 @@ Reached through the per-plugin host table ([plugin-abi.md](plugin-abi.md#host-re
 
 | Host function | Behaviour |
 | --- | --- |
-| `register_interface(host, name, table)` | `host` is the caller's own table (it names the owner). `name` is NUL-terminated ASCII, 1 to 128 of `[A-Za-z0-9._-]` with no empty dot part. Returns `0`, `-1` invalid argument (bad name, null or misaligned table, header smaller than 8 bytes, or a `parsec-orbit.*` name from a plugin whose id does not start with `com.parsec-orbit.`), `-2` name already registered. |
-| `query_interface(name)` | Returns the registered `ParsecOrbitInterfaceHeader *` or null. (Same function as in revision 1, which always returned null.) |
+| `register_interface(host, name, table)` | `host` must be the caller's own loader-issued table (it names the owner). `name` is NUL-terminated ASCII, 1 to 128 of `[A-Za-z0-9._-]` with no empty dot part. Returns `0`, `-1` invalid argument (bad name, unknown `host`, null or pointer-misaligned table, header smaller than 8 bytes, or a reserved `parsec-orbit.*` name from a plugin whose id does not start with `com.parsec-orbit.`), `-2` name already registered. |
+| `query_interface(name)` | Returns the registered `ParsecOrbitInterfaceHeader *` or null. Revision 1 always returned null; revision 2 resolves names through the registry. |
 | `unregister_interface(host, name)` | Only the registering plugin may remove it; returns `0` or `-3` not found (also for somebody else's name). Reserved for the future unload. |
 
 Lookups are valid from `init` onward. Because `requires` guarantees that a dependency finished `init` first, a plugin that declares `requires = ["com.parsec-orbit.webview-bridge"]` can query `parsec-orbit.webview` in its own `init`.
 
-The names `parsec-orbit.*` are reserved for official services, that is for plugins whose id is under `com.parsec-orbit.`; the loader enforces it. The one exception is `parsec-orbit.kind.<kind>`, open to whoever implements a kind. Third parties use `<reverse.dns>.<name>`.
+The names `parsec-orbit.*` are reserved for official services, that is for
+plugins whose host table carries an id under `com.parsec-orbit.`; the loader
+enforces it for cooperative plugins. The one exception is
+`parsec-orbit.kind.<kind>`, open to whoever implements a kind. Third parties
+use `<reverse.dns>.<name>`. DLL plugins are native code in the client process,
+so they can bypass any in-process check; the prefix is a naming convention, not
+a sandbox boundary.
 
 ## Kind handlers
 
@@ -70,7 +79,9 @@ The page-side helper `window.__orbit` (`emit`, `on`, and `rpc(event, data)` for 
 
 ### `parsec-orbit.js` (provided by the JS runtime plugin), version 1.0
 
-For native plugins that want to evaluate script: create/destroy a named context and `eval(context, source) -> json`. The signatures are fixed when the runtime is implemented; the name is reserved.
+For native plugins that want to evaluate script: create/destroy a named
+context and `eval(context, source) -> json`. The name is reserved; the
+signatures are not fixed until the runtime is implemented.
 
 ### Reserved
 

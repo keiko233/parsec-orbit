@@ -4,11 +4,25 @@ Status: implemented (`parsec-orbit-core`: `scan`, `plan`, `kind`). The per-plugi
 
 ## 1. Discovery
 
-Plugin directories, in priority order: `PARSEC_ORBIT_PLUGIN_DIR` (`;`-separated), `<client dir>\plugins`, `%APPDATA%\ParsecOrbit\plugins`. A plugin is a subdirectory with `plugin.toml`, or a loose `*.dll` without a manifest (legacy layout, no dependencies). The first occurrence of an `id` wins; later duplicates are logged and ignored.
+Plugin directories, in priority order: `PARSEC_ORBIT_PLUGIN_DIR`
+(`;`-separated), `<client dir>\plugins`, `%APPDATA%\ParsecOrbit\plugins`.
+Duplicate directories are dropped case-insensitively, first spelling wins. A
+plugin is a subdirectory with `plugin.toml`, or a loose `*.dll` without a
+manifest (legacy layout, no dependencies). The first occurrence of an `id`
+wins; later duplicates are logged and ignored. Loose DLLs are deduplicated by
+their absolute path.
 
 ## 2. Selection
 
-A candidate is dropped when `enabled = false` (*skipped*), when its `api` is newer than the loader (*failed*, with a warning), when its manifest does not parse (*failed*), or when its id duplicates an earlier one (*skipped*, even if the earlier one failed to load). A manifest without `id` is known by the name of its directory. Constraint syntax in `requires` entries is reserved: the bare id is used and a warning is logged.
+A candidate is dropped when `enabled = false` (*skipped*), when its `api` is
+newer than the loader (*failed*, with a warning), when its manifest does not
+parse (*failed*), or when its id duplicates an earlier one (*skipped*, even if
+the earlier one was disabled, rejected or failed to load). An explicit id is
+also checked before anything else: it must be a valid dotted identifier and
+not a Windows device name (`CON`, `NUL`, `COM1`...). A manifest without `id` is
+known by the name of its directory. A plugin directory without `plugin.toml`
+is counted as *skipped*. Constraint syntax in `requires` and `optional` entries
+is reserved: the bare id is used and a warning is logged.
 
 ## 3. Ordering
 

@@ -82,7 +82,8 @@ Conventions:
 - All strings are **UTF-8, NUL terminated** and must live for the whole module
   lifetime (the macro generates static literals with `concat!(..., "\0")`).
   `log` and `log_ex` take `(pointer, length)` pairs that do **not** need to be
-  NUL terminated.
+  NUL terminated and are only guaranteed to be valid for the duration of the
+  call.
 - Log levels: `0=trace 1=debug 2=info 3=warn 4=error`.
 - Structs only grow at the tail; nothing before `reserved` is changed, removed,
   or reordered.
@@ -95,9 +96,9 @@ Revision 2 is an *additive* change within ABI 1: the fields after `reserved`
 were appended, so old plugins keep working (they read the first 96 bytes) and
 new plugins detect support from `struct_size`. `ABI_VERSION` stays `1`.
 
-* A plugin may use a revision 2 field only if
-  `host->struct_size >= offsetof(ParsecOrbitHost, <field>) + sizeof(<field>)`
-  and the value is non-null. A plugin that talks to a revision 1 loader still
+* A plugin may use a revision 2 field only if `host->struct_size >= 208` on
+  x64 (`108` on x86; the SDK exports this as `HOST_REVISION_2_SIZE`) and the
+  value is non-null. A plugin that talks to a revision 1 loader still
   initialises: `log` works, the registry is simply absent.
 * The loader passes **each plugin its own `ParsecOrbitHost`** (allocated once,
   valid for the process lifetime); revision 1 passed one shared table.
@@ -165,8 +166,9 @@ Error codes returned by the host and by interfaces:
 | `parsec-orbit.kind.<kind>` | Handler that loads plugins of a non-`dll` kind (`kind.js`) |
 | `parsec-orbit.config`, `parsec-orbit.market` | Settings storage, marketplace metadata (reserved) |
 
-`parsec-orbit.*` is reserved for official services; third parties use
-`<reverse.dns>.<name>`.
+`parsec-orbit.*` is reserved for official services; the one exception is
+`parsec-orbit.kind.<kind>`, which is open to any plugin that implements that
+kind. Third parties use `<reverse.dns>.<name>`.
 
 ## Versioning policy
 

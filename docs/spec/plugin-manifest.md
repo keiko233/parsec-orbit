@@ -21,7 +21,12 @@ A plugin lives in its own directory containing `plugin.toml` and the entry file.
 
 Rules:
 
-* Version constraints in `requires` (for example `"id@^0.1"`) are **reserved syntax**: the loader logs a warning and treats the entry as the bare id until constraint support is specified. Entries that are not strings, are empty or repeat an earlier one are dropped with a warning; a field that is not an array counts as absent.
+* Version constraints in `requires` and `optional` (for example `"id@^0.1"`)
+  are **reserved syntax**: the loader logs a warning and treats the entry as
+  the bare id until constraint support is specified. Entries that are not
+  strings, are empty or repeat an earlier one are dropped with a warning; a
+  field that is not an array counts as absent. `@` in `provides` and
+  `permissions` is kept verbatim.
 * The manifest is authoritative for dependencies and ordering. The descriptor in a DLL is not consulted for them, because ordering must be decided before any plugin code runs.
 * For `dll` plugins the descriptor's `id`, `name`, `version`, `author`, `description`, `license` must equal the manifest values (a mismatch is logged as a warning; the descriptor wins for display).
 
