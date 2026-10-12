@@ -12,7 +12,7 @@ A plugin lives in its own directory containing `plugin.toml` and the entry file.
 | `kind` | string | `dll` | `dll` is handled by the loader; any other value is handled by the plugin registered as `parsec-orbit.kind.<kind>` (see [services](services.md#kind-handlers)). `js` is served by the JS runtime plugin. |
 | `entry` | string | first `*.dll` in the directory | Entry file, relative to the plugin directory. |
 | `author`, `description`, `license` | string | empty | Metadata. |
-| `api` | integer | loader's `ABI_VERSION` | Required loader ABI version; newer than the loader means skip. |
+| `api` | integer | loader's `ABI_VERSION` | Required loader ABI version; newer than the loader means failed. |
 | `enabled` | bool | `true` | `false` disables the plugin without deleting it. |
 | `requires` **(draft)** | array of string | `[]` | Plugin ids (or ids in `provides`) that must be loaded *successfully before* this plugin. Missing or failed dependency => this plugin is skipped. |
 | `optional` **(draft)** | array of string | `[]` | Soft dependencies: only influence load order. |

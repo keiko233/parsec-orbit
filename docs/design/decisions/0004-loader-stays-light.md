@@ -8,3 +8,8 @@ No async runtime, no `ractor`, no `serde` in `parsec-orbit-loader` or `parsec-or
 
 ## Consequences
 Standardisation inside the loader is by traits (`Platform`, `Logger`), not by dependencies.
+
+## Outcome
+Phase 1 kept the existing `log` module behind the `Logger` trait and did not
+adopt `tracing`: the release `bcrypt.dll` stayed at 346,624 B, the baseline
+recorded in [architecture.md](../architecture.md).

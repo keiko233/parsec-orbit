@@ -1,10 +1,11 @@
 # Parsec Orbit plugin ABI reference
 
 This document is the normative description of the ABI implemented by
-`parsec-orbit-plugin-sdk` (to become `parsec-orbit-plugin-abi`, see
-[rust-sdk.md](rust-sdk.md)); the two must stay in sync. Change the ABI, change
-this document. This ABI uses the `ParsecOrbit*` export and type names and the
-`parsec_orbit_plugin!` SDK macro.
+`parsec-orbit-plugin-abi` (re-exported by `parsec-orbit-plugin-sdk`, see
+[rust-sdk.md](rust-sdk.md)); the two must stay in sync, and a test in the ABI
+crate fails when they drift. Change the ABI, change this document. This ABI uses
+the `ParsecOrbit*` export and type names and the `parsec_orbit_plugin!` SDK
+macro.
 
 Status: everything up to "Reserved extension points" is implemented (ABI 1).
 [Host revision 2](#host-revision-2-draft) is specified here but not yet

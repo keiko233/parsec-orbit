@@ -15,8 +15,8 @@
  |  bcrypt.dll  =  parsec-orbit-loader  (cdylib, thin)                    |
  |    thunks -> real bcrypt            Win32 Platform impl                |
  |    +----------------------------------------------------------+       |
- |    | parsec-orbit-core (rlib): manifest, resolver, registry,   |       |
- |    | service registry, host tables                             |       |
+|    | parsec-orbit-core (rlib): manifest, resolver, registry,   |       |
+|    | service registry, host tables (resolver/registry: Phase 2)|       |
  |    +----------------------------------------------------------+       |
  |        | ParsecOrbitHost (per plugin)          ^ services              |
  |        v                                       |                       |
@@ -30,7 +30,7 @@
 ```
 
 * **Loader** (`parsec-orbit-loader`): `DllMain`, bcrypt thunks, a `Platform` implementation on `windows-sys`. Nothing else.
-* **Core** (`parsec-orbit-core`): everything that does not need Win32 - manifest parsing, dependency resolution, load decisions, service registry, per-plugin host tables. Written against two traits (`Platform`: map a library / resolve a symbol; `Logger`), so it is unit-tested without mapping DLLs.
+* **Core** (`parsec-orbit-core`): everything that does not need Win32. Today that is manifest parsing, discovery and load decisions; dependency resolution, the service registry and per-plugin host tables arrive in Phase 2. Written against two traits (`Platform`: map a library / resolve a symbol; `Logger`), so it is unit-tested without mapping DLLs.
 * **Plugins** are DLLs speaking the C ABI in [spec/plugin-abi.md](../spec/plugin-abi.md). The same ABI is used for *services*: a plugin can register typed vtables that other plugins query ([spec/services.md](../spec/services.md)).
 * **JS runtime is a plugin** (`kind.js` handler). A JS plugin declares `requires = ["com.parsec-orbit.js-runtime"]`; with the runtime absent (the default install) the loader skips it with a clear message. See [ADR 0003](decisions/0003-js-runtime-is-a-plugin.md).
 * **WebView operations are a plugin too** (`parsec-orbit.webview`), because the DevTools client (HTTP + WebSocket) is not something the bcrypt proxy should carry. The loader keeps only the existing job of opening the DevTools port.
@@ -68,13 +68,13 @@ How the SDK keeps plugins small is specified in [spec/rust-sdk.md](../spec/rust-
 
 ## Concurrency and logging policy
 
-* The loader has one worker thread and runs plugin `init` on it sequentially in dependency order. Plugins that need to run long must spawn their own thread (`Context::spawn`, `std` feature) and return from `init`.
+* The loader has one worker thread and runs plugin `init` on it sequentially in dependency order (Phase 2). Plugins that need to run long must spawn their own thread (`Context::spawn`, `std` feature) and return from `init`.
 * **Logging**: the loader owns the log file. Plugins log through the host (`log_ex`, with the plugin id as target). The SDK's own macros need no dependencies; the `tracing` feature adds a `tracing::Subscriber` that forwards to the host so ecosystem crates' events end up in the same file. The loader itself adopts `tracing-core` only if the size budget allows ([ADR 0004](decisions/0004-loader-stays-light.md)).
 * **Actors**: `ractor` is adopted in the heavy plugins. The JS runtime runs each JS plugin's Boa context (which is not `Send`) inside its own actor on a dedicated thread; the webview bridge runs the DevTools session as an actor with supervised reconnects. Neither the loader nor the Rust SDK depends on `ractor`.
 
 ## Failure model
 
-A plugin can never take the loader down by failing to load: every failure (missing file, bad descriptor, unmet dependency, non-zero `init`) is logged and the plugin is skipped; dependents of a failed plugin are skipped too. A *panic or fault inside plugin code* is not recoverable - plugins are native code in the client process ([security notes](../spec/plugin-abi.md#security-notes)) - so the SDK's panic policy is log-then-abort.
+A plugin can never take the loader down by failing to load. In ABI 1 failures such as a bad descriptor or non-zero `init` are logged and counted as failed; disabled, duplicate and not-yet-runtime-backed kinds are skipped. Phase 2 adds dependency ordering and skips dependents of failed plugins. A *panic or fault inside plugin code* is not recoverable - plugins are native code in the client process ([security notes](../spec/plugin-abi.md#security-notes)) - so the SDK's panic policy is log-then-abort.
 
 ## Open questions
 
