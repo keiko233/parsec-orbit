@@ -35,6 +35,13 @@ unsafe extern "system" fn load_plugin(info: *const ParsecOrbitPluginLoadInfo) ->
     let Some(info) = (unsafe { info.as_ref() }) else {
         return ERR_INVALID;
     };
+    // The host grew this structure at the tail before; a runtime that is
+    // newer than the loader must not read past what the loader passed.
+    let needed = core::mem::offset_of!(ParsecOrbitPluginLoadInfo, manifest_len)
+        + core::mem::size_of::<usize>();
+    if (info.size as usize) < needed {
+        return ERR_INVALID;
+    }
     let (Some(id), Some(dir), Some(entry)) = (
         unsafe { c_text(info.id) },
         unsafe { c_text(info.dir) },
@@ -66,17 +73,31 @@ pub static KIND_HANDLER: ParsecOrbitKindHandlerV1 = kind_handler(load_plugin, No
 
 // ---- parsec-orbit.js --------------------------------------------------------------------
 
+/// Longest script `eval` accepts.
+const MAX_EVAL_BYTES: usize = 4 * 1024 * 1024;
+
 unsafe extern "system" fn create_context(name: *const u8, len: usize) -> i64 {
     let Some(name) = (unsafe { text(name, len) }) else {
         return ERR_INVALID as i64;
     };
-    if name.is_empty() {
+    if !usable_name(name) {
         return ERR_INVALID as i64;
     }
     match loader::create_context(name) {
         Ok(id) => id,
         Err(code) => code as i64,
     }
+}
+
+/// What a context name may be: named in logs and thread names, so a short
+/// printable string. A name with control characters (an embedded NUL, say)
+/// would otherwise reach `std::thread::Builder::name`, which panics.
+fn usable_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= 64
+        && name
+            .chars()
+            .all(|c| !c.is_control() && c != '\\' && c != '/')
 }
 
 unsafe extern "system" fn eval(
@@ -89,6 +110,11 @@ unsafe extern "system" fn eval(
     let Some(source) = (unsafe { text(source, len) }) else {
         return ERR_INVALID;
     };
+    // A script is parsed and copied before it runs; refuse the silly sizes so
+    // a caller cannot make the client allocate without bound.
+    if source.len() > MAX_EVAL_BYTES {
+        return ERR_INVALID;
+    }
     let Some(handle) = loader::native_context(context) else {
         return ERR_NOT_FOUND;
     };
@@ -124,3 +150,22 @@ pub static JS: ParsecOrbitJsV1 = ParsecOrbitJsV1 {
 
 #[allow(dead_code)]
 const _: i32 = ERR_EXISTS;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_context_name_must_be_short_and_printable() {
+        assert!(usable_name("scratch"));
+        assert!(usable_name("plugin-1.space"));
+        assert!(!usable_name(""), "empty is refused");
+        assert!(
+            !usable_name("a\0b"),
+            "an embedded NUL would panic the spawn"
+        );
+        assert!(!usable_name("a\nb"));
+        assert!(!usable_name("a/b"));
+        assert!(!usable_name(&"x".repeat(65)));
+    }
+}

@@ -199,19 +199,33 @@ fn deferred(context: &mut JsContext) -> (JsPromise, u64) {
 
 /// Runs `work` on a helper thread and settles the returned promise with its
 /// outcome: JSON on success (empty means `undefined`), a message on failure.
+///
+/// Every call blocks a thread, so a script that fires calls without awaiting
+/// them cannot spawn unbounded work: past `MAX_TASKS` the promise is rejected
+/// instead.
 fn task(
     context: &mut JsContext,
     work: impl FnOnce() -> Result<String, String> + Send + 'static,
 ) -> JsResult<JsValue> {
+    /// Helper threads waiting on the bridge, across every context.
+    const MAX_TASKS: usize = 32;
+    static TASKS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+    if TASKS.fetch_add(1, std::sync::atomic::Ordering::SeqCst) >= MAX_TASKS {
+        TASKS.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+        return rejected("too many webview calls in flight", context);
+    }
     let (promise, id) = deferred(context);
     let tx = with_state(|state| state.tx.clone());
     let spawned = std::thread::Builder::new()
         .name("js-task".to_string())
         .spawn(move || {
             let outcome = work();
+            TASKS.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
             let _ = tx.send(Command::Settled { id, outcome });
         });
     if spawned.is_err() {
+        TASKS.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
         settle(
             context,
             id,
@@ -429,10 +443,11 @@ fn webview_post(_: &JsValue, args: &[JsValue], context: &mut JsContext) -> JsRes
     })
 }
 
-/// What a page message needs to find its way to the context.
-struct Subscriber {
-    tx: Sender<Command>,
-    channel: String,
+/// What a page message needs to find its way to the context. Owned by the
+/// channel it was made for, and freed once the bridge says it is done.
+pub(crate) struct Subscriber {
+    pub(crate) tx: Sender<Command>,
+    pub(crate) channel: String,
 }
 
 unsafe extern "system" fn on_page_message(user: *mut c_void, message: *const u8, len: usize) {
@@ -471,16 +486,26 @@ fn webview_on(_: &JsValue, args: &[JsValue], context: &mut JsContext) -> JsResul
             tx,
             channel: channel.clone(),
         })) as *mut c_void;
-        // Safety: the callback only sends on a channel; `user` is leaked on
-        // purpose, so it outlives every call.
-        let bridge_id = unsafe { webview.subscribe(&channel, on_page_message, user) }
-            .map_err(|error| type_error(&format!("subscribe failed (code {})", error.code())))?;
+        // Safety: the callback only sends on a channel; the bridge holds the
+        // pointer until `unsubscribe` returns, and the channel owns it.
+        let bridge_id = match unsafe { webview.subscribe(&channel, on_page_message, user) } {
+            Ok(bridge_id) => bridge_id,
+            Err(error) => {
+                // The bridge never took the pointer.
+                drop(unsafe { Box::from_raw(user as *mut Subscriber) });
+                return Err(type_error(&format!(
+                    "subscribe failed (code {})",
+                    error.code()
+                )));
+            }
+        };
         with_state(|state| {
             state.channels.insert(
                 channel.clone(),
                 Channel {
                     bridge_id,
                     handlers: Vec::new(),
+                    subscriber: user as *mut Subscriber,
                 },
             )
         });
@@ -510,22 +535,26 @@ fn unsubscriber(channel: &str, local: u64, context: &mut JsContext) -> JsObject 
 }
 
 fn remove_handler(channel: &str, local: u64) {
-    let (last, bridge_id) = with_state(|state| {
+    let (last, bridge_id, subscriber) = with_state(|state| {
         let Some(entry) = state.channels.get_mut(channel) else {
-            return (false, 0);
+            return (false, 0, std::ptr::null_mut());
         };
         entry.handlers.retain(|(id, _)| *id != local);
         let last = entry.handlers.is_empty();
         let bridge_id = entry.bridge_id;
+        let subscriber = entry.subscriber;
         if last {
             state.channels.remove(channel);
         }
-        (last, bridge_id)
+        (last, bridge_id, subscriber)
     });
     if last {
         if let Some(webview) = webview_client() {
             let _ = webview.unsubscribe(bridge_id);
         }
+        // Safety: `unsubscribe` does not return while a callback of this
+        // subscription is running, and the channel is gone from the state.
+        drop(unsafe { Box::from_raw(subscriber) });
     }
 }
 
@@ -566,19 +595,24 @@ pub fn deliver(context: &mut JsContext, channel: &str, payload: &str) {
 
 /// Drops the bridge subscriptions of a context that is going away.
 pub fn unsubscribe_all() {
-    let (webview, ids) = with_state(|state| {
-        let ids: Vec<i64> = state
+    let (webview, subscriptions) = with_state(|state| {
+        let subscriptions: Vec<(i64, *mut Subscriber)> = state
             .channels
             .values()
-            .map(|entry| entry.bridge_id)
+            .map(|entry| (entry.bridge_id, entry.subscriber))
             .collect();
         state.channels.clear();
-        (state.spec.webview, ids)
+        (state.spec.webview, subscriptions)
     });
     if let Some(webview) = webview {
-        for id in ids {
-            let _ = webview.unsubscribe(id);
+        for (id, _) in &subscriptions {
+            let _ = webview.unsubscribe(*id);
         }
+    }
+    for (_, subscriber) in subscriptions {
+        // Safety: as in `remove_handler`; the context is going away too, so no
+        // callback can reach the inbox any more.
+        drop(unsafe { Box::from_raw(subscriber) });
     }
 }
 

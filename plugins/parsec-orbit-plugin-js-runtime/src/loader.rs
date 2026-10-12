@@ -86,10 +86,20 @@ pub fn parse_manifest(text: &str) -> Result<Manifest, String> {
         .get("permissions")
         .and_then(|value| value.get_ref().as_array())
         .map(|items| {
+            // The same shape the loader's own manifest parser keeps: trimmed,
+            // without the empty entries and without repeats.
+            let mut permissions: Vec<String> = Vec::new();
             items
                 .iter()
-                .filter_map(|item| item.get_ref().as_str().map(str::to_string))
-                .collect()
+                .filter_map(|item| item.get_ref().as_str())
+                .map(str::trim)
+                .filter(|item| !item.is_empty())
+                .for_each(|item| {
+                    if !permissions.iter().any(|known| known == item) {
+                        permissions.push(item.to_string());
+                    }
+                });
+            permissions
         })
         .unwrap_or_default();
     Ok(Manifest {
@@ -213,6 +223,15 @@ mod tests {
         let manifest = parse_manifest("id = \"x\"\n").unwrap();
         assert_eq!(manifest.version, "-");
         assert!(manifest.permissions.is_empty());
+    }
+
+    #[test]
+    fn permissions_are_trimmed_deduplicated_and_never_empty() {
+        let manifest = parse_manifest(
+            "id = \"x\"\npermissions = [\" webview \", \"webview\", \"\", \"config\", \" webview\"]\n",
+        )
+        .unwrap();
+        assert_eq!(manifest.permissions, ["webview", "config"]);
     }
 
     #[test]

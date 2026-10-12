@@ -181,6 +181,9 @@ pub(crate) struct Channel {
     pub bridge_id: i64,
     /// `(local id, handler)`
     pub handlers: Vec<(u64, JsFunction)>,
+    /// The `user` pointer of the bridge subscription; freed once
+    /// `unsubscribe` has returned, which the bridge makes safe.
+    pub subscriber: *mut crate::host::Subscriber,
 }
 
 pub(crate) struct State {
@@ -311,9 +314,20 @@ pub fn spawn(spec: Spec) -> std::io::Result<Handle> {
     let (tx, inbox) = mpsc::channel();
     let handle = Handle { tx: tx.clone() };
     std::thread::Builder::new()
-        .name(spec.name.clone())
+        .name(thread_name(&spec.name))
         .spawn(move || run(spec, tx, inbox))?;
     Ok(handle)
+}
+
+/// A thread name from whatever the caller had: `Builder::name` panics on a
+/// control character, and the names travel into logs.
+fn thread_name(name: &str) -> String {
+    let cleaned: String = name.chars().filter(|c| !c.is_control()).take(64).collect();
+    if cleaned.is_empty() {
+        "js-context".to_string()
+    } else {
+        cleaned
+    }
 }
 
 fn run(spec: Spec, tx: Sender<Command>, inbox: Receiver<Command>) {
@@ -436,6 +450,19 @@ fn begin_load(context: &mut JsContext, reply: Sender<Result<(), String>>) -> Opt
         let _ = reply.send(Err("this context has no plugin".to_string()));
         return None;
     };
+    // The entry is downloaded content: read it only up to a size the client
+    // can afford, so a huge file is a load failure, not a large allocation.
+    const MAX_ENTRY_BYTES: u64 = 8 * 1024 * 1024;
+    if let Ok(metadata) = std::fs::metadata(&plugin.entry) {
+        if metadata.len() > MAX_ENTRY_BYTES {
+            let _ = reply.send(Err(format!(
+                "{}: the entry is larger than {} MiB",
+                plugin.entry.display(),
+                MAX_ENTRY_BYTES / (1024 * 1024)
+            )));
+            return None;
+        }
+    }
     let bytes = match std::fs::read(&plugin.entry) {
         Ok(bytes) => bytes,
         Err(error) => {
