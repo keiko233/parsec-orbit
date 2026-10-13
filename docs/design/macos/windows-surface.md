@@ -111,3 +111,27 @@ Every `plugin.toml` pins a `.dll` entry: `hooks`, `js-runtime`, `webview-bridge`
 4. `hooks`, `high-bitrate-native`, verify tools, e2e host: `cfg(target_os = "windows")` (exclude from macOS workspace check initially; reimplement behind the same `Platform`/service traits later).
 5. `config.rs` defaults: `~/Library/Application Support/ParsecOrbit`, `$TMPDIR`, `:` separator on non-Windows.
 6. CI: add `macos-26` (arm64) job running the portable subset; keep `windows-latest` for the full suite incl. e2e.
+
+## 13. M0 outcome (2026-10-13)
+
+The sketch above is implemented through M0a/M0b/M0c, with a few differences
+worth recording:
+
+* 1 landed as `#![cfg(windows)]` on the proxy crates plus a **separate**
+  `crates/parsec-orbit-loader-macos` crate, not a cfg-split inside `loader`.
+  The Windows crate is untouched by the macOS build and keeps its import
+  mirroring; macOS has its own `Platform`, `Logger` and config.
+* 2 landed as `KIND_DYLIB` and `Platform::native_kind()`; the foreign kind is
+  skipped with a log line instead of being accepted (`50c74e7`).
+* 3 landed as the `freestanding!` aarch64-Mach-O flavour over libSystem
+  (`020ee7f`); `fixture-nostd` and `hello-nostd` build and load on macOS.
+* 4 stayed cfg-gated (no reimplementation in M0); `loader-host` compiles to a
+  stub main on unix so the e2e crate still checks.
+* 6 landed in `.github/workflows/test.yml`: `test-macos` on `macos-26` runs the
+  JS suite, `cargo check --workspace --all-targets`, `cargo test --workspace`
+  and `cargo fmt --check`; the Windows job is unchanged.
+
+The `core` test failures in section 11 were the stale alignment fixture, fixed
+in `50c74e7`. Two further portability gaps surfaced only once macOS ran the
+whole workspace: the market's Windows path handling (`d3294a2`) and a
+plugin-config store test that only a unix filesystem could expose (`22d6ee9`).

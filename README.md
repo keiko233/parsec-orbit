@@ -1,13 +1,21 @@
 # Parsec Orbit
 
 An unofficial, local-only proof of concept for loading plugins in the Parsec
-client. It uses a `bcrypt.dll` proxy and does not modify Parsec files.
+client. On Windows it uses a `bcrypt.dll` proxy and does not modify Parsec
+files; on macOS arm64 it loads Orbit into a copy of `Parsec.app` through a
+patched bundle (see [docs/spec/macos-host.md](docs/spec/macos-host.md)). The
+macOS installation path is not usable yet: M1 builds the patcher, and only the
+portable workspace and the macOS loader platform exist today.
 
 ## Layout
 
 * `crates/parsec-orbit-loader/` - the `bcrypt.dll` proxy. It forwards every export to
   the real `bcrypt.dll`, opens the WebView2 DevTools endpoint and hosts the
   plugin system.
+* `crates/parsec-orbit-loader-macos/` - the macOS arm64 counterpart: a
+  `Platform` over `dlopen`/`dlsym`/`dlerror`, an append-only logger and the
+  same plugin scan/host logic. It is a plain dylib for now; M1 loads it from a
+  patched `Parsec.app`.
 * `crates/parsec-orbit-plugin-abi/`, `crates/parsec-orbit-plugin-sdk/`,
   `crates/parsec-orbit-plugin-sdk-std/` - the plugin ABI, the Rust SDK
   (`Plugin`, `Context`, a `no_std` runtime for 10 KB plugins) and its `std`
@@ -76,11 +84,14 @@ pnpm install; pnpm -r build; pnpm -r test   # the JavaScript SDK and the sample
 cargo test --workspace
 ```
 
-Windows only (the loader is a `bcrypt.dll` proxy). The JavaScript workspace
-needs Node.js 26+ and pnpm 12 (`packageManager` pins it); Node is also needed
-for the behaviour tests of the script injected into the WebView UI; without it
-that one test is skipped (set `PARSEC_ORBIT_REQUIRE_NODE=1` to make it fail
-instead).
+The Windows suite needs Windows: the loader is a `bcrypt.dll` proxy and the
+end-to-end tests build a host process named `parsecd.exe`. macOS arm64
+(`macos-26`, the arm64 runner) runs the portable subset: the core, the macOS
+loader platform and the std/no_std fixtures; the Windows-only crates compile
+to empty libraries there. The JavaScript workspace needs Node.js 26+ and pnpm
+12 (`packageManager` pins it); Node is also needed for the behaviour tests of
+the script injected into the WebView UI; without it that one test is skipped
+(set `PARSEC_ORBIT_REQUIRE_NODE=1` to make it fail instead).
 
 * **Unit tests** sit next to the code: ABI layout (`abi`) and the export macro
   (`sdk`), settings, logging and the forwarding thunks (`loader`), manifests,
@@ -98,6 +109,8 @@ instead).
   the `crates/parsec-orbit-verify-*` tools (`callpaths`, `roundtrip`), so the forwarding checks of
   `scripts\verify.ps1` are part of `cargo test`.
 
-The tests redirect `%APPDATA%` and `%TEMP%` into temporary directories and
-never touch an installed Parsec client. CI (`.github/workflows/test.yml`) runs
-the same command plus `cargo fmt --check`.
+The tests never touch an installed Parsec client: the Windows suite redirects
+`%APPDATA%`/`%TEMP%` into temporary directories and the macOS e2e passes fresh
+private plugin and log directories into the loader harness. CI
+(`.github/workflows/test.yml`) runs the same command plus `cargo fmt --check`
+on both platforms.

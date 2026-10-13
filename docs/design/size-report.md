@@ -1,6 +1,6 @@
 # Size report
 
-Measured on `x86_64-pc-windows-msvc`, release profile (`opt-level = "z"`, `lto = "fat"`, `codegen-units = 1`, `panic = "abort"`, `strip = "symbols"`), static CRT where a CRT is linked at all. Sizes are bytes of the DLL.
+Measured on `x86_64-pc-windows-msvc`, release profile (`opt-level = "z"`, `lto = "fat"`, `codegen-units = 1`, `panic = "abort"`, `strip = "symbols"`), static CRT where a CRT is linked at all. Sizes are bytes of the DLL. The [macOS arm64](#macos-arm64-m0) numbers below were taken with the same profile on `aarch64-apple-darwin`.
 
 ## Plugin runtime spike (phase 3)
 
@@ -71,3 +71,32 @@ up in it: the service registry, the per-plugin host tables and the extra host
 revision entries. The documented lever is the `toml` parser below the
 `plugin.toml` reader (about 36 KiB of `.text`); until it is pulled, the
 "stays under 360 KiB" line in [architecture.md](architecture.md) is not met.
+
+## macOS arm64 (M0)
+
+Measured on `aarch64-apple-darwin` with the same release profile, `.dylib`
+sizes in bytes. The Windows budget above is not a macOS budget: the macOS
+loader is a plugin *host* loaded into Parsec by a patched-bundle load command,
+not a proxy DLL, and M1 grows it with the installation gate, the isolation
+shims and the readiness probe. The 360 KiB line still stands as the reference
+until M1 settles what the injected dylib really needs, and the difference is
+worth watching: the `harness` build is 62,128 B heavier than the Windows
+`bcrypt.dll` (436,400 B vs 374,272 B) with the same profile, before any of the
+M1 gate, shims or readiness code exists. Two caveats on the comparison: this
+build links `std`/libSystem rather than the Windows no-CRT layout, and it is
+not yet fully reachable, so dead-code stripping will move the number again
+once the M1 bootstrap calls into the whole crate.
+
+| Artifact | Size | Notes |
+| --- | ---: | --- |
+| loader `libparsec_orbit_loader.dylib` with `harness` | 436,400 | closest to the M1 injected build |
+| loader `libparsec_orbit_loader.dylib` without `harness` | 16,720 | not a useful number yet: no constructor or discovery entry point is linked, so most of the crate is dead-stripped |
+| `hello-nostd` (`freestanding!`) | 50,272 | libSystem heap, no CRT |
+| fixture `no_std` (`.alloc`/`.stack` kinds) | 67,248 | test fixture |
+| `hello` (`std`) | 285,472 | |
+| fixture `plugin` (`std`) | 302,608 | test fixture |
+
+The `no_std` jump from 10,752 B on Windows to 50,272 B here is Mach-O
+section/LoadCommand overhead plus the Rust `core` flavour and the libSystem
+imports (`malloc`, `free`, `realloc`, `posix_memalign`) the Windows
+`raw-dylib` build keeps leaner. `core::fmt` is still the bulk of the code.

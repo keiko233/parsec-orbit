@@ -1,8 +1,13 @@
 # Write a Rust plugin
 
-A Parsec Orbit plugin is a DLL that the loader maps into the Parsec client. This guide builds a small one with the Rust SDK, tests it, and installs it. The reference for everything used here is [spec/rust-sdk.md](../spec/rust-sdk.md).
+A Parsec Orbit plugin is a dynamic library that the loader maps into the Parsec client. This guide builds a small one with the Rust SDK, tests it, and installs it. The reference for everything used here is [spec/rust-sdk.md](../spec/rust-sdk.md).
 
-Windows, `x86_64-pc-windows-msvc`, Rust 1.81 or newer.
+`x86_64-pc-windows-msvc` or `aarch64-apple-darwin`, Rust 1.81 or newer. The
+guide's paths and install steps are the Windows ones; on macOS the artifact is
+a `.dylib` and the install path only exists once the macOS loader ships
+(M1 in [macos-phases.md](../design/macos-phases.md)). Everything else - the
+manifest, the SDK code and the tests - is identical apart from
+`entry = "my_plugin.dylib"`.
 
 ## 1. The smallest plugin (`no_std`, about 10 KB)
 
@@ -82,14 +87,15 @@ version = "0.1.0"
 entry = "my_plugin.dll"
 ```
 
-Keep `id` (and `name`, `version`, ...) equal to the values in `declare_plugin!`; the loader logs a warning when they disagree.
+Keep `id` (and `name`, `version`, ...) equal to the values in `declare_plugin!`; the loader logs a warning when they disagree. Build for macOS and write `entry = "my_plugin.dylib"` instead - an entry without a suffix is completed with the platform's (`dll` on Windows, `dylib` on macOS).
 
-Build with `cargo build --release`. The DLL is `target/release/my_plugin.dll`.
+Build with `cargo build --release`. The DLL is `target/release/my_plugin.dll`
+(`libmy_plugin.dylib` on macOS).
 
 ### What `init` can do
 
 * `info!(cx, ...)`, `warn!`, `error!`, `debug!`, `trace!` - one line in the loader log, tagged with your plugin id. Formatting needs no allocator.
-* `cx.plugin_dir()`, `cx.data_dir()` - where you were loaded from, and where your data may go (`%APPDATA%\ParsecOrbit\data\<id>`; create it yourself).
+* `cx.plugin_dir()`, `cx.data_dir()` - where you were loaded from, and where your data may go (`%APPDATA%\ParsecOrbit\data\<id>` on Windows, `~/Library/Application Support/ParsecOrbit/data/<id>` on macOS; create it yourself).
 * `cx.service::<MyService>()` - look up an interface you bound with
   `Interface`; `None` if it is absent or incompatible. Bindings for the core
   `WebView` and `Js` services arrive with their providers in phase 4. List the
@@ -153,6 +159,12 @@ Copy the folder (`plugin.toml` plus the DLL) to `<Parsec client directory>\plugi
 ```
 
 To try a plugin without installing it, point `PARSEC_ORBIT_PLUGIN_DIR` at a directory that contains it.
+
+On macOS the loader reads `<Orbit root>/plugins` and `PARSEC_ORBIT_PLUGIN_DIR`
+as well, with `:` as the separator (`PARSEC_ORBIT_HOME` moves the root from
+`~/Library/Application Support/ParsecOrbit`), but there is no installed loader
+to put a plugin in yet: that arrives with M1, and until then the macOS loader
+is exercised by `cargo test -p parsec-orbit-loader-macos` alone.
 
 ## Samples
 

@@ -18,13 +18,13 @@ Owner: implementation session; no installed-client mutation.
 
 **Deliverables**
 
-- Target-gate Windows loader/hooks/native scanners/verification/e2e code; check the whole workspace on `aarch64-apple-darwin` without hand-excluding crates. Preserve Windows behavior and loader size policy.
-- Formal `dylib` kind, platform defaults/entry suffix, native-kind mismatch skips, macOS `:` path list and platform discovery/market rules. Do not carry the PoC `kind="dll"` convention into production.
-- Separate macOS loader crate with real dlopen/dlsym/dlerror Platform and append Logger; real core lifecycle, registry and permanent mapped-module ownership.
-- `freestanding!` for arm64 Mach-O, std/no_std SDK fixtures, portable ABI alignment test fix and size report.
-- macOS arm64 CI and portable/core fixture tests; retain Windows CI checks.
+- ~~Target-gate Windows loader/hooks/native scanners/verification/e2e code; check the whole workspace on `aarch64-apple-darwin` without hand-excluding crates. Preserve Windows behavior and loader size policy.~~ Done in **M0a** (`50c74e7`).
+- ~~Formal `dylib` kind, platform defaults/entry suffix, native-kind mismatch skips, macOS `:` path list. Do not carry the PoC `kind="dll"` convention into production.~~ Done in **M0a**/**M0b** (`50c74e7`, `020ee7f`). The index `platform` field, per-version filtering and the market's macOS paths/signing are specified in [macos-platform.md](../spec/macos-platform.md#9-marketplace-on-macos) and are M1b work; M0 only made the market's path handling host-independent (`d3294a2`).
+- ~~Separate macOS loader crate with real dlopen/dlsym/dlerror Platform and append Logger; real core lifecycle, registry and permanent mapped-module ownership.~~ Done in **M0b** (`020ee7f`).
+- ~~`freestanding!` for arm64 Mach-O, std/no_std SDK fixtures, portable ABI alignment test fix and size report.~~ Done in **M0b**/**M0c**.
+- ~~macOS arm64 CI and portable/core fixture tests; retain Windows CI checks.~~ Done in **M0c**.
 
-**Exit gate:** formal manifest discovery and Query/Init/registry succeed for std/no_std fixtures in a non-Parsec host; foreign native kind skips correctly; required checks pass or platform-only gaps have explicit evidence/owners. No claim that a cross-check substitutes for Windows runtime tests.
+**Exit gate:** formal manifest discovery and Query/Init/registry succeed for std/no_std fixtures in a non-Parsec host `[measured]` (`crates/parsec-orbit-loader-macos/tests/fixture_e2e.rs`); foreign native kind skips correctly `[measured]`; `cargo check --workspace --all-targets --locked`, `cargo test --workspace --locked` and the pnpm suite pass on `aarch64-apple-darwin` `[measured]` and on Windows CI. A cross-check does not substitute for Windows runtime tests: the Windows job in `.github/workflows/test.yml` remains the runtime evidence, and the portable subset runs on `macos-26`.
 
 Suggested commits: **M0a** target gates/manifest/alignment; **M0b** MacPlatform/Logger/fixtures/SDK; **M0c** CI/size/docs, if the changes warrant separate review.
 

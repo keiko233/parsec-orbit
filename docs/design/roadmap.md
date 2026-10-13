@@ -19,8 +19,8 @@ Separate track, planned in [macos-phases.md](macos-phases.md); specified in [spe
 
 | Phase | Content | State |
 | --- | --- | --- |
-| M0 | Cross-platform workspace: target gates, native kinds `dll`/`dylib`, macOS `Platform`/`Logger`, `freestanding!` for `aarch64-apple-darwin`, macOS CI | planned |
+| M0 | Cross-platform workspace: target gates, native kinds `dll`/`dylib`, macOS `Platform`/`Logger`, `freestanding!` for `aarch64-apple-darwin`, macOS CI | done; implementation in `50c74e7`, `020ee7f` and the M0c commit that added the CI job |
 | M1 | Dependency bootstrap, transactional patched-app apply/restore, isolated state, signing and original-path launch gates, services/market | copy PoC passed; product implementation planned |
 | M2 | Real client sessions, measured UI/import hooks, native bitrate compatibility and update/recovery matrix | planned; UI surface must be measured |
 
-Current direction: [ADR 0014](decisions/0014-macos-patched-bundle.md). [Native dependency PoC](macos/native-dependency-poc.md) passed Finder/LS, real core/SDK hello and client re-exec in a disposable copy. It does not complete M0/M1; ad-hoc Gatekeeper assessment rejected, and original installed path/id remain unverified. Each M0/M1/M2 subphase ends with its own validated local commit.
+Current direction: [ADR 0014](decisions/0014-macos-patched-bundle.md). [Native dependency PoC](macos/native-dependency-poc.md) passed Finder/LS, real core/SDK hello and client re-exec in a disposable copy. M0 is done: the whole workspace checks on `aarch64-apple-darwin`, macOS arm64 CI runs the portable suite, and non-Parsec-host fixture loading is measured. It does not complete M1; ad-hoc Gatekeeper assessment rejected, and original installed path/id remain unverified. Each M0/M1/M2 subphase ends with its own validated local commit.

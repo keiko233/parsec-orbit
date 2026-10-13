@@ -2,7 +2,9 @@
 #
 # The suite covers the SDK, the loader, both official plugins and the example,
 # plus end-to-end tests that build the loader and the plugins and run them in
-# a real process. It needs Windows: the loader is a bcrypt.dll proxy.
+# a real process. The Windows job runs the whole suite; the macOS arm64 job
+# runs the portable subset: the core, the macOS loader platform crate and the
+# std/no_std fixtures, with the Windows-only crates compiling empty there.
 name: Test
 
 on:
@@ -61,3 +63,46 @@ jobs:
       # tarballs. Nothing is published here.
       - name: Package the SDK crates
         run: cargo package -p parsec-orbit-plugin-abi -p parsec-orbit-plugin-sdk -p parsec-orbit-plugin-sdk-std --locked
+
+  test-macos:
+    runs-on: macos-26
+    env:
+      # The behaviour tests of the injected WebView script run on Node; fail
+      # instead of silently skipping if it is ever missing.
+      PARSEC_ORBIT_REQUIRE_NODE: '1'
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+          components: rustfmt
+
+      # pnpm comes first: setup-node's pnpm cache needs it on PATH, and the
+      # action reads the pinned `packageManager` version from package.json.
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 26
+          cache: pnpm
+
+      - name: JavaScript SDK and sample
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm -r build
+          pnpm -r test
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      # Checks every target of every member; Windows-only crates compile to
+      # empty libraries on this host instead of being excluded by hand.
+      - name: Check the whole workspace
+        run: cargo check --workspace --all-targets --locked
+
+      # Runs the portable suite, including the macOS loader platform and the
+      # std/no_std fixture e2e (`crates/parsec-orbit-loader-macos`).
+      - name: Test
+        run: cargo test --workspace --locked
