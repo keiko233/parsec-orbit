@@ -6,6 +6,8 @@ by the plugins named with them: `parsec-orbit.webview` by the webview-bridge
 plugin and `parsec-orbit.js` by the JS runtime plugin. Implements
 [ADR 0001](../design/decisions/0001-typed-service-vtables.md).
 
+Applies to both platforms; platform differences are in [macos-platform.md](macos-platform.md#6-services-and-official-plugins).
+
 A *service* (interface) is a `repr(C)` function table that a plugin, or the loader, registers under a name and other plugins look up. This is the one mechanism for everything a plugin offers to other plugins: WebView operations, the JS runtime, kind handlers, hooks.
 
 ## Interface header
@@ -51,7 +53,7 @@ The C layouts are in [plugin-abi.md](plugin-abi.md#core-service-tables) and in `
 
 ### `parsec-orbit.webview` (provided by the webview-bridge plugin), version 1.0
 
-Wraps the WebView2 UI of the client through the DevTools endpoint the loader opens. All strings are UTF-8 `(ptr, len)`. Every function is thread-safe. Subscription callbacks run on the bridge's delivery thread, in arrival order and off the session thread, so a callback may call back in (`post`, `evaluate`) without deadlocking; `evaluate`'s result callback runs synchronously on the caller's thread before `evaluate` returns.
+Wraps the WebView2 UI of the client through the DevTools endpoint the loader opens. On macOS the same contract is provided by an in-process WKWebView backend ([macos-platform.md](macos-platform.md#parsec-orbitwebview-and-the-webview-bridge)); it is unavailable until the web view is attached, and `evaluate`/`post` from the main thread return `-4`. All strings are UTF-8 `(ptr, len)`. Every function is thread-safe. Subscription callbacks run on the bridge's delivery thread, in arrival order and off the session thread, so a callback may call back in (`post`, `evaluate`) without deadlocking; `evaluate`'s result callback runs synchronously on the caller's thread before `evaluate` returns.
 
 | Function | Behaviour |
 | --- | --- |
@@ -87,11 +89,15 @@ Settings that survive restarts. Every *owner* (a plugin id; the SDK's `ConfigCli
 | `remove(owner, key)` | `0`, or `-3` if the key was not set. |
 | `keys(owner, out, user)` | Passes the keys as a JSON array of strings. |
 
-Storage: `%APPDATA%\ParsecOrbit\data\com.parsec-orbit.config\<owner>.json`, the owner's characters outside `[A-Za-z0-9._-]` replaced; cached in memory and written back on every change through a temporary file and a rename. A file that is not a JSON object is reported (`-1`) and never overwritten. Without `%APPDATA%` the settings live in memory only. The owner is whatever the caller says: this is a namespace, not a security boundary (plugins are native code in one process). The JavaScript runtime backs `host.config` with this service when it is installed and keeps a file of its own otherwise.
+Storage: `%APPDATA%\ParsecOrbit\data\com.parsec-orbit.config\<owner>.json` (macOS: `<Orbit root>/data/com.parsec-orbit.config/<owner>.json`), the owner's characters outside `[A-Za-z0-9._-]` replaced; cached in memory and written back on every change through a temporary file and a rename. A file that is not a JSON object is reported (`-1`) and never overwritten. Without `%APPDATA%` the settings live in memory only. The owner is whatever the caller says: this is a namespace, not a security boundary (plugins are native code in one process). The JavaScript runtime backs `host.config` with this service when it is installed and keeps a file of its own otherwise.
 
 ### `parsec-orbit.hooks` (provided by the hooks plugin), version 1.0
 
-Inline hooks on functions of the client process. `resolve(module, symbol)` returns the address of an export of a loaded module (or null). `install(target, detour, &original)` prepares a hook and returns its id (`-2` if `target` is hooked already, `-6` if the function start cannot be relocated); `*original` receives a pointer that calls the unhooked function. Hooks are installed disabled; `enable`, `disable` and `remove` take the id. `remove` restores the original bytes and frees the trampoline, so the `*original` pointer of that hook must not be used afterwards. A detour has the exact signature and calling convention of the target and must never unwind. The functions are thread-safe; the hook itself is applied while the process runs, so a hook on a function that other threads are executing is the plugin's responsibility, as is everything a detour does.
+Inline hooks on functions of the client process. (On macOS the interface is backed by rebinding imported symbols only; `install` accepts imported-function targets and returns `-4` for anything else: [macos-platform.md](macos-platform.md#parsec-orbithooks-and-the-hooks-plugin).) `resolve(module, symbol)` returns the address of an export of a loaded module (or null). `install(target, detour, &original)` prepares a hook and returns its id (`-2` if `target` is hooked already, `-6` if the function start cannot be relocated); `*original` receives a pointer that calls the unhooked function. Hooks are installed disabled; `enable`, `disable` and `remove` take the id. `remove` restores the original bytes and frees the trampoline, so the `*original` pointer of that hook must not be used afterwards. A detour has the exact signature and calling convention of the target and must never unwind. The functions are thread-safe; the hook itself is applied while the process runs, so a hook on a function that other threads are executing is the plugin's responsibility, as is everything a detour does.
+
+### `parsec-orbit.client` (macOS, provided by the loader), version 1.0
+
+Reports the client build the host is running and whether it is a verified one. Specified in [macos-platform.md](macos-platform.md#parsec-orbitclient); it does not exist on Windows.
 
 ### Reserved
 

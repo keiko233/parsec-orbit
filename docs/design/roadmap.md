@@ -12,3 +12,15 @@ Supersedes the roadmap in the research repository. Status as of the SDK design s
 | 5 | Marketplace (index, sha256, signatures), hooks service, config storage service | done (no hosted service; the maintainer creates the signing key) |
 
 Each phase ends with `cargo test --workspace` green, docs updated in the same commits, and a recorded size report where relevant.
+
+## macOS
+
+Separate track, planned in [macos-phases.md](macos-phases.md); specified in [spec/macos-host.md](../spec/macos-host.md) and [spec/macos-platform.md](../spec/macos-platform.md). Apple silicon, client mode only (hosting is out of scope).
+
+| Phase | Content | State |
+| --- | --- | --- |
+| M0 | Cross-platform workspace: target gates, native kinds `dll`/`dylib`, macOS `Platform`/`Logger`, `freestanding!` for `aarch64-apple-darwin`, macOS CI | planned |
+| M1 | Dependency bootstrap, transactional patched-app apply/restore, isolated state, signing and original-path launch gates, services/market | copy PoC passed; product implementation planned |
+| M2 | Real client sessions, measured UI/import hooks, native bitrate compatibility and update/recovery matrix | planned; UI surface must be measured |
+
+Current direction: [ADR 0014](decisions/0014-macos-patched-bundle.md). [Native dependency PoC](macos/native-dependency-poc.md) passed Finder/LS, real core/SDK hello and client re-exec in a disposable copy. It does not complete M0/M1; ad-hoc Gatekeeper assessment rejected, and original installed path/id remain unverified. Each M0/M1/M2 subphase ends with its own validated local commit.

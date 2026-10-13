@@ -1,6 +1,6 @@
 # Loading rules
 
-Status: implemented (`parsec-orbit-core`: `scan`, `plan`, `kind`). The per-plugin `init` contract is in [plugin-abi.md](plugin-abi.md#lifecycle).
+Status: implemented on Windows (`parsec-orbit-core`: `scan`, `plan`, `kind`); the macOS differences, marked **macOS**, are draft ([macos-platform.md](macos-platform.md)). The per-plugin `init` contract is in [plugin-abi.md](plugin-abi.md#lifecycle).
 
 ## 1. Discovery
 
@@ -11,6 +11,12 @@ plugin is a subdirectory with `plugin.toml`, or a loose `*.dll` without a
 manifest (legacy layout, no dependencies). The first occurrence of an `id`
 wins; later duplicates are logged and ignored. Loose DLLs are deduplicated by
 their absolute path.
+
+**macOS.** The directories are `PARSEC_ORBIT_PLUGIN_DIR` (`:`-separated) and
+`<Orbit root>/plugins` (`~/Library/Application Support/ParsecOrbit/plugins`);
+there is no client-directory entry. A plugin is a subdirectory with
+`plugin.toml`; loose libraries are not supported. Duplicates are dropped by
+canonicalised path.
 
 ## 2. Selection
 
@@ -36,8 +42,8 @@ is reserved: the bare id is used and a warning is logged.
 For each plugin in order:
 
 1. If a `requires` dependency was skipped or failed (no provider of it loaded): `skipped, dependency X did not load`.
-2. `kind = dll`: map the library, run `Query` / validation / `Init` as in the ABI document, passing that plugin's own host table. The plugin id is the manifest id (the descriptor id, then the library path, for a loose DLL); a manifest field that differs from the descriptor is logged once (`manifest and descriptor disagree on ...`) and the descriptor is shown.
-3. Other kinds: look up the interface `parsec-orbit.kind.<kind>`; if missing, skip with `no handler for kind "<kind>" (is the runtime plugin installed?)`; if it is not a usable 1.x handler, fail; otherwise call its `load_plugin` (the manifest needs an `entry`). Success is logged as `loaded <id> through the "<kind>" handler`.
+2. `kind = dll` (Windows) or `kind = dylib` (macOS), the *native kinds*: map the library, run `Query` / validation / `Init` as in the ABI document, passing that plugin's own host table. A loader handles only the native kind of its own platform and never asks the registry about either native kind. A plugin whose kind is the other platform's native kind is skipped: `skipped, kind "dylib" is not supported on Windows` / `skipped, kind "dll" is not supported on macOS (use "dylib")`. The plugin id is the manifest id (the descriptor id, then the library path, for a loose DLL); a manifest field that differs from the descriptor is logged once (`manifest and descriptor disagree on ...`) and the descriptor is shown.
+3. Other kinds (not `dll` and not `dylib`): look up the interface `parsec-orbit.kind.<kind>`; if missing, skip with `no handler for kind "<kind>" (is the runtime plugin installed?)`; if it is not a usable 1.x handler, fail; otherwise call its `load_plugin` (the manifest needs an `entry`). Success is logged as `loaded <id> through the "<kind>" handler`.
 4. A non-zero result is a failure (`init returned N`, `kind handler returned N`). Interfaces the plugin registered stay registered (there is no unload), but the failed id is recorded so dependents are skipped.
 
 Everything runs sequentially on the loader worker thread after the warm-up delay. A plugin that needs to do work later must spawn its own thread.

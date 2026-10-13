@@ -47,6 +47,8 @@ The key list is `%APPDATA%\ParsecOrbit\market\trusted-keys.txt` (or `--keys`): o
 
 The newest release that is compatible and not a pre-release is the default; `--version` picks another, pre-releases included.
 
+`platform` (optional, per version) is `"windows-x86_64"` (the default when absent) or `"macos-arm64"`; the tool offers only the versions that match the machine. macOS packages, signing and paths: [macos-platform.md](macos-platform.md#9-marketplace-on-macos).
+
 ## The package
 
 A zip with exactly one folder, holding the plugin as the loader expects it:
