@@ -34,7 +34,7 @@ Owner: implementation session. All initial runtime work uses disposable copies a
 
 ### M1a - minimal production bootstrap
 
-**Accepted on disposable copies (2026-10-14).** The [implementation
+**Accepted on disposable copies (2026-10-14, `a45d215`).** The [implementation
 checkpoint](macos/bootstrap-checkpoint.md) provides canonical installation
 binding, a fail-closed dependency constructor, NSS callbacks/export
 resolution, exclusive verified seeding, the constructor-installed isolation
