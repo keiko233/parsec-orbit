@@ -291,13 +291,19 @@ mod tests {
 
     #[test]
     fn a_failed_write_leaves_memory_as_it_was() {
+        // The write cannot land where it should: its folder does not exist,
+        // and its path is a file. Both steps of a save (the temporary file
+        // and the rename) fail there on every platform.
         let dir = Dir::new("readonly");
-        std::fs::create_dir_all(&dir.0).unwrap();
-        // The "directory" is a file, so nothing can be created below it.
-        let blocker = dir.0.join("blocker");
-        std::fs::write(&blocker, "x").unwrap();
-        let store = Store::new(Some(blocker));
-        assert_eq!(store.set("a", "k", "1"), Err(ERR_NOT_READY));
+        let blocker = dir.0.clone();
+        std::fs::create_dir_all(&blocker).unwrap();
+        let store = Store::new(Some(blocker.clone()));
         assert_eq!(store.get("a", "k").unwrap(), None);
+        std::fs::remove_dir(&blocker).unwrap();
+        std::fs::write(&blocker, "x").unwrap();
+        assert_eq!(store.set("a", "k", "1"), Err(ERR_NOT_READY));
+        // The original expectation remains: no file appears where the map
+        // would have been written, and memory has nothing to remember.
+        assert!(std::fs::read_to_string(blocker.join(file_name("a"))).is_err());
     }
 }
