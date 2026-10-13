@@ -24,13 +24,51 @@ fn file_path(location: &str) -> PathBuf {
     PathBuf::from(path)
 }
 
+/// Whether `location` starts with a Windows drive designator, `C:` (either
+/// separator). Checked by text rather than through `Path`, which reads such a
+/// location as a relative path on unix: a remote index naming one would then
+/// slip past the "http(s) only" rule.
+fn is_drive_path(location: &str) -> bool {
+    let bytes = location.as_bytes();
+    bytes
+        .first()
+        .is_some_and(|first| first.is_ascii_alphabetic())
+        && bytes.get(1) == Some(&b':')
+        && matches!(bytes.get(2), Some(b'/') | Some(b'\\'))
+}
+
 /// Whether `location` names something on this machine: a `file://` URL, a
 /// Windows drive path or a UNC share (`\\host\share` and `//host/share`).
 fn is_local(location: &str) -> bool {
     location.starts_with("file://")
         || location.starts_with("\\\\")
         || location.starts_with("//")
+        || is_drive_path(location)
         || Path::new(location).is_absolute()
+}
+
+/// Joins `relative` under `parent`, following the separator the base path
+/// spells (`style`), so a Windows location stays a Windows location even when
+/// the tool runs on unix. A base with no folder has no separator to follow:
+/// the relative location is passed through as written.
+fn join_under(parent: &str, relative: &str, style: &str) -> String {
+    if parent.is_empty() {
+        return relative.to_string();
+    }
+    let separator = if style.contains('\\') { '\\' } else { '/' };
+    let relative = if separator == '\\' {
+        relative.replace('/', "\\")
+    } else {
+        relative.to_string()
+    };
+    // Only drop the trailing separator when something is left of it: a root
+    // such as `/` or `C:\` is the parent itself.
+    let parent = if parent.len() > 1 {
+        parent.trim_end_matches(separator)
+    } else {
+        parent
+    };
+    format!("{parent}{separator}{relative}")
 }
 
 impl Fetch for Real {
@@ -78,7 +116,9 @@ impl Fetch for Real {
 /// rest is looked up next to the file (or URL) `base`. An index fetched over
 /// http(s) may only name http(s) locations: a path or UNC share in a remote
 /// index would read the user's disk and, on Windows, hand credentials to the
-/// share's host.
+/// share's host. A Windows drive path or UNC share is treated as a local
+/// location on every host - `Path` reads `C:\...` as a relative path on unix,
+/// so the check is textual, and a remote index may not name one there either.
 pub fn resolve(base: &str, relative: &str) -> Result<String, Error> {
     if is_url(base) {
         if is_url(relative) {
@@ -101,7 +141,7 @@ pub fn resolve(base: &str, relative: &str) -> Result<String, Error> {
             relative.trim_start_matches("./")
         ));
     }
-    if is_url(relative) || relative.starts_with("file://") || Path::new(relative).is_absolute() {
+    if is_url(relative) || is_local(relative) {
         return Ok(relative.to_string());
     }
     if relative.split(['/', '\\']).any(|part| part == "..") {
@@ -109,11 +149,9 @@ pub fn resolve(base: &str, relative: &str) -> Result<String, Error> {
             "{relative:?} climbs out of the index folder"
         )));
     }
-    let parent = file_path(base)
-        .parent()
-        .map(Path::to_path_buf)
-        .unwrap_or_default();
-    Ok(parent.join(relative).to_string_lossy().into_owned())
+    let at = base.rfind(['/', '\\']);
+    let parent = at.map_or("", |at| &base[..at]);
+    Ok(join_under(parent, relative, base))
 }
 
 #[cfg(test)]
@@ -173,6 +211,28 @@ pub(crate) mod tests {
         assert!(resolve("https://example.com/orbit/index.json", "../x.zip").is_err());
         assert!(resolve("index.json", "a/../../x.zip").is_err());
         assert!(resolve("index.json", "a\\..\\x.zip").is_err());
+    }
+
+    #[test]
+    fn a_windows_location_keeps_its_separator_on_any_host() {
+        // The folder part follows the base's separator, so a Windows index
+        // still produces a Windows path when the tool runs on unix.
+        assert_eq!(
+            resolve("C:\\market\\index.json", "sub\\p.zip").unwrap(),
+            "C:\\market\\sub\\p.zip"
+        );
+        assert_eq!(
+            resolve("C:\\market\\index.json", "sub/p.zip").unwrap(),
+            "C:\\market\\sub\\p.zip"
+        );
+        // A bare file name has no folder to follow: it is relative to the
+        // working directory and stays as written.
+        assert_eq!(resolve("index.json", "p.zip").unwrap(), "p.zip");
+        // A drive root stays a root.
+        assert_eq!(resolve("C:\\index.json", "p.zip").unwrap(), "C:\\p.zip");
+        // A drive path is local on every host, so a remote index may not name
+        // one - `Path` reads it as relative on unix.
+        assert!(resolve("https://example.com/orbit/index.json", "C:/market/p.zip").is_err());
     }
 
     #[test]
