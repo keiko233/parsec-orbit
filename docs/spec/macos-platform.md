@@ -1,6 +1,6 @@
 # macOS platform rules
 
-Status: **draft** (product implementation pending; real core/SDK compatibility fixture measured). The host, the loader dylib, state isolation and installation are in [macos-host.md](macos-host.md); this document says where files live, what a macOS plugin is, and how each service and official plugin behaves on macOS. Evidence tags (`[measured]`, `[static]`, `[unverified]`) are defined in [macos-host.md](macos-host.md#0-conventions). Decisions: [ADR 0008](../design/decisions/0008-macos-dylib-kind.md) (`dylib` kind), [ADR 0009](../design/decisions/0009-macos-hooks-interpose.md) (hooks), [ADR 0010](../design/decisions/0010-macos-webview-backend.md) (WebView).
+Status: **the M0 platform layer is implemented** (`crates/parsec-orbit-loader-macos`: `dlopen` platform, append logger, config paths; the SDK `freestanding!` flavour; std/`no_std` fixtures loaded in a non-Parsec host). The launch bootstrap, installation, signing gates and services are M1/M2 and still draft. The host, the loader dylib, state isolation and installation are in [macos-host.md](macos-host.md); this document says where files live, what a macOS plugin is, and how each service and official plugin behaves on macOS. Evidence tags (`[measured]`, `[static]`, `[unverified]`) are defined in [macos-host.md](macos-host.md#0-conventions). Decisions: [ADR 0008](../design/decisions/0008-macos-dylib-kind.md) (`dylib` kind), [ADR 0009](../design/decisions/0009-macos-hooks-interpose.md) (hooks), [ADR 0010](../design/decisions/0010-macos-webview-backend.md) (WebView).
 
 ## 1. Targets
 
@@ -37,6 +37,7 @@ Status: **draft** (product implementation pending; real core/SDK compatibility f
 * The exports are plain C symbols; on Mach-O the compiler prefixes `_` and `dlsym` takes the name without it. The library must export them (for Rust: `#[no_mangle]`, which `declare_plugin!` emits, in a `cdylib`).
 * **Loose libraries are not supported.** A `.dylib` without a manifest is not a plugin (the Windows "loose `*.dll`" layout is a legacy of the first prototype and is not carried to macOS).
 * **Signing.** Apple silicon refuses code without a signature. Every `.dylib` a plugin ships must carry at least an ad-hoc signature at the moment it is loaded. Rust and Apple's linker produce a linker-signed (ad-hoc) binary by default; anything that rewrites or strips the file must re-sign it. The market tool and the installer sign (section 9). The host enforces no team or identity ([macos-host.md](macos-host.md#8-signing-and-entitlements)). An ad-hoc SDK fixture loaded in the HR + disable-LV copy `[measured]` ([PoC](../design/macos/native-dependency-poc.md)); formal dylib discovery, no_std and unsigned/corrupt rejection remain gates (E6). The HR exception is application-wide, not a plugin trust guarantee.
+* **Signing.** Apple silicon refuses code without a signature. Every `.dylib` a plugin ships must carry at least an ad-hoc signature at the moment it is loaded. Rust and Apple's linker produce a linker-signed (ad-hoc) binary by default; anything that rewrites or strips the file must re-sign it. The market tool and the installer sign (section 9). The host enforces no team or identity ([macos-host.md](macos-host.md#8-signing-and-entitlements)). An ad-hoc SDK fixture loaded in the HR + disable-LV copy `[measured]` ([PoC](../design/macos/native-dependency-poc.md)); since M0 the formal loader also maps the std and `no_std` fixtures in a non-Parsec host `[measured]` (`crates/parsec-orbit-loader-macos/tests/fixture_e2e.rs`). Loading inside the hardened bundle is repeated in M1a; unsigned/corrupt rejection remains a gate (E6). The HR exception is application-wide, not a plugin trust guarantee.
 * **Architecture.** The library must contain an `arm64` slice.
 * Keep `kind = "dylib"` out of Windows packages and `kind = "dll"` out of macOS ones: the two are different artifacts (section 9).
 
@@ -44,21 +45,21 @@ The platform-native kinds are defined in [plugin-manifest.md](plugin-manifest.md
 
 ## 4. `Platform` and `Logger`
 
-`parsec-orbit-core` stays platform-free; the macOS loader supplies two implementations.
+`parsec-orbit-core` stays platform-free; the macOS loader supplies two implementations in `crates/parsec-orbit-loader-macos` (`src/platform.rs`, `src/log.rs`).
 
-* **`Platform::load(path)`**: the `dlopen`/`dlsym` behaviour of section 3, returning `Module { handle, exports }` with `handle` the `dlopen` handle as `usize`. Never `RTLD_GLOBAL`; never `dlclose` (there is no unload).
-* **`Logger`**: appends UTF-8 lines to the log file (`O_APPEND`, one `write` per line) and mirrors them to `os_log`/`stderr` in debug builds. A line carries the same format as the Windows log. The process name in a line is the base name of the main executable (`parsecd`).
+* **`Platform::load(path)`**: the `dlopen`/`dlsym` behaviour of section 3, returning `Module { handle, exports }` with `handle` the `dlopen` handle as `usize`. Never `RTLD_GLOBAL`; never `dlclose` (there is no unload). `Platform::native_kind` returns `dylib`.
+* **`Logger`**: appends UTF-8 lines to the log file (`O_APPEND`, one `write` per line) and mirrors them to stderr in debug builds. A line carries the same format as the Windows log. The process name in a line is the base name of the main executable (`parsecd`).
 
 ## 5. Rust SDK on macOS
 
-`parsec-orbit-plugin-abi` and `-sdk-std` build unchanged. `parsec-orbit-plugin-sdk`'s `freestanding!` gets a macOS flavour, so a `no_std` plugin builds for `aarch64-apple-darwin`:
+`parsec-orbit-plugin-abi` and `-sdk-std` build unchanged. `parsec-orbit-plugin-sdk`'s `freestanding!` has a macOS flavour since M0, so a `no_std` plugin builds for `aarch64-apple-darwin`:
 
-* the `#[global_allocator]` is over `libSystem` (`malloc`, `free`, `realloc`, and `posix_memalign` for over-aligned blocks), declared with `extern "C"`;
+* the `#[global_allocator]` is over `libSystem` (`malloc`, `calloc`, `free`, `realloc`, and `posix_memalign` for over-aligned blocks), declared with `extern "C"` in a `#[link(name = "System")]` block (`no_std` builds pass `-nodefaultlibs`, so the link name is explicit);
 * the `#[panic_handler]` logs through the host and then terminates the process with a trap (`brk`/`udf`), the macOS equivalent of the Windows fast-fail;
-* the C runtime functions (`memcpy`, `memmove`, `memset`, `memcmp`, `bcmp`, `strlen`) come from `libSystem`; the MSVC-specific items (`__chkstk`, `_fltused`, `__CxxFrameHandler3`, `_DllMainCRTStartup`, `/NODEFAULTLIB`) are not emitted;
+* the C runtime functions (`memcpy`, `memmove`, `memset`, `memcmp`, `bcmp`, `strlen`) come from `libSystem`; the MSVC-specific items (`__chkstk`, `_fltused`, `__CxxFrameHandler3`, `_DllMainCRTStartup`, `/NODEFAULTLIB`) are not emitted; a no-op `rust_eh_personality` is exported because `liballoc` references it even without unwinding;
 * `panic = "abort"` is required in every profile, as on Windows.
 
-Consequence: a macOS `no_std` plugin imports `libSystem` and is not "import-free" as the Windows sample is; its size is measured in the size report when the flavour exists. The `std` plugins need no change.
+The M0 fixture run maps both fixtures through the loader and exercises the allocator with over-aligned blocks, the copy/reset paths and a 200 KB stack probe `[measured]` (`fixture-nostd.alloc`/`.stack`). The compare, float and panic actions of the fixture run in the Windows e2e suite and are not yet measured on macOS. Consequence: a macOS `no_std` plugin imports `libSystem` and is not "import-free" as the Windows sample is; its size is recorded in the size report (M0c). The `std` plugins need no change.
 
 ## 6. Services and official plugins
 
@@ -133,13 +134,13 @@ See [plugin-manifest.md](plugin-manifest.md) (the `kind` default and the platfor
 
 ## 8. Known contract issue
 
-The registry rejects a table whose address is not aligned to `align_of::<usize>()` ([services.md](services.md#registry)). The test header in `parsec-orbit-core` is a 4-byte-aligned static, so five core tests fail on macOS when the linker places it at an address `% 8 == 4` `[measured]` (an earlier inventory attributes the failure to the header size; the header is two `u32`, 8 bytes, 4-byte aligned, so the alignment explanation holds). The contract stays: real service tables hold function pointers and are 8-byte aligned. The fix is to the test (an 8-byte-aligned wrapper), done in M0.
+The registry rejects a table whose address is not aligned to `align_of::<usize>()` ([services.md](services.md#registry)). The test header in `parsec-orbit-core` is a 4-byte-aligned static, so five core tests fail on macOS when the linker places it at an address `% 8 == 4` `[measured]` (an earlier inventory attributes the failure to the header size; the header is two `u32`, 8 bytes, 4-byte aligned, so the alignment explanation holds). The contract stays: real service tables hold function pointers and are 8-byte aligned.
 
-The fix is in M0: the affected fixtures (`parsec-orbit-core` tests, the
-`plugin-abi` test header, the `parsec-orbit-fixture-plugin` interface) now
-wrap their tables in `#[repr(align(8))]` statics, and
-`cargo test -p parsec-orbit-core` passes on `aarch64-apple-darwin`
-`[measured]`. The registry contract is unchanged.
+The fix is in M0 and applies to the test: the affected fixtures
+(`parsec-orbit-core` tests, the `plugin-abi` test header, the
+`parsec-orbit-fixture-plugin` interface) wrap their tables in
+`#[repr(align(8))]` statics, and `cargo test -p parsec-orbit-core` passes on
+`aarch64-apple-darwin` `[measured]`. The registry contract is unchanged.
 
 ## 9. Marketplace on macOS
 

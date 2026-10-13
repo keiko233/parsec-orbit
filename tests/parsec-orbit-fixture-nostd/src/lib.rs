@@ -13,9 +13,6 @@
 //! | other    | nothing |
 //!
 //! Every action logs `fixture-nostd: <what> ok ...` so a test can assert on it.
-
-// Windows-only; the `freestanding!()` macOS flavour lands in M0b.
-#![cfg(windows)]
 #![cfg_attr(not(test), no_std)]
 
 extern crate alloc;

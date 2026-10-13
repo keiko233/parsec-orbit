@@ -1013,6 +1013,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "parsec-orbit-loader-macos"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "parsec-orbit-core",
+ "parsec-orbit-plugin-abi",
+]
+
+[[package]]
 name = "parsec-orbit-market"
 version = "0.1.0"
 dependencies = [

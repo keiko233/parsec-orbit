@@ -1,6 +1,6 @@
 # Loading rules
 
-Status: implemented on Windows (`parsec-orbit-core`: `scan`, `plan`, `kind`); the macOS differences, marked **macOS**, are draft ([macos-platform.md](macos-platform.md)). The per-plugin `init` contract is in [plugin-abi.md](plugin-abi.md#lifecycle).
+Status: implemented on Windows (`parsec-orbit-core`: `scan`, `plan`, `kind`) and for the macOS platform crate (`crates/parsec-orbit-loader-macos`, M0). The entries marked **macOS** are the platform differences; the launch bootstrap that installs them end-to-end is M1 ([macos-platform.md](macos-platform.md)). The per-plugin `init` contract is in [plugin-abi.md](plugin-abi.md#lifecycle).
 
 ## 1. Discovery
 
