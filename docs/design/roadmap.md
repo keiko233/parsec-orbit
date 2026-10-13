@@ -19,7 +19,7 @@ Separate track, planned in [macos-phases.md](macos-phases.md); specified in [spe
 
 | Phase | Content | State |
 | --- | --- | --- |
-| M0 | Cross-platform workspace: target gates, native kinds `dll`/`dylib`, macOS `Platform`/`Logger`, `freestanding!` for `aarch64-apple-darwin`, macOS CI | done; implementation in `50c74e7`, `020ee7f` and the M0c commit that added the CI job |
+| M0 | Cross-platform workspace: target gates, native kinds `dll`/`dylib`, macOS `Platform`/`Logger`, `freestanding!` for `aarch64-apple-darwin`, macOS CI | done (`50c74e7`, `020ee7f`, `6f38677`) |
 | M1 | Dependency bootstrap, transactional patched-app apply/restore, isolated state, signing and original-path launch gates, services/market | copy PoC passed; product implementation planned |
 | M2 | Real client sessions, measured UI/import hooks, native bitrate compatibility and update/recovery matrix | planned; UI surface must be measured |
 
