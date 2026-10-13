@@ -384,8 +384,10 @@ M1a exit gate (fresh-copy LS first-launch window, native hello/registry,
 self-exec re-initialization, isolation-negative gates, recorded audit
 findings) is measured on disposable copies. Remaining for later phases: M1b
 transactional apply/restore and the atomic preseed that removes the measured
-empty-state first-launch exit 2; M1c signing, original path/id and
-Finder/Dock/Spotlight entries; M2 test-account sessions, the vendor Mach
+empty-state first-launch exit 2 (both implemented afterwards; see the
+[installer checkpoint](installer-checkpoint.md), which also lists what stayed
+unmeasured, including the vendor-side preseed effect); M1c signing, original
+path/id and Finder/Dock/Spotlight entries; M2 test-account sessions, the vendor Mach
 service set, Keychain/data-protection behavior and verified-build policy
 (`parsec-orbit.client.status` stays `not-verified` for every build). No
 original-path launch, Gatekeeper acceptance or Windows runtime success is

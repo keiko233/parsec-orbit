@@ -31,14 +31,13 @@ mod platform;
 pub mod readiness;
 mod redirect;
 mod runtime;
-mod seed;
 
 #[cfg(feature = "harness")]
 mod harness;
 
 pub use config::Config;
+pub use parsec_orbit_macos_state::{seed, SeedReport};
 pub use platform::MacPlatform;
-pub use seed::{seed, SeedReport};
 
 use std::sync::{Mutex, OnceLock};
 

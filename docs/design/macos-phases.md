@@ -59,6 +59,20 @@ Keychain/data-protection behavior and the verified-build policy (M2).
 
 ### M1b - transactional apply/restore
 
+**Implemented and scratch-measured (2026-10-14).** The
+[installer checkpoint](macos/installer-checkpoint.md) records the step order,
+the on-disk layout, the stub whitelist, the CLI and eight disposable-bundle
+tests: apply/re-apply/uninstall round trip with a byte/metadata-equal restore,
+dyld actually honoring the inserted dependency, injected and crafted
+interruption recovery, running-app and unknown/stale-input refusals, a
+preseed warning and uninstall-failure restore. Reaching this state does not
+close the exit gate below: no real vendor bundle or `/Applications` path was
+mutated, full backup metadata (mtime/ACL/xattr) is not in the restore
+snapshot, and concurrent updates remain unmeasured. The macOS market
+`platform`/ad-hoc-signing work specified in
+[macos-platform.md](../spec/macos-platform.md#9-marketplace-on-macos) is not
+part of this step and remains open.
+
 - Version/hash/layout whitelist and idempotent pristine/applied/stale/invalid state machine.
 - Full pristine bundle/metadata backup, provenance and transaction journal; supported header-space patch only, no vendor instruction edits or client re-signing.
 - Inside-out signing, strict verification, staged install, rollback and process identity checks. Preserve original path/id. Inspect permissions early; request only concrete necessary authorization after staging validation.

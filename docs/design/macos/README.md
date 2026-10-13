@@ -1,6 +1,6 @@
 # macOS support research
 
-Status: **M0 platform complete; M1a bootstrap accepted on disposable copies (2026-10-14); M1b not started**. This directory records evidence, not normative requirements. Current specifications: [macos-host.md](../../spec/macos-host.md), [macos-platform.md](../../spec/macos-platform.md). Current decision: [ADR 0014](../decisions/0014-macos-patched-bundle.md). Implementation gates: [macos-phases.md](../macos-phases.md).
+Status: **M0 platform complete; M1a bootstrap accepted on disposable copies (2026-10-14); M1b transactional installer implemented and scratch-measured (2026-10-14); M1c not started**. This directory records evidence, not normative requirements. Current specifications: [macos-host.md](../../spec/macos-host.md), [macos-platform.md](../../spec/macos-platform.md). Current decision: [ADR 0014](../decisions/0014-macos-patched-bundle.md). Implementation gates: [macos-phases.md](../macos-phases.md).
 
 ## Current finding
 
@@ -10,11 +10,12 @@ This is evidence for the patched installed-app route, not proof of original `/Ap
 
 ## Reading order
 
-1. [bootstrap-checkpoint.md](bootstrap-checkpoint.md): current implementation boundary, guarded activation, acceptance measurements, audit capture limits and remaining work.
-2. [native-dependency-poc.md](native-dependency-poc.md): measurements, signing/fault matrices, isolation discovery, limitations and reproduction contract.
-3. [extension-projects.md](extension-projects.md): pinned Spicetify/Vencord/SpotX source investigation and route comparison.
-4. [launch-integration.md](launch-integration.md): earlier launch investigation under an untouched-bundle constraint. Its negative verdict is scoped to that constraint.
-5. Historical implementation evidence below, then the current spec/ADR/phase plan.
+1. [bootstrap-checkpoint.md](bootstrap-checkpoint.md): guarded activation, acceptance measurements, audit capture limits and remaining work.
+2. [installer-checkpoint.md](installer-checkpoint.md): the M1b transaction, on-disk layout, stub whitelist, signing order, scratch evidence and the explicit unverified list.
+3. [native-dependency-poc.md](native-dependency-poc.md): measurements, signing/fault matrices, isolation discovery, limitations and reproduction contract.
+4. [extension-projects.md](extension-projects.md): pinned Spicetify/Vencord/SpotX source investigation and route comparison.
+5. [launch-integration.md](launch-integration.md): earlier launch investigation under an untouched-bundle constraint. Its negative verdict is scoped to that constraint.
+6. Historical implementation evidence below, then the current spec/ADR/phase plan.
 
 ## Historical evidence
 

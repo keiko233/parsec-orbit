@@ -144,7 +144,7 @@ The fix is in M0 and applies to the test: the affected fixtures
 
 ## 9. Marketplace on macOS
 
-**Status: specified, not implemented.** The market crate is portable (M0: `d3294a2`) but still Windows-shaped: no `platform` field, no per-version filtering and no ad-hoc signing. This section is the M1b specification.
+**Status: specified, not implemented.** The market crate is portable (M0: `d3294a2`) but still Windows-shaped: no `platform` field, no per-version filtering and no ad-hoc signing. This section is M1 remaining work; the transactional-installer step (M1b) did not implement it.
 
 [marketplace.md](marketplace.md) gains one optional index field, `platform`, per version: `"windows-x86_64"` (the default when absent, so existing indexes keep their meaning) or `"macos-arm64"`. The tool offers only versions whose platform equals the machine's.
 

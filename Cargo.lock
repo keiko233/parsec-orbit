@@ -1004,6 +1004,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "parsec-orbit-installer-macos"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "parsec-orbit-core",
+ "parsec-orbit-macos-state",
+ "serde",
+ "serde_json",
+ "sha2",
+]
+
+[[package]]
 name = "parsec-orbit-loader"
 version = "0.1.0"
 dependencies = [
@@ -1018,7 +1030,19 @@ version = "0.1.0"
 dependencies = [
  "libc",
  "parsec-orbit-core",
+ "parsec-orbit-macos-state",
  "parsec-orbit-plugin-abi",
+ "serde",
+ "serde_json",
+ "sha2",
+]
+
+[[package]]
+name = "parsec-orbit-macos-state"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "parsec-orbit-core",
  "serde",
  "serde_json",
  "sha2",

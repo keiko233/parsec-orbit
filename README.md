@@ -4,8 +4,10 @@ An unofficial, local-only proof of concept for loading plugins in the Parsec
 client. On Windows it uses a `bcrypt.dll` proxy and does not modify Parsec
 files; on macOS arm64 it loads Orbit into a copy of `Parsec.app` through a
 patched bundle (see [docs/spec/macos-host.md](docs/spec/macos-host.md)). The
-macOS installation path is not usable yet: M1 builds the patcher, and only the
-portable workspace and the macOS loader platform exist today.
+macOS installation path is not usable yet: the guarded loader bootstrap (M1a)
+and the transactional patcher (M1b) are implemented and measured on
+disposable copies, while the signing/original-path gates (M1c) are still
+open and no real vendor bundle has been applied.
 
 ## Layout
 
@@ -16,6 +18,13 @@ portable workspace and the macOS loader platform exist today.
   `Platform` over `dlopen`/`dlsym`/`dlerror`, an append-only logger and the
   same plugin scan/host logic. It is a plain dylib for now; M1 loads it from a
   patched `Parsec.app`.
+* `crates/parsec-orbit-installer-macos/` - the transactional patcher:
+  inspect/apply/uninstall/status, a version-bound pristine backup plus
+  append-only journal, a whitelisted header-space `LC_LOAD_DYLIB` patch,
+  inside-out ad-hoc signing, verification, rollback and the preseed; see the
+  [M1b checkpoint](docs/design/macos/installer-checkpoint.md).
+* `crates/parsec-orbit-macos-state/` - the atomic isolated-state seed shared
+  by the installer (as an rlib) and the macOS loader (which re-exports it).
 * `crates/parsec-orbit-plugin-abi/`, `crates/parsec-orbit-plugin-sdk/`,
   `crates/parsec-orbit-plugin-sdk-std/` - the plugin ABI, the Rust SDK
   (`Plugin`, `Context`, a `no_std` runtime for 10 KB plugins) and its `std`
@@ -102,6 +111,9 @@ the script injected into the WebView UI; without it that one test is skipped
   the DevTools client and the bridge session against a fake endpoint;
   `crates/parsec-orbit-plugin-high-bitrate-webview/tests/` runs
   `assets/bandwidth.js` in a fake browser under Node.
+  `crates/parsec-orbit-installer-macos/tests/scratch_apply.rs` builds
+  disposable arm64 toy bundles with `clang` and runs the real installer
+  against them (round trip, dyld dependency, interruptions, refusals).
 * **End-to-end tests** in `tests/parsec-orbit-e2e/` build the loader and the
   plugins into `target/e2e`, install them into a throwaway client directory
   next to a host process named `parsecd.exe`, and check the log, the files the

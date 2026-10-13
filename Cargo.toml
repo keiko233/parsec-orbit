@@ -1,8 +1,10 @@
 [workspace]
 resolver = "2"
 members = [
+    "crates/parsec-orbit-installer-macos",
     "crates/parsec-orbit-loader",
     "crates/parsec-orbit-loader-macos",
+    "crates/parsec-orbit-macos-state",
     "crates/parsec-orbit-plugin-abi",
     "crates/parsec-orbit-plugin-sdk",
     "crates/parsec-orbit-plugin-sdk-std",

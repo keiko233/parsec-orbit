@@ -28,6 +28,8 @@ open questions at the end.
 * [design/architecture.md](design/architecture.md) - components, crate graph, size and concurrency policy
 * [design/roadmap.md](design/roadmap.md) - phases
 * [design/macos/native-dependency-poc.md](design/macos/native-dependency-poc.md) - measured copy PoC and remaining signing/original-path gates
+* [design/macos/bootstrap-checkpoint.md](design/macos/bootstrap-checkpoint.md) - M1a guarded activation: acceptance evidence and audit limits
+* [design/macos/installer-checkpoint.md](design/macos/installer-checkpoint.md) - M1b transaction: apply/restore evidence and the unverified list
 * [design/macos/extension-projects.md](design/macos/extension-projects.md) - Spicetify and alternative extension mechanisms
 * [design/macos-phases.md](design/macos-phases.md) - macOS phases M0-M2: deliverables, exit criteria, dependencies, risks
 * [design/size-report.md](design/size-report.md) - measured sizes: runtime spike, plugins, loader

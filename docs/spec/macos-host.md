@@ -53,7 +53,7 @@ Native plugins execute in the client process and can crash or compromise it. The
   home/.parsec/                             independent client state
   home/.parsec-persistent/                   independent shared-persistent replacement
   plugins/  data/  market/  parsec-orbit.log
-  installs/<installation-id>/                provenance, transaction journal, pristine backup
+  installs/<bundle-id>@<12-hex>/             manifest.json, journal.jsonl, pristine/, scratch
 ```
 
 Backup layout is installer-owned, private and version-bound; it is not plugin discovery space. A patch changes the app's signing identity even when id/path are preserved. Existing Dock/Spotlight/TCC behavior is `[unverified]`.
@@ -171,7 +171,19 @@ Installer responsibilities (`install.sh`/`uninstall.sh`/`package.sh` or equivale
 6. Uninstall restores the corresponding pristine bundle, including signature/metadata. If vendor updated, refuse a stale restore and offer matching-version recovery. Keep Orbit data unless purge is explicitly requested.
 7. Package only Orbit-owned artifacts/checksums. Signing/Gatekeeper validation is mandatory before claiming a supported release.
 
-Scratch complete-backup restoration passed `[measured]`; /Applications authorization, full metadata/ACL/xattr fidelity, atomic failure recovery and concurrent updates remain `[unverified]`.
+Implemented in `parsec-orbit-installer-macos`
+(`inspect|apply|uninstall|status`, `--loader`, `--orbit-root`, `--purge-data`,
+`--json`), which never escalates: it fails with the permission error and
+names the required action. Scratch apply/re-apply/uninstall, injected and
+crafted interruption recovery, exact tree restore (bytes, kind, permission
+bits, size, symlink targets), strict signature verification of the restored
+toy bundle and unknown/stale/running-input refusals are `[measured]` on
+disposable toy bundles, together with `ditto`-staged copies and an inserted
+`LC_LOAD_DYLIB` that dyld honors at runtime. The shipped whitelist recognizes
+the M1a-measured vendor stub hash but no real vendor bundle has been applied.
+`/Applications` authorization, original path/id launch, full metadata/ACL/
+xattr fidelity, vendor-update concurrency and Gatekeeper are `[unverified]`.
+See the [installer checkpoint](../design/macos/installer-checkpoint.md).
 
 ## 11. Compatibility with the Windows documents
 
@@ -191,6 +203,6 @@ Shared ABI stays ABI 1/host revision 2. Platform differences are in [macos-platf
 | E9/E10 | Independent test-account connections, overlap and microphone/camera behavior |
 | E11 | Gatekeeper/quarantine/signing/distribution; spctl currently rejects |
 | E12/E13 | Clean-machine tool availability and macOS size budget |
-| E14/E15 | Full-app replacement/re-apply/restore; URI/login behavior, without default handler changes |
+| E14/E15 | Scratch re-apply/restore measured; full-app replacement and concurrent vendor updates unmeasured; URI/login behavior, without default handler changes |
 
 Owners and phase assignments are in [macos-phases.md](../design/macos-phases.md).

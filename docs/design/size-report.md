@@ -115,3 +115,15 @@ number is a checkpoint, not a final budget, and it is above the historical
 360 KiB Windows reference. The new JSON/hash dependencies reuse the
 workspace's existing serde/serde_json/sha2 versions; no second crypto
 dependency stack was added.
+
+### M1b checkpoint (2026-10-14, not the completed loader)
+
+Moving the seed transaction out of the loader crate into the shared
+`parsec-orbit-macos-state` rlib (so the transactional installer can seed
+without linking the loader `cdylib`) rebuilt the same default release dylib at
+**571,472 B**, SHA-256
+`b278d7b8c4b68e720a03d45d54c7c55433e486addbf35e00d6a97ce4d377f5b0`
+(32 B smaller than the M1a checkpoint; the loader re-exports `seed`/`Seed
+Report` unchanged). The new installer binary `parsec-orbit-installer-macos`
+is **505,680 B** in the same release profile; it is an ordinary CLI, not part
+of the injected dylib, so it does not consume the loader budget.
