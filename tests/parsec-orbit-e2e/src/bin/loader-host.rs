@@ -17,18 +17,31 @@
 //! The exit code is 0 unless the loader could not be mapped (2) or the wait
 //! timed out (3).
 
+#[cfg(not(windows))]
+fn main() {
+    eprintln!("loader-host is a Windows-only e2e helper; there is nothing to run");
+    std::process::exit(2);
+}
+
+#[cfg(windows)]
 use std::ffi::c_void;
+#[cfg(windows)]
 use std::net::ToSocketAddrs;
+#[cfg(windows)]
 use std::time::{Duration, Instant};
 
+#[cfg(windows)]
 use windows_sys::Win32::System::LibraryLoader::{GetProcAddress, LoadLibraryW};
 
+#[cfg(windows)]
 type GenRandom = unsafe extern "system" fn(*mut c_void, *mut u8, u32, u32) -> i32;
 
+#[cfg(windows)]
 fn wide(text: &str) -> Vec<u16> {
     text.encode_utf16().chain(std::iter::once(0)).collect()
 }
 
+#[cfg(windows)]
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     if args.len() < 5 {
@@ -97,6 +110,7 @@ fn main() {
 
 /// Decodes the two instructions of every exported thunk:
 /// `lea rax, [rip + slot]` (`48 8D 05 disp32`) and `jmp stub` (`E9 rel32`).
+#[cfg(windows)]
 fn print_thunks(module: usize, path: &str) {
     for name in parsec_orbit_e2e::export_names(std::path::Path::new(path)) {
         let symbol = format!("{name}\0");

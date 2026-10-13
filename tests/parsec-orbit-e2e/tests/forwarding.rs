@@ -1,5 +1,6 @@
 //! The loader as a `bcrypt.dll` proxy: its export table, its thunks, and the
 //! existing verification tools (`callpaths`, `roundtrip`) run as tests.
+#![cfg(windows)]
 
 mod common;
 

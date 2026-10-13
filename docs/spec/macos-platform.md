@@ -135,6 +135,12 @@ See [plugin-manifest.md](plugin-manifest.md) (the `kind` default and the platfor
 
 The registry rejects a table whose address is not aligned to `align_of::<usize>()` ([services.md](services.md#registry)). The test header in `parsec-orbit-core` is a 4-byte-aligned static, so five core tests fail on macOS when the linker places it at an address `% 8 == 4` `[measured]` (an earlier inventory attributes the failure to the header size; the header is two `u32`, 8 bytes, 4-byte aligned, so the alignment explanation holds). The contract stays: real service tables hold function pointers and are 8-byte aligned. The fix is to the test (an 8-byte-aligned wrapper), done in M0.
 
+The fix is in M0: the affected fixtures (`parsec-orbit-core` tests, the
+`plugin-abi` test header, the `parsec-orbit-fixture-plugin` interface) now
+wrap their tables in `#[repr(align(8))]` statics, and
+`cargo test -p parsec-orbit-core` passes on `aarch64-apple-darwin`
+`[measured]`. The registry contract is unchanged.
+
 ## 9. Marketplace on macOS
 
 [marketplace.md](marketplace.md) gains one optional index field, `platform`, per version: `"windows-x86_64"` (the default when absent, so existing indexes keep their meaning) or `"macos-arm64"`. The tool offers only versions whose platform equals the machine's.

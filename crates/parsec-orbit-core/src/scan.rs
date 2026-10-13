@@ -1,6 +1,6 @@
 //! Discovery and load decisions.
 //!
-//! The loader understands two layouts:
+//! The Windows loader understands two layouts:
 //!
 //! ```text
 //! <client dir>\plugins\<name>\plugin.toml   + entry (dll/js/...)
@@ -8,15 +8,20 @@
 //! <client dir>\plugins\loose.dll            (no manifest, legacy layout)
 //! ```
 //!
+//! The macOS loader has one layout and no loose libraries
+//! (`<Orbit root>/plugins/<name>/plugin.toml` + an entry, `dylib` or `js`),
+//! supplied through the platform's [`native_kind`](crate::Platform::native_kind).
+//!
 //! A scan has three steps (see `docs/spec/loading.md`):
 //!
 //! 1. **Discovery** reads manifests and drops what is disabled, too new or a
 //!    duplicate.
 //! 2. **Ordering** sorts the survivors by `requires` / `optional`
 //!    ([`crate::plan`]).
-//! 3. **Loading** walks that order. `dll` plugins are mapped through the
-//!    [`Platform`](crate::Platform) and called through the ABI; every other
-//!    kind goes to the plugin that registered `parsec-orbit.kind.<kind>`.
+//! 3. **Loading** walks that order. Native plugins (`dll` on Windows, `dylib`
+//!    on macOS) are mapped through the [`Platform`](crate::Platform) and
+//!    called through the ABI; every other kind goes to the plugin that
+//!    registered `parsec-orbit.kind.<kind>`.
 
 use std::collections::HashSet;
 use std::path::{Component, Path, PathBuf};
@@ -39,7 +44,7 @@ use crate::host::{data_dir_for, valid_plugin_id};
 use crate::kind::{self, Lookup};
 use crate::manifest::{describe, read_manifest};
 use crate::plan::{self, Node, Verdict};
-use crate::{Env, Loaded, Manifest, KIND_DLL, MANIFEST};
+use crate::{Env, Loaded, Manifest, KIND_DLL, KIND_DYLIB, MANIFEST};
 
 #[derive(Default, Debug, PartialEq, Eq)]
 pub struct Summary {
@@ -56,18 +61,20 @@ pub struct Scan {
     pub loaded: Vec<Loaded>,
 }
 
-fn is_dll(path: &Path) -> bool {
+/// Whether `path` carries the native library extension of `kind`. Both
+/// platforms use the kind as the extension: `*.dll` and `*.dylib`.
+fn is_native_lib(path: &Path, kind: &str) -> bool {
     path.extension()
         .and_then(|extension| extension.to_str())
-        .is_some_and(|extension| extension.eq_ignore_ascii_case("dll"))
+        .is_some_and(|extension| extension.eq_ignore_ascii_case(kind))
 }
 
-fn first_dll(dir: &Path) -> Option<PathBuf> {
+fn first_native_lib(dir: &Path, kind: &str) -> Option<PathBuf> {
     let mut candidates: Vec<PathBuf> = std::fs::read_dir(dir)
         .ok()?
         .filter_map(Result::ok)
         .map(|entry| entry.path())
-        .filter(|path| is_dll(path))
+        .filter(|path| is_native_lib(path, kind))
         .collect();
     candidates.sort();
     candidates.into_iter().next()
@@ -181,7 +188,7 @@ fn discover_dir(
     let kind = manifest
         .kind
         .clone()
-        .unwrap_or_else(|| KIND_DLL.to_string());
+        .unwrap_or_else(|| env.platform.native_kind().to_string());
     Some(Candidate {
         label,
         dir: dir.to_path_buf(),
@@ -195,6 +202,7 @@ fn discover_dir(
 /// Walks every plugin directory, in priority order.
 fn discover(env: Env, plugin_dirs: &[PathBuf], summary: &mut Summary) -> Vec<Candidate> {
     let log = env.logger;
+    let native = env.platform.native_kind();
     let mut candidates = Vec::new();
     let mut seen: HashSet<String> = HashSet::new();
 
@@ -222,7 +230,16 @@ fn discover(env: Env, plugin_dirs: &[PathBuf], summary: &mut Summary) -> Vec<Can
                 candidates.extend(discover_dir(env, &entry, summary, &mut seen));
                 continue;
             }
-            if !is_dll(&entry) {
+            if !is_native_lib(&entry, native) {
+                continue;
+            }
+            // The loose layout is the Windows prototype. On macOS a library
+            // dropped into a plugin directory is not a plugin.
+            if native != KIND_DLL {
+                log.debug(&format!(
+                    "{}: loose libraries are not supported, ignored",
+                    entry.display()
+                ));
                 continue;
             }
             // A DLL dropped straight into a plugin directory is loaded without
@@ -261,8 +278,9 @@ enum Outcome {
     Failed(String),
 }
 
-/// Maps one DLL through the platform and activates it.
-fn load_dll(env: Env, candidate: &Candidate, registry: &mut Vec<Loaded>) -> Outcome {
+/// Maps one native library through the platform and activates it.
+fn load_native(env: Env, candidate: &Candidate, registry: &mut Vec<Loaded>) -> Outcome {
+    let kind = env.platform.native_kind();
     if let Some(manifest) = &candidate.manifest {
         if let Some(entry) = &manifest.entry {
             if !manifest_entry_stays_inside(Path::new(entry)) {
@@ -276,11 +294,11 @@ fn load_dll(env: Env, candidate: &Candidate, registry: &mut Vec<Loaded>) -> Outc
             .entry
             .as_ref()
             .map(|entry| candidate.dir.join(entry))
-            .or_else(|| first_dll(&candidate.dir)),
+            .or_else(|| first_native_lib(&candidate.dir, kind)),
         (None, None) => None,
     };
     let Some(entry) = entry else {
-        return Outcome::Failed("no DLL entry point found".to_string());
+        return Outcome::Failed(format!("no {kind} entry point found"));
     };
     let module = match env.platform.load(&entry) {
         Ok(module) => module,
@@ -294,6 +312,26 @@ fn load_dll(env: Env, candidate: &Candidate, registry: &mut Vec<Loaded>) -> Outc
     match activate(env, plugin, module.handle, module.exports, registry) {
         Ok(_) => Outcome::Loaded,
         Err(error) => Outcome::Failed(error),
+    }
+}
+
+/// The other platform's native kind. A loader never maps it and never hands
+/// it to a `parsec-orbit.kind.<kind>` handler; the plugin is skipped.
+fn foreign_native_kind(native: &str) -> &'static str {
+    if native == KIND_DYLIB {
+        KIND_DLL
+    } else {
+        KIND_DYLIB
+    }
+}
+
+/// Why a plugin of the other platform's native kind is skipped, in the words
+/// of `docs/spec/loading.md`.
+fn foreign_native_kind_reason(kind: &str, native: &str) -> String {
+    if native == KIND_DYLIB {
+        format!("kind \"{kind}\" is not supported on macOS (use \"{native}\")")
+    } else {
+        format!("kind \"{kind}\" is not supported on Windows")
     }
 }
 
@@ -342,6 +380,7 @@ fn load_with_handler(env: Env, candidate: &Candidate) -> Outcome {
 /// Discovers, orders and loads every plugin below `plugin_dirs`.
 pub fn scan(env: Env, plugin_dirs: &[PathBuf]) -> Scan {
     let log = env.logger;
+    let native = env.platform.native_kind();
     let mut result = Scan::default();
 
     let candidates = discover(env, plugin_dirs, &mut result.summary);
@@ -365,8 +404,10 @@ pub fn scan(env: Env, plugin_dirs: &[PathBuf]) -> Scan {
                 .any(|&provider| states[provider] == State::Loaded)
         }) {
             Outcome::Skipped(format!("dependency {missing} did not load"))
-        } else if candidate.kind == KIND_DLL {
-            load_dll(env, candidate, &mut result.loaded)
+        } else if candidate.kind == native {
+            load_native(env, candidate, &mut result.loaded)
+        } else if candidate.kind == foreign_native_kind(native) {
+            Outcome::Skipped(foreign_native_kind_reason(&candidate.kind, native))
         } else {
             load_with_handler(env, candidate)
         };
@@ -413,6 +454,9 @@ mod tests {
         fn load(&self, path: &Path) -> Result<Module, String> {
             Err(format!("could not load {}", path.display()))
         }
+        fn native_kind(&self) -> &'static str {
+            KIND_DLL
+        }
     }
 
     /// "Loads" any library as one with the given exports, recording the paths.
@@ -427,6 +471,27 @@ mod tests {
                 handle: 1,
                 exports: self.exports,
             })
+        }
+        fn native_kind(&self) -> &'static str {
+            KIND_DLL
+        }
+    }
+
+    /// The same recording platform, but it reports the macOS native kind.
+    struct Mac {
+        exports: Exports,
+        seen: RefCell<Vec<PathBuf>>,
+    }
+    impl Platform for Mac {
+        fn load(&self, path: &Path) -> Result<Module, String> {
+            self.seen.borrow_mut().push(path.to_path_buf());
+            Ok(Module {
+                handle: 1,
+                exports: self.exports,
+            })
+        }
+        fn native_kind(&self) -> &'static str {
+            KIND_DYLIB
         }
     }
 
@@ -467,23 +532,36 @@ mod tests {
     }
 
     #[test]
-    fn first_dll_is_the_alphabetically_first_dll_of_any_case() {
-        let dir = TempDir::new("first-dll");
+    fn first_native_lib_is_the_alphabetically_first_of_any_case() {
+        let dir = TempDir::new("first-native");
         dir.write("zeta.dll", "");
         dir.write("Beta.DLL", "");
         dir.write("alpha.txt", "");
         dir.write("alpha.dll.bak", "");
+        dir.write("libzeta.dylib", "");
+        dir.write("LibBeta.DYLIB", "");
         // Uppercase sorts before lowercase, which is what `sort` gives; the
         // point is that the choice is deterministic.
-        assert_eq!(first_dll(dir.path()), Some(dir.path().join("Beta.DLL")));
+        assert_eq!(
+            first_native_lib(dir.path(), KIND_DLL),
+            Some(dir.path().join("Beta.DLL"))
+        );
+        assert_eq!(
+            first_native_lib(dir.path(), KIND_DYLIB),
+            Some(dir.path().join("LibBeta.DYLIB"))
+        );
     }
 
     #[test]
-    fn first_dll_is_none_without_a_dll_or_a_directory() {
-        let dir = TempDir::new("first-dll-none");
+    fn first_native_lib_is_none_without_a_library_or_a_directory() {
+        let dir = TempDir::new("first-native-none");
         dir.write("readme.txt", "");
-        assert_eq!(first_dll(dir.path()), None);
-        assert_eq!(first_dll(&dir.path().join("missing")), None);
+        assert_eq!(first_native_lib(dir.path(), KIND_DLL), None);
+        assert_eq!(first_native_lib(dir.path(), KIND_DYLIB), None);
+        assert_eq!(
+            first_native_lib(&dir.path().join("missing"), KIND_DLL),
+            None
+        );
     }
 
     #[test]
@@ -620,6 +698,98 @@ mod tests {
     }
 
     #[test]
+    fn a_dylib_platform_defaults_the_kind_and_the_entry_to_dylib() {
+        let dir = TempDir::new("scan-dylib-default");
+        // No `kind` and no `entry`: both fall back to the platform's native
+        // kind, `dylib` here, and the first `*.dylib` is the entry.
+        dir.write("p/plugin.toml", "id = \"com.example.mac\"\n");
+        dir.write("p/b.dylib", "");
+        dir.write("p/a.dylib", "");
+        dir.write("p/decoy.dll", "");
+        let platform = working_mac();
+        let (result, _) = run(&platform, &[dir.path()]);
+        assert_eq!(counts(&result), (1, 0, 0));
+        assert_eq!(
+            *platform.seen.borrow(),
+            vec![dir.path().join("p").join("a.dylib")]
+        );
+    }
+
+    #[test]
+    fn a_dll_plugin_is_skipped_on_macos_with_the_documented_message() {
+        let dir = TempDir::new("scan-macos-foreign-dll");
+        dir.write(
+            "p/plugin.toml",
+            "id = \"com.example.win\"\nkind = \"dll\"\nentry = \"x.dll\"\n",
+        );
+        dir.write("p/x.dll", "");
+        let platform = working_mac();
+        let (result, log) = run(&platform, &[dir.path()]);
+        assert_eq!(counts(&result), (0, 1, 0));
+        assert!(
+            platform.seen.borrow().is_empty(),
+            "the Windows library was never mapped"
+        );
+        assert!(
+            log.mentions("skipped, kind \"dll\" is not supported on macOS (use \"dylib\")"),
+            "{:?}",
+            log.0.borrow()
+        );
+    }
+
+    #[test]
+    fn a_dylib_plugin_is_skipped_on_windows_with_the_documented_message() {
+        let dir = TempDir::new("scan-windows-foreign-dylib");
+        dir.write(
+            "p/plugin.toml",
+            "id = \"com.example.mac\"\nkind = \"dylib\"\nentry = \"libx.dylib\"\n",
+        );
+        dir.write("p/libx.dylib", "");
+        let platform = working();
+        let (result, log) = run(&platform, &[dir.path()]);
+        assert_eq!(counts(&result), (0, 1, 0));
+        assert!(platform.seen.borrow().is_empty());
+        assert!(
+            log.mentions("skipped, kind \"dylib\" is not supported on Windows"),
+            "{:?}",
+            log.0.borrow()
+        );
+    }
+
+    #[test]
+    fn loose_libraries_are_ignored_on_macos() {
+        let dir = TempDir::new("scan-macos-loose");
+        dir.write("loose.dylib", "");
+        dir.write("loose.dll", "");
+        let platform = working_mac();
+        let (result, log) = run(&platform, &[dir.path()]);
+        assert_eq!(counts(&result), (0, 0, 0));
+        assert!(platform.seen.borrow().is_empty());
+        assert!(
+            log.mentions("loose libraries are not supported"),
+            "{:?}",
+            log.0.borrow()
+        );
+    }
+
+    #[test]
+    fn other_kinds_still_go_to_their_handler_on_macos() {
+        let dir = TempDir::new("scan-macos-js");
+        dir.write(
+            "p/plugin.toml",
+            "id = \"js.mac\"\nkind = \"js\"\nentry = \"main.js\"\n",
+        );
+        let platform = working_mac();
+        let (result, log) = run(&platform, &[dir.path()]);
+        assert_eq!(counts(&result), (0, 1, 0));
+        assert!(
+            log.mentions("no handler for kind \"js\""),
+            "{:?}",
+            log.0.borrow()
+        );
+    }
+
+    #[test]
     fn scan_rejects_a_manifest_entry_that_escapes_the_plugin_directory() {
         let dir = TempDir::new("scan-entry-escape");
         dir.write(
@@ -662,23 +832,37 @@ mod tests {
         0
     }
 
+    fn working_exports() -> Exports {
+        Exports {
+            query: Some(query),
+            init: Some(init),
+            ..Exports::default()
+        }
+    }
+
     /// A platform on which every library is a working plugin.
     fn working() -> Fake {
         Fake {
-            exports: Exports {
-                query: Some(query),
-                init: Some(init),
-                ..Exports::default()
-            },
+            exports: working_exports(),
+            seen: RefCell::default(),
+        }
+    }
+
+    /// The same, but reporting the macOS native kind.
+    fn working_mac() -> Mac {
+        Mac {
+            exports: working_exports(),
             seen: RefCell::default(),
         }
     }
 
     /// Directory names of the libraries the platform was asked to map.
     fn mapped(platform: &Fake) -> Vec<String> {
-        platform
-            .seen
-            .borrow()
+        names(&platform.seen)
+    }
+
+    fn names(seen: &RefCell<Vec<PathBuf>>) -> Vec<String> {
+        seen.borrow()
             .iter()
             .map(|path| {
                 path.parent()

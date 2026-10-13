@@ -23,6 +23,9 @@ diagnostics = []
 [dependencies]
 parsec-orbit-core = { path = "../parsec-orbit-core" }
 parsec-orbit-plugin-abi = { path = "../parsec-orbit-plugin-abi" }
+
+# Windows-only: on other targets the crate compiles to an empty library.
+[target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = [
     "Win32_Foundation",
     "Win32_Security",

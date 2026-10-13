@@ -9,6 +9,9 @@
 //! This is the sharpest tool a plugin can ask for: a wrong target or detour
 //! crashes the client. The plugin only provides the mechanism.
 
+// Windows-only; the macOS import-rebind backend lands in M2 (ADR 0009).
+#![cfg(windows)]
+
 use std::collections::HashMap;
 use std::ffi::c_void;
 use std::sync::{Mutex, MutexGuard, OnceLock};

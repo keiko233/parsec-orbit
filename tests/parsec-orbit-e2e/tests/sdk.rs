@@ -4,6 +4,7 @@
 //! are what shows that the freestanding runtime (allocator, panic handler,
 //! `memcpy` and friends, stack probes) works once the DLL is mapped by the
 //! Windows loader.
+#![cfg(windows)]
 
 mod common;
 

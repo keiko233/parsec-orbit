@@ -1,6 +1,6 @@
 # Plugin manifest (`plugin.toml`)
 
-Status: implemented on Windows; the `dylib` kind and the macOS defaults are draft ([macos-platform.md](macos-platform.md)). `permissions` is parsed and handed to kind handlers (inside the raw manifest text); the loader itself does not enforce it.
+Status: the `dll`/`dylib` native kinds and the per-platform defaults are implemented in `parsec-orbit-core` (M0); the macOS loader that consumes them lands with M0b and is not yet wired into a client bootstrap ([macos-platform.md](macos-platform.md)). `permissions` is parsed and handed to kind handlers (inside the raw manifest text); the loader itself does not enforce it.
 
 A plugin lives in its own directory containing `plugin.toml` and the entry file. All fields are optional unless stated; unknown keys are ignored (forward compatibility).
 
