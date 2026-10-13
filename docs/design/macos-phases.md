@@ -59,7 +59,7 @@ Keychain/data-protection behavior and the verified-build policy (M2).
 
 ### M1b - transactional apply/restore
 
-**Implemented and scratch-measured (2026-10-14).** The
+**Implemented and scratch-measured (2026-10-14, `8abf13a`).** The
 [installer checkpoint](macos/installer-checkpoint.md) records the step order,
 the on-disk layout, the stub whitelist, the CLI and eight disposable-bundle
 tests: apply/re-apply/uninstall round trip with a byte/metadata-equal restore,
