@@ -100,3 +100,18 @@ The `no_std` jump from 10,752 B on Windows to 50,272 B here is Mach-O
 section/LoadCommand overhead plus the Rust `core` flavour and the libSystem
 imports (`malloc`, `free`, `realloc`, `posix_memalign`) the Windows
 `raw-dylib` build keeps leaner. `core::fmt` is still the bulk of the code.
+
+### M1a checkpoint (accepted 2026-10-14, not the completed loader)
+
+The default release dylib with the dependency constructor, installation
+binding, NSS interception, custom-SBPL isolation gate, shared-persistent
+redirect, verified home arming, deferred runtime worker and the
+`parsec-orbit.client` service is **571,504 B** on macOS 27 arm64
+(`cbccb4f9...d5cee`; 386,528 B before those runtime additions were linked in,
+369,104 B before the isolation profile and interposition table). It is
+measured with the release profile above and no `harness` feature. Reaching
+vendor main now links the previously dead-stripped core activation, so this
+number is a checkpoint, not a final budget, and it is above the historical
+360 KiB Windows reference. The new JSON/hash dependencies reuse the
+workspace's existing serde/serde_json/sha2 versions; no second crypto
+dependency stack was added.

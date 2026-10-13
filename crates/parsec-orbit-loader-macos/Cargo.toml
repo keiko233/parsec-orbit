@@ -24,6 +24,9 @@ harness = []
 parsec-orbit-core = { path = "../parsec-orbit-core" }
 parsec-orbit-plugin-abi = { path = "../parsec-orbit-plugin-abi" }
 libc = "0.2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.11"
 
 [dev-dependencies]
 parsec-orbit-core = { path = "../parsec-orbit-core", features = ["testutil"] }

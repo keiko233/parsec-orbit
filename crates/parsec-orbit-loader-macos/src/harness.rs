@@ -5,9 +5,42 @@
 //! patched copy, not here. Nothing in this module is a product surface.
 
 use std::ffi::{c_char, CStr};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::Config;
+
+/// Test-only installation of a home: this does not enable vendor execution
+/// or bypass the production constructor's isolation refusal.
+#[no_mangle]
+pub extern "C" fn ParsecOrbitMacosHarnessHome(home: *const c_char) -> i32 {
+    let Some(home) = cstr(home) else {
+        return -1;
+    };
+    let Ok(home) = std::ffi::CString::new(home) else {
+        return -1;
+    };
+    match crate::nss::install(unsafe { libc::getuid() }, home) {
+        Ok(()) => 0,
+        Err(_) => -2,
+    }
+}
+
+/// Test-only installation of the shared-persistent redirect with owned
+/// scratch paths. This does not enable vendor execution or install a
+/// production prefix.
+#[no_mangle]
+pub extern "C" fn ParsecOrbitMacosHarnessRedirect(
+    prefix: *const c_char,
+    target: *const c_char,
+) -> i32 {
+    let (Some(prefix), Some(target)) = (cstr(prefix), cstr(target)) else {
+        return -1;
+    };
+    match crate::redirect::install(Path::new(prefix), Path::new(target)) {
+        Ok(()) => 0,
+        Err(_) => -2,
+    }
+}
 
 fn cstr(pointer: *const c_char) -> Option<&'static str> {
     if pointer.is_null() {

@@ -102,6 +102,14 @@ jobs:
       - name: Check the whole workspace
         run: cargo check --workspace --all-targets --locked
 
+      # Exercises only the owned exec gate and trace-evidence parser; no sudo
+      # or vendor bundle/account state is used by these regressions.
+      - name: Bootstrap audit protocol
+        run: |
+          python3 scripts/test-macos-bootstrap-audit.py
+          python3 scripts/test-macos-accept-bootstrap-audit.py
+          python3 scripts/test-macos-keychain-canary.py
+
       # Runs the portable suite, including the macOS loader platform and the
       # std/no_std fixture e2e (`crates/parsec-orbit-loader-macos`).
       - name: Test

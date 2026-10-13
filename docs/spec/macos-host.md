@@ -92,11 +92,45 @@ No promise is made for future stubs, alternate loader tokens or full app updates
 
 Resolve the loader and main executable canonically. Activate only for the installed sibling stub bound to the installation record; all other processes get no Orbit threads/files and interposed calls forward unchanged. The PoC used an exact compiled scratch-path gate; production must not hardcode it. Gate and interposer state must not race during initialization.
 
+M1a is measured complete on disposable copies. The dependency constructor
+validates a schema-1 `Contents/Resources/orbit-install.json` binding canonical
+`executable`, `loader`, `orbit_root` and `uid`. Unknown fields, unsafe roots,
+nonprivate state and invalid records fail closed. Unrelated hosts do not read
+the record, initialize logging or start Orbit workers. For a valid selected
+host the constructor installs the shared-persistent redirect, the custom-SBPL
+profile with its sentinel gate and the verified current-UID home replacement,
+starts the single deferred worker, and only then returns to vendor main; any
+failed step still exits 78 pre-main and names the step. See the
+[checkpoint and audit procedure](../design/macos/bootstrap-checkpoint.md).
+
 ### 6.2 Interposition
 
 Resolve the real current-UID passwd entry through the original implementation. Preserve other fields/UIDs and NSS error semantics. Validate private root ownership, canonical containment, symlinks, permissions, lengths and buffer/error behavior. A separate-image probe must confirm home interception before entering client code. Fail closed on isolation errors; never fall back to real state.
 
 The home hooks are `getpwuid/getpwuid_r`. Shared persistent access also needs coverage; the PoC redirected only fopen/stat and denied the original path via its experimental sandbox. Audit other APIs and establish the production mechanism before claiming complete isolation. A constructor-installed sandbox does not cover earlier dyld initialization and is not implicitly the shipping policy.
+
+The 2026-10-13 [mechanism resolution](../design/macos/isolation-mechanism-assessment.md#mechanism-resolution-2026-10-13) selects the constructor-installed custom SBPL profile with a fail-closed sentinel gate as the only measured mechanism that denies the required protected metadata surface. The profile and gate are implemented in `isolation.rs`, and the measured shared-persistent redirect for the nine path-taking APIs is implemented in `redirect.rs`; both have unit and owned-fixture tests. Vendor execution stays disabled until the remaining runtime-observation items listed there (the vendor Mach service set and the redirect against the real client) are measured through a controlled disposable-copy client run.
+
+The two 2026-10-14 guarded acceptance runs (direct exec and Launch Services)
+measured the redirect against the real client (its `devid.bin`/`status.json`
+landed in the private
+`<orbit_root>/home/.parsec-persistent`, not in `/Users/Shared`) and the client
+startup path under the constructor-installed profile. The vendor's required
+Mach service set remains an M2 observation item; the shipped profile keeps
+`(allow default)` for Mach for the measured reason above. Also measured: the
+vendor creates `log.txt` as `0644` inside the private state root, and the
+readiness observer accepts that file while still refusing group/other write,
+hardlinks, replacement or a nonprivate root.
+
+The NSS implementation preserves inactive forwarding and other-UID/error
+semantics. Reentrant replacement strings stay inside the caller's buffer;
+insufficient capacity returns `ERANGE` with a null result. Active legacy calls
+use a thread-local owned copy. Original active implementations are resolved
+from the system NSS export trie to avoid recursive interposed `dlsym` results.
+The `harness` build can install a replacement home for fixtures; the
+production constructor arms the same replacement only for a valid activation
+record, verifies it in-process against both the interposed and the real NSS
+entry, and fails closed (exit 78 pre-main) if either lookup differs.
 
 ### 6.3 Lifecycle
 
@@ -141,7 +175,7 @@ Scratch complete-backup restoration passed `[measured]`; /Applications authoriza
 
 ## 11. Compatibility with the Windows documents
 
-Shared ABI stays ABI 1/host revision 2. Platform differences are in [macos-platform.md](macos-platform.md). PoC `kind="dll"` with a dylib was only a fixture compatibility convention; official macOS kind is `dylib`, not yet implemented. No Windows loader behavior change is authorized by this platform design.
+Shared ABI stays ABI 1/host revision 2. Platform differences are in [macos-platform.md](macos-platform.md). PoC `kind="dll"` with a dylib was only a fixture compatibility convention; the formal macOS `dylib` kind was implemented in M0. No Windows loader behavior change is authorized by this platform design.
 
 ## 12. Open questions
 

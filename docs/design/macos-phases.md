@@ -34,6 +34,21 @@ Owner: implementation session. All initial runtime work uses disposable copies a
 
 ### M1a - minimal production bootstrap
 
+**Accepted on disposable copies (2026-10-14).** The [implementation
+checkpoint](macos/bootstrap-checkpoint.md) provides canonical installation
+binding, a fail-closed dependency constructor, NSS callbacks/export
+resolution, exclusive verified seeding, the constructor-installed isolation
+guard and a bounded readiness policy. A valid selected host now arms the
+guard and the verified home replacement, starts the single deferred worker
+and returns to vendor main; any failed step still exits 78 pre-main. Two
+ordinary-user acceptance runs (direct exec on empty state and Launch Services
+`open -n` on a preseeded copy) measured the window, the native
+hello/registry evidence through the `parsec-orbit.client` service and the
+self-exec re-initialization, with real-state and payload hashes unchanged.
+The measured limits that remain open are listed in the checkpoint: the
+empty-state first-launch exit 2 (M1b preseed), the vendor Mach service set,
+Keychain/data-protection behavior and the verified-build policy (M2).
+
 - Mach-O constructor/dependency path; canonical installation-bound activation gate; inactive forwarding and no side effects in other processes.
 - Current-UID home handling with original NSS semantics, validated private roots, separate-image probe and fail-closed isolation errors. Audit and cover shared `.parsec-persistent`, open/openat and other observed APIs; do not generalize fopen/stat coverage.
 - Verified atomic seed for new isolated state, no real credential/state migration and no overwrite of existing appdata.

@@ -84,6 +84,21 @@ fn dedupe(dirs: Vec<PathBuf>) -> Vec<PathBuf> {
 }
 
 impl Config {
+    /// Settings derived from a validated installation record.
+    ///
+    /// The activated vendor host must not take its paths from the process
+    /// environment: `orbit_root` comes from `orbit-install.json`, and the
+    /// plugin/data/log paths follow it. The loader-as-host development route
+    /// keeps the environment overrides in [`Config::load`].
+    pub fn for_root(orbit_root: PathBuf) -> Self {
+        Config {
+            log_candidates: vec![orbit_root.join(LOG_FILE)],
+            plugin_dirs: vec![orbit_root.join(PLUGINS_DIR)],
+            data_root: Some(orbit_root.join(DATA_DIR)),
+            orbit_root,
+        }
+    }
+
     /// Reads the settings from the process environment.
     pub fn load() -> Self {
         let home = real_home();

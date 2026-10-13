@@ -1019,6 +1019,9 @@ dependencies = [
  "libc",
  "parsec-orbit-core",
  "parsec-orbit-plugin-abi",
+ "serde",
+ "serde_json",
+ "sha2",
 ]
 
 [[package]]

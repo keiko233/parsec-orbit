@@ -17,15 +17,28 @@
 //! empty library (the CI Windows job still builds the whole workspace).
 #![cfg(target_os = "macos")]
 
+mod activation;
+mod bootstrap;
+mod client;
 mod config;
+mod isolation;
 pub mod log;
+pub mod log_observer;
+#[allow(dead_code)]
+mod nss;
+mod original;
 mod platform;
+pub mod readiness;
+mod redirect;
+mod runtime;
+mod seed;
 
 #[cfg(feature = "harness")]
 mod harness;
 
 pub use config::Config;
 pub use platform::MacPlatform;
+pub use seed::{seed, SeedReport};
 
 use std::sync::{Mutex, OnceLock};
 

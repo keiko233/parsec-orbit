@@ -64,7 +64,10 @@ So: home dir comes from `home_get_dir`/`getpwuid` (imported `_getpwuid`; `'getpw
 string), own path from `_NSGetExecutablePath` (`MTY_GetProcessPath`; `MTY_JoinPath` builds
 paths with `%s%c%s`), source skel is `/Applications/<bundle-name>.app/Contents/Resources/skel`
 (bundle name is a parameter = `Parsec`, so a renamed app still resolves but the parent
-**must** be `/Applications`), destination is `<home>/.parsec/skel` normally or
+**must** be `/Applications`). The earlier static interpretation placed the seed
+under `<home>/.parsec/skel`; the later [smoke test](smoke-test.md) measured
+`appdata.json` and the loaded client directly under `<home>/.parsec` instead.
+Use the measured layout for fresh-state seeding. Shared mode uses
 `/Users/Shared/.parsec/...` when `setup.json` sets `useProgramData` (per-computer;
 dylib strings confirm `per-user`/`per-computer`/`install_type`, 13589-13592).
 Single-instance via `flock` (`lock`, `lock_client` names) and crash counting via
@@ -121,7 +124,7 @@ bootstrap/app shell:
   the whole Client/Host/Experimental settings corpus, and `Navigating WebView to %s...`.
 - Execution location: the **process** is `/Applications/Parsec.app/Contents/MacOS/parsecd`
   (path discovered via `_NSGetExecutablePath`), but the **code** it runs is
-  `~/.parsec/skel/parsecd-<ver>.dylib` (or `/Users/Shared/.parsec/...` per-computer).
+  `~/.parsec/parsecd-<ver>.dylib` (later measured layout; or `/Users/Shared/.parsec/...` per-computer).
   So the client runs from /Applications *and* from ~/.parsec simultaneously by design:
   immutable launcher + user-writable payload.
 
@@ -232,7 +235,7 @@ way `legacy.rs` documents for PE).
   next check is xrefs on the `libusb-1.0.dylib` cstring (file offset 0x2e8cc4 in thin x86_64)
   in a disassembler.
 - **Loaded from user-writable locations: YES — the entire real client**
-  (`~/.parsec/skel/parsecd-<ver>.dylib`, or `/Users/Shared/.parsec/...`). That is the
+  (`~/.parsec/parsecd-<ver>.dylib`, later measured layout, or `/Users/Shared/.parsec/...`). That is the
   future-loader surface: whoever controls skel (or the hash check in front of it) controls
   execution. `libmatoya` is NOT a load-time surface (statically vendored, §3).
 - Hardening caveat: hardened runtime WITHOUT `disable-library-validation` or
