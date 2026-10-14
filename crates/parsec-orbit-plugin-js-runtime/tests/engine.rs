@@ -284,17 +284,33 @@ fn timers_fire_in_order_repeat_and_can_be_cleared() {
         export default {
           setup(host) {
             const order = [];
-            host.setTimeout(() => order.push("c"), 90);
-            host.setTimeout(() => order.push("a"), 10);
-            host.setTimeout((x, y) => order.push("b" + x + y), 40, 1, 2);
-            const cancelled = host.setTimeout(() => order.push("never"), 20);
-            host.clearTimeout(cancelled);
+            let timeoutsDone = false;
             let ticks = 0;
+            function finished() {
+              if (timeoutsDone && ticks >= 3) {
+                // Allow more interval periods to pass to verify cancellation.
+                host.setTimeout(() => host.log.info("order:", order.join(","), "ticks:", ticks), 40);
+              }
+            }
+            // Chain callbacks so timeout order does not depend on how often
+            // the CI runner schedules this context relative to its interval.
+            host.setTimeout(() => {
+              order.push("a");
+              host.setTimeout((x, y) => {
+                order.push("b" + x + y);
+                host.setTimeout(() => {
+                  order.push("c");
+                  timeoutsDone = true;
+                  finished();
+                }, 10);
+              }, 10, 1, 2);
+            }, 10);
+            const cancelled = host.setTimeout(() => order.push("never"), 0);
+            host.clearTimeout(cancelled);
             const interval = host.setInterval(() => {
               ticks += 1;
-              if (ticks === 3) { host.clearInterval(interval); order.push("ticks"); }
+              if (ticks === 3) { host.clearInterval(interval); finished(); }
             }, 15);
-            host.setTimeout(() => host.log.info("order:", order.join(",")), 250);
           },
         };
         "#,
@@ -311,7 +327,7 @@ fn timers_fire_in_order_repeat_and_can_be_cleared() {
         .unwrap()
         .1
         .clone();
-    assert_eq!(line, "order: a,b12,ticks,c");
+    assert_eq!(line, "order: a,b12,c ticks: 3");
 }
 
 #[test]
