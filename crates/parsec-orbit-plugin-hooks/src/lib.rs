@@ -201,7 +201,7 @@ impl Plugin for HooksPlugin {
 parsec_orbit_plugin_sdk_std::declare_plugin! {
     id = "com.parsec-orbit.hooks",
     name = "Hooks",
-    version = "0.1.0",
+    version = "0.1.1",
     author = "Parsec Orbit contributors",
     description = "Provides parsec-orbit.hooks: inline hooks on functions of the client process",
     license = "MIT",

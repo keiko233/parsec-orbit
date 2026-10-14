@@ -58,8 +58,8 @@ on its own thread.
 The loader log (`%APPDATA%\ParsecOrbit\parsec-orbit.log`) reports the result:
 
 ```
-loaded com.parsec-orbit.native 0.1.0 (Native UI Patches) ABI 1 by Parsec Orbit contributors [MIT]
-native ui patches 0.1.0 starting
+loaded com.parsec-orbit.native 0.1.1 (Native UI Patches) ABI 1 by Parsec Orbit contributors [MIT]
+native ui patches 0.1.1 starting
 legacy ui patch: bandwidth table at +0x337B70
 legacy ui patch: 12 -> 22 options, 2 references and 2 count immediates patched
 ```

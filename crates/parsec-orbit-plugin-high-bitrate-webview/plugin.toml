@@ -3,7 +3,7 @@
 # the webview bridge, which speaks DevTools to the endpoint the loader opens.
 id = "com.parsec-orbit.webview"
 name = "WebView UI Patches"
-version = "0.1.0"
+version = "0.1.1"
 kind = "dll"
 entry = "parsec_orbit_plugin_high_bitrate_webview.dll"
 author = "Parsec Orbit contributors"

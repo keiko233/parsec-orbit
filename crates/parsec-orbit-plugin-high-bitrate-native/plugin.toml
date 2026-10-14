@@ -2,7 +2,7 @@
 # UI in memory: it widens the "Bandwidth Limit" option table at runtime.
 id = "com.parsec-orbit.native"
 name = "Native UI Patches"
-version = "0.1.0"
+version = "0.1.1"
 kind = "dll"
 entry = "parsec_orbit_plugin_high_bitrate_native.dll"
 author = "Parsec Orbit contributors"

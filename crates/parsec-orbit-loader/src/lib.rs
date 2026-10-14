@@ -20,6 +20,7 @@
 //! never inside `DllMain`.
 
 mod config;
+mod console;
 mod exports;
 mod log;
 mod plugin;
@@ -220,6 +221,9 @@ unsafe extern "system" fn worker(_parameter: *mut c_void) -> u32 {
     let directory = loader_dir();
     let config = config::Config::load(directory.as_deref());
     let logging = log::init(&config.log_candidates);
+    // Before the first line, so the console shows the whole start-up. A
+    // console that cannot be opened costs a warning, nothing else.
+    let debug_console = console::ensure(config.console);
 
     let version = env!("CARGO_PKG_VERSION");
     log::info(&format!("Parsec Orbit {version} loader mapped"));
@@ -233,6 +237,23 @@ unsafe extern "system" fn worker(_parameter: *mut c_void) -> u32 {
         Some(path) => log::debug(&format!("logging to {}", path.display())),
         None => log::error("no writable log file found; lines go to the debugger output only"),
     }
+    match debug_console {
+        Ok(console::Outcome::Open) => log::info(
+            "debug console open: every line of this log is mirrored to it; \
+             closing that window ends the client",
+        ),
+        Ok(console::Outcome::OtherInstance) => log::debug(&format!(
+            "debug console skipped: PARSEC_ORBIT_CONSOLE={} does not cover this instance ({})",
+            config.console.as_str(),
+            console::instance()
+        )),
+        Ok(console::Outcome::Off) => {}
+        Err(code) => log::warn(&format!(
+            "PARSEC_ORBIT_CONSOLE={} but no console could be opened (Win32 error {code}); \
+             the log file and the debugger output still get every line",
+            config.console.as_str()
+        )),
+    }
 
     if !log::process_name().eq_ignore_ascii_case(config::CLIENT_PROCESS) && !config.any_host {
         log::info(&format!(
@@ -241,6 +262,25 @@ unsafe extern "system" fn worker(_parameter: *mut c_void) -> u32 {
             config::CLIENT_PROCESS
         ));
         return 0;
+    }
+
+    // Parsec's own log, so the window shows both sides of a session. Only
+    // here: a process that just forwards bcrypt has no plugin work to watch.
+    if parsec_orbit_core::console::installed() && !config.parsec_logs.is_empty() {
+        log::debug(&format!(
+            "following Parsec's log: {}",
+            config
+                .parsec_logs
+                .iter()
+                .map(|path| path.display().to_string())
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
+        if let Err(code) = console::follow(config.parsec_logs.clone()) {
+            log::warn(&format!(
+                "could not follow Parsec's log (Win32 error {code})"
+            ));
+        }
     }
 
     if let Some(port) = config.devtools_port {

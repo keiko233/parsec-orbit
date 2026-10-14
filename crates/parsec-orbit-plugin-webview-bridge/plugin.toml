@@ -4,7 +4,7 @@
 # opens.
 id = "com.parsec-orbit.webview-bridge"
 name = "WebView Bridge"
-version = "0.1.0"
+version = "0.1.1"
 kind = "dll"
 entry = "parsec_orbit_plugin_webview_bridge.dll"
 author = "Parsec Orbit contributors"

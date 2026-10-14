@@ -150,7 +150,7 @@ impl Plugin for ConfigStore {
 parsec_orbit_plugin_sdk_std::declare_plugin! {
     id = "com.parsec-orbit.config",
     name = "Config Store",
-    version = "0.1.0",
+    version = "0.1.1",
     author = "Parsec Orbit contributors",
     description = "Provides parsec-orbit.config: settings that survive restarts",
     license = "MIT",

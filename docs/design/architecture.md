@@ -29,11 +29,14 @@
  +-----------------------------------------------------------------------+
 ```
 
-* **Loader** (`parsec-orbit-loader`): `DllMain`, bcrypt thunks, a `Platform` implementation on `windows-sys`. Nothing else.
+* **Loader** (`parsec-orbit-loader`): `DllMain`, bcrypt thunks, a `Platform`
+  implementation on `windows-sys` and the opt-in debug console window. Nothing
+  else.
 * **Core** (`parsec-orbit-core`): everything that does not need Win32: manifest
   parsing, discovery, dependency resolution, the service registry and
-  per-plugin host tables. Written against two traits (`Platform`: map a library
-  / resolve a symbol; `Logger`), so it is unit-tested without mapping DLLs.
+  per-plugin host tables. Written against traits (`Platform`: map a library /
+  resolve a symbol; `Logger`; `console::Console`: show a log line), so it is
+  unit-tested without mapping DLLs.
 * **Plugins** are DLLs speaking the C ABI in [spec/plugin-abi.md](../spec/plugin-abi.md). The same ABI is used for *services*: a plugin can register typed vtables that other plugins query ([spec/services.md](../spec/services.md)).
 * **JS runtime is a plugin** (`kind.js` handler). A JS plugin declares `requires = ["com.parsec-orbit.js-runtime"]`; with the runtime absent (the default install) the loader skips it with a clear message. See [ADR 0003](decisions/0003-js-runtime-is-a-plugin.md).
 * **WebView operations are a plugin too** (`parsec-orbit.webview`), because the DevTools client (HTTP + WebSocket) is not something the bcrypt proxy should carry. The loader keeps only the existing job of opening the DevTools port.
@@ -69,7 +72,7 @@ The loader was just reduced from ~520 KB to ~340 KB; that is the baseline to pro
 
 | Artifact | Budget | Mechanism |
 | --- | --- | --- |
-| loader `bcrypt.dll` | <= 360 KiB (368,640 B). Phase 2 stayed just under it (368,128 B, 512 B headroom); phase 5 is over it at 374,272 B - see the [size report](../design/size-report.md) | no async runtime, no serde, no `tracing` unless measured to fit |
+| loader `bcrypt.dll` | <= 360 KiB (368,640 B). Phase 2 stayed just under it (368,128 B, 512 B headroom); phase 5 is over it at 374,272 B, and the debug console takes that to 381,952 B - see the [size report](../design/size-report.md) | no async runtime, no serde, no `tracing` unless measured to fit |
 | minimal Rust plugin | goal: well below the current ~210 KB std `hello` | CRT-free `no_std` recipe (`freestanding!`), `panic=abort`, `opt-level=z`, LTO, strip |
 | JS runtime plugin | unconstrained (separate download) | Boa lives here only |
 
@@ -82,6 +85,7 @@ How the SDK keeps plugins small is specified in [spec/rust-sdk.md](../spec/rust-
   (`ContextExt::spawn` from `parsec-orbit-plugin-sdk-std`) and return from
   `init`.
 * **Logging**: the loader owns the log file. Plugins log through the host (`log_ex`, with the plugin id as target). The SDK's own macros need no dependencies; the `tracing` feature adds a `tracing::Subscriber` that forwards to the host so ecosystem crates' events end up in the same file. The loader itself adopts `tracing-core` only if the size budget allows ([ADR 0004](decisions/0004-loader-stays-light.md)).
+* **Debug console**: `PARSEC_ORBIT_CONSOLE=1` makes the loader open a console window at start-up and mirror every line of that log into it, plus Parsec's own log, which `parsec-orbit-core` follows (the window and its Win32 calls stay in the loader). `client` and `host` open it in one of the client's two instances instead of both, because a console belongs to a process and the service's instance is a second one. It is opt-in because the client is a GUI process that normally has no console at all, and best effort because a debug aid must never change the load.
 * **Actors, without a runtime**: the heavy plugins are one thread that owns a resource plus a command channel - an actor in shape only, no `ractor` and no async runtime ([ADR 0004](decisions/0004-loader-stays-light.md#amendment-phase-4)). The JS runtime gives each Boa context (which is not `Send`) a thread of its own; the webview bridge gives the DevTools session one thread that reconnects and replays the scripts, and runs subscriber callbacks on a second thread so a callback can call back in.
 
 ## Failure model

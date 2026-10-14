@@ -81,7 +81,15 @@ hand, copy `bcrypt.dll` next to `parsecd.exe` (typically
 
 The client loads the proxy at start-up. It appends to the first writable path
 of `PARSEC_ORBIT_LOG`, `%APPDATA%\ParsecOrbit\parsec-orbit.log`, the client
-directory and `%TEMP%`, and mirrors every line to the debugger output.
+directory and `%TEMP%`, and mirrors every line to the debugger output. With
+`PARSEC_ORBIT_CONSOLE=1` it also opens a console window before the first line
+and shows the same lines next to Parsec's own log (`%APPDATA%\Parsec\`), so a
+plugin can be watched while the client starts. The client runs as two
+instances (the one the user started and the one the service started), and each
+gets its own window with `1`; `PARSEC_ORBIT_CONSOLE=client` or `=host` opens it
+in one of them only. Closing that window ends the client with it - Windows
+terminates a process whose console is closed - so the log file is what remains
+of a session that ended that way.
 
 ## Tests
 
