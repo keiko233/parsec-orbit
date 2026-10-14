@@ -1829,6 +1829,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "parsec-orbit-layout"
+version = "0.1.1"
+
+[[package]]
 name = "parsec-orbit-lib-config"
 version = "0.1.1"
 dependencies = [
@@ -1884,6 +1888,7 @@ version = "0.1.1"
 dependencies = [
  "libc",
  "parsec-orbit-core",
+ "parsec-orbit-layout",
  "parsec-orbit-macos-state",
  "parsec-orbit-plugin-abi",
  "serde",
@@ -1896,6 +1901,7 @@ name = "parsec-orbit-loader-windows"
 version = "0.1.1"
 dependencies = [
  "parsec-orbit-core",
+ "parsec-orbit-layout",
  "parsec-orbit-plugin-abi",
  "windows-sys 0.61.2",
 ]

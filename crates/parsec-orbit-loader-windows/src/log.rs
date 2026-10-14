@@ -9,6 +9,7 @@ use std::os::windows::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
+use parsec_orbit_core::log::format_line;
 use parsec_orbit_core::Level;
 use windows_sys::Win32::Foundation::{
     CloseHandle, GetLastError, GENERIC_WRITE, HANDLE, INVALID_HANDLE_VALUE, SYSTEMTIME,
@@ -181,19 +182,6 @@ fn write_line(path: Option<&Path>, line: &str) {
     parsec_orbit_core::console::print_line(line.strip_suffix('\n').unwrap_or(line));
 }
 
-/// `[MM-DD hh:mm:ss.mmm] [tag] [process pid=N] message`, newline terminated.
-fn format_line(
-    (month, day, hour, minute, second, millisecond): (u16, u16, u16, u16, u16, u16),
-    tag: &str,
-    process: &str,
-    pid: u32,
-    message: &str,
-) -> String {
-    format!(
-        "[{month:02}-{day:02} {hour:02}:{minute:02}:{second:02}.{millisecond:03}] [{tag}] [{process} pid={pid}] {message}\n"
-    )
-}
-
 /// Writes one log line with the level's tag to the log file and the debugger
 /// output.
 pub fn log(level: Level, message: &str) {
@@ -232,18 +220,6 @@ mod tests {
 
     const ERROR_PATH_NOT_FOUND: u32 = 3;
     const ERROR_ACCESS_DENIED: u32 = 5;
-
-    #[test]
-    fn line_format_is_stable() {
-        assert_eq!(
-            format_line((3, 7, 4, 5, 6, 89), "info", "parsecd.exe", 42, "hello"),
-            "[03-07 04:05:06.089] [info] [parsecd.exe pid=42] hello\n"
-        );
-        assert_eq!(
-            format_line((12, 31, 23, 59, 59, 999), "error", "x.exe", 4_000_000, ""),
-            "[12-31 23:59:59.999] [error] [x.exe pid=4000000] \n"
-        );
-    }
 
     #[test]
     fn timestamp_is_a_plausible_local_time() {

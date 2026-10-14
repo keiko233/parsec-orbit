@@ -14,9 +14,11 @@ pub mod activate;
 pub mod console;
 pub mod host;
 pub mod kind;
+pub mod log;
 pub mod manifest;
 pub mod plan;
 pub mod scan;
+pub mod session;
 #[cfg(any(test, feature = "testutil"))]
 pub mod testutil;
 
@@ -27,6 +29,7 @@ use parsec_orbit_plugin_abi::{InitFn, LegacyInitFn, QueryFn, ShutdownFn};
 
 pub use manifest::{read_manifest, Manifest, KIND_DLL, KIND_DYLIB, KIND_JS, MANIFEST};
 pub use scan::{scan, Scan, Summary};
+pub use session::Session;
 
 /// Severity of a log line, in the order the ABI's `LOG_*` values use.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]

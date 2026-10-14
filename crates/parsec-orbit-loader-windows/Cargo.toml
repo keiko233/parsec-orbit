@@ -22,6 +22,7 @@ diagnostics = []
 
 [dependencies]
 parsec-orbit-core = { path = "../parsec-orbit-core" }
+parsec-orbit-layout = { path = "../parsec-orbit-layout" }
 parsec-orbit-plugin-abi = { path = "../parsec-orbit-plugin-abi" }
 
 # Windows-only: on other targets the crate compiles to an empty library.

@@ -69,6 +69,7 @@ parsec-orbit-plugin-abi      no_std, zero deps. repr(C) types, constants, servic
         |       ^
         |       +-- parsec-orbit-plugin-sdk-testing   MockHost (std, dev-dependency only)         [crates.io]
         |-- parsec-orbit-core         loader logic (std; toml parse-only)
+        |-- parsec-orbit-layout       where files live per OS: Orbit root, plugin dirs, logs, data (std, no deps)
         |-- parsec-orbit-market       index, sha256/ed25519, safe installation, the market tool
                 ^
                 +-- parsec-orbit-loader-windows   cdylib named `bcrypt`

@@ -24,3 +24,4 @@ Format: Context, Decision, Consequences.
 | [0016](0016-orbit-ui-winio.md) | Orbit UI: External winio companion window with unified declarative ABI | Accepted |
 | [0017](0017-one-sdk-package-no-features.md) | One SDK package without features; `sdk-std` dissolved | Accepted |
 | [0018](0018-crate-roles-and-layout.md) | Crate roles and directory layout | Accepted |
+| [0019](0019-layout-crate-and-shared-loader-glue.md) | One `layout` crate and shared loader glue | Accepted |

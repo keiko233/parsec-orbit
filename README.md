@@ -19,6 +19,8 @@ libraries), `libs/` (service providers such as `config`, `hooks`, `js-runtime`,
 * `crates/parsec-orbit-loader-windows/` - the `bcrypt.dll` proxy. It forwards every export to
   the real `bcrypt.dll`, opens the WebView2 DevTools endpoint and hosts the
   plugin system.
+* `crates/parsec-orbit-layout/` - where Orbit keeps its files on each OS (Orbit
+  root, plugin directories, log candidates, data), shared by both loaders.
 * `crates/parsec-orbit-loader-macos/` - the macOS arm64 counterpart: a
   `Platform` over `dlopen`/`dlsym`/`dlerror`, an append-only logger and the
   same plugin scan/host logic. It is a plain dylib for now; M1 loads it from a

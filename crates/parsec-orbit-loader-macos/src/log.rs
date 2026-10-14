@@ -16,6 +16,7 @@ use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
+use parsec_orbit_core::log::format_line;
 use parsec_orbit_core::Level;
 
 static LOG_PATH: OnceLock<PathBuf> = OnceLock::new();
@@ -143,19 +144,6 @@ fn timestamp() -> (u16, u16, u16, u16, u16, u16) {
     )
 }
 
-/// `[MM-DD hh:mm:ss.mmm] [tag] [process pid=N] message`, newline terminated.
-fn format_line(
-    (month, day, hour, minute, second, millisecond): (u16, u16, u16, u16, u16, u16),
-    tag: &str,
-    process: &str,
-    pid: u32,
-    message: &str,
-) -> String {
-    format!(
-        "[{month:02}-{day:02} {hour:02}:{minute:02}:{second:02}.{millisecond:03}] [{tag}] [{process} pid={pid}] {message}\n"
-    )
-}
-
 /// Appends one line. A failed write is retried: a reader that did not share
 /// the file handle is enough to make a single attempt fail.
 fn write_line(path: Option<&Path>, line: &str) {
@@ -226,18 +214,6 @@ mod tests {
 
     const ENOENT: i32 = libc::ENOENT;
     const EISDIR: i32 = libc::EISDIR;
-
-    #[test]
-    fn line_format_is_the_windows_one() {
-        assert_eq!(
-            format_line((3, 7, 4, 5, 6, 89), "info", "parsecd", 42, "hello"),
-            "[03-07 04:05:06.089] [info] [parsecd pid=42] hello\n"
-        );
-        assert_eq!(
-            format_line((12, 31, 23, 59, 59, 999), "error", "x", 4_000_000, ""),
-            "[12-31 23:59:59.999] [error] [x pid=4000000] \n"
-        );
-    }
 
     #[test]
     fn timestamp_is_a_plausible_local_time() {

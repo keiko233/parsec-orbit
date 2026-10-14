@@ -1,7 +1,11 @@
 //! Loader settings, all overridable through the process environment so a user
-//! can change behaviour without reinstalling anything.
+//! can change behaviour without reinstalling anything. Where the files live is
+//! decided by `parsec-orbit-layout`; this module adds what only the Windows
+//! loader has: the DevTools port, the host check and the debug console.
 
 use std::path::{Path, PathBuf};
+
+use parsec_orbit_layout::{Inputs, Layout, Os};
 
 /// Default port the WebView2 devtools endpoint is opened on.
 pub const DEFAULT_DEVTOOLS_PORT: u16 = 9222;
@@ -27,15 +31,6 @@ pub struct Config {
     pub parsec_logs: Vec<PathBuf>,
 }
 
-fn split_paths(value: &str) -> Vec<PathBuf> {
-    value
-        .split(';')
-        .map(str::trim)
-        .filter(|part| !part.is_empty())
-        .map(PathBuf::from)
-        .collect()
-}
-
 impl Config {
     /// `loader_dir` is the directory holding `bcrypt.dll`, i.e. the client
     /// application directory.
@@ -47,63 +42,14 @@ impl Config {
     /// the process environment. An empty value counts as unset.
     pub fn from_lookup(loader_dir: Option<&Path>, lookup: impl Fn(&str) -> Option<String>) -> Self {
         let env = |name: &str| lookup(name).filter(|value| !value.is_empty());
-        let mut plugin_dirs = Vec::new();
-        if let Some(extra) = env("PARSEC_ORBIT_PLUGIN_DIR") {
-            plugin_dirs.extend(split_paths(&extra));
-        }
-        if let Some(dir) = loader_dir {
-            plugin_dirs.push(dir.join("plugins"));
-        }
-        if let Some(appdata) = env("APPDATA") {
-            plugin_dirs.push(Path::new(&appdata).join("ParsecOrbit").join("plugins"));
-        }
-
-        // The same directory can arrive twice from the environment override
-        // and the default locations; loading it twice would call `init` twice.
-        let mut unique_dirs: Vec<PathBuf> = Vec::with_capacity(plugin_dirs.len());
-        for dir in plugin_dirs {
-            let duplicate = unique_dirs.iter().any(|existing| {
-                existing
-                    .to_string_lossy()
-                    .eq_ignore_ascii_case(&dir.to_string_lossy())
-            });
-            if !duplicate {
-                unique_dirs.push(dir);
-            }
-        }
-
-        // Every candidate is probed at start-up, so a path that cannot be
-        // written (missing `%APPDATA%`, an unelevated client directory, a file
-        // someone else holds without sharing write) costs the next one, not
-        // the whole log.
-        let mut log_candidates = Vec::new();
-        if let Some(path) = env("PARSEC_ORBIT_LOG") {
-            log_candidates.push(PathBuf::from(path));
-        }
-        if let Some(appdata) = env("APPDATA") {
-            log_candidates.push(
-                Path::new(&appdata)
-                    .join("ParsecOrbit")
-                    .join("parsec-orbit.log"),
-            );
-        }
-        if let Some(dir) = loader_dir {
-            log_candidates.push(dir.join("parsec-orbit.log"));
-        }
-        if let Some(temp) = env("TEMP") {
-            log_candidates.push(Path::new(&temp).join("parsec-orbit.log"));
-        }
-        let mut unique: Vec<PathBuf> = Vec::with_capacity(log_candidates.len());
-        for candidate in log_candidates {
-            let duplicate = unique.iter().any(|existing| {
-                existing
-                    .to_string_lossy()
-                    .eq_ignore_ascii_case(&candidate.to_string_lossy())
-            });
-            if !duplicate {
-                unique.push(candidate);
-            }
-        }
+        let layout = Layout::resolve(
+            Os::Windows,
+            Inputs {
+                loader_dir,
+                home: None,
+            },
+            &lookup,
+        );
 
         let devtools_port = match env("PARSEC_ORBIT_DEVTOOLS").as_deref() {
             Some("0") | Some("off") | Some("false") => None,
@@ -113,9 +59,6 @@ impl Config {
                     .unwrap_or(DEFAULT_DEVTOOLS_PORT),
             ),
         };
-
-        let data_root =
-            env("APPDATA").map(|appdata| Path::new(&appdata).join("ParsecOrbit").join("data"));
 
         // Parsec writes its own log into its per-user directory: `log_cl.txt`
         // for the client the user started, `log.txt` for the instance the
@@ -129,9 +72,9 @@ impl Config {
         }
 
         Config {
-            log_candidates: unique,
-            plugin_dirs: unique_dirs,
-            data_root,
+            log_candidates: layout.log_candidates,
+            plugin_dirs: layout.plugin_dirs,
+            data_root: layout.data_root,
             devtools_port,
             any_host: matches!(env("PARSEC_ORBIT_HOST").as_deref(), Some("any")),
             console: parsec_orbit_core::console::target(env("PARSEC_ORBIT_CONSOLE").as_deref()),
@@ -161,20 +104,6 @@ mod tests {
     }
 
     #[test]
-    fn split_paths_trims_and_drops_empty_parts() {
-        assert_eq!(
-            split_paths(" C:\\a ;; D:\\b;  ;E:\\c;"),
-            vec![
-                PathBuf::from("C:\\a"),
-                PathBuf::from("D:\\b"),
-                PathBuf::from("E:\\c")
-            ]
-        );
-        assert!(split_paths("").is_empty());
-        assert!(split_paths(" ; ;").is_empty());
-    }
-
-    #[test]
     fn defaults_without_any_environment() {
         let config = load(None, &[]);
         assert!(config.log_candidates.is_empty());
@@ -183,121 +112,6 @@ mod tests {
         assert!(!config.any_host);
         assert_eq!(config.console, Target::Off);
         assert!(config.parsec_logs.is_empty());
-    }
-
-    #[test]
-    fn plugin_dirs_are_ordered_override_then_client_then_appdata() {
-        let config = load(
-            Some("C:\\Parsec"),
-            &[
-                ("PARSEC_ORBIT_PLUGIN_DIR", "D:\\one;D:\\two"),
-                ("APPDATA", "C:\\Users\\me\\AppData\\Roaming"),
-            ],
-        );
-        assert_eq!(
-            paths(&config.plugin_dirs),
-            [
-                "D:\\one",
-                "D:\\two",
-                "C:\\Parsec\\plugins",
-                "C:\\Users\\me\\AppData\\Roaming\\ParsecOrbit\\plugins",
-            ]
-        );
-    }
-
-    #[test]
-    fn plugin_dirs_drop_duplicates_ignoring_case() {
-        let config = load(
-            Some("C:\\Parsec"),
-            &[
-                (
-                    "PARSEC_ORBIT_PLUGIN_DIR",
-                    "c:\\PARSEC\\plugins;D:\\other;d:\\OTHER",
-                ),
-                ("APPDATA", "C:\\Roaming"),
-            ],
-        );
-        assert_eq!(
-            paths(&config.plugin_dirs),
-            [
-                "c:\\PARSEC\\plugins",
-                "D:\\other",
-                "C:\\Roaming\\ParsecOrbit\\plugins",
-            ]
-        );
-    }
-
-    #[test]
-    fn plugin_data_lives_below_appdata() {
-        let config = load(None, &[("APPDATA", "C:\\Roaming")]);
-        assert_eq!(
-            config
-                .data_root
-                .map(|path| path.to_string_lossy().replace('/', "\\")),
-            Some("C:\\Roaming\\ParsecOrbit\\data".to_string())
-        );
-        assert_eq!(load(None, &[]).data_root, None);
-        assert_eq!(load(None, &[("APPDATA", "")]).data_root, None);
-    }
-
-    #[test]
-    fn plugin_dirs_skip_what_is_not_available() {
-        let config = load(None, &[("APPDATA", "C:\\Roaming")]);
-        assert_eq!(
-            paths(&config.plugin_dirs),
-            ["C:\\Roaming\\ParsecOrbit\\plugins"]
-        );
-
-        let config = load(Some("C:\\Parsec"), &[]);
-        assert_eq!(paths(&config.plugin_dirs), ["C:\\Parsec\\plugins"]);
-    }
-
-    #[test]
-    fn log_candidates_are_ordered_by_priority() {
-        let config = load(
-            Some("C:\\Parsec"),
-            &[
-                ("PARSEC_ORBIT_LOG", "D:\\custom.log"),
-                ("APPDATA", "C:\\Roaming"),
-                ("TEMP", "C:\\Temp"),
-            ],
-        );
-        assert_eq!(
-            paths(&config.log_candidates),
-            [
-                "D:\\custom.log",
-                "C:\\Roaming\\ParsecOrbit\\parsec-orbit.log",
-                "C:\\Parsec\\parsec-orbit.log",
-                "C:\\Temp\\parsec-orbit.log",
-            ]
-        );
-    }
-
-    #[test]
-    fn log_candidates_survive_a_missing_appdata() {
-        // Service environments have no %APPDATA%; the other locations still
-        // have to be offered.
-        let config = load(Some("C:\\Parsec"), &[("TEMP", "C:\\Temp")]);
-        assert_eq!(
-            paths(&config.log_candidates),
-            ["C:\\Parsec\\parsec-orbit.log", "C:\\Temp\\parsec-orbit.log"]
-        );
-    }
-
-    #[test]
-    fn log_candidates_drop_duplicates_ignoring_case() {
-        let config = load(
-            Some("C:\\Parsec"),
-            &[
-                ("PARSEC_ORBIT_LOG", "c:\\PARSEC\\Parsec-Orbit.log"),
-                ("TEMP", "C:\\Temp"),
-            ],
-        );
-        assert_eq!(
-            paths(&config.log_candidates),
-            ["c:\\PARSEC\\Parsec-Orbit.log", "C:\\Temp\\parsec-orbit.log"],
-            "the first spelling wins and the later duplicate is dropped"
-        );
     }
 
     #[test]
@@ -314,11 +128,9 @@ mod tests {
                 ("PARSEC_ORBIT_CONSOLE", ""),
             ],
         );
-        assert_eq!(
-            paths(&config.log_candidates),
-            ["C:\\Parsec\\parsec-orbit.log"]
-        );
-        assert_eq!(paths(&config.plugin_dirs), ["C:\\Parsec\\plugins"]);
+        // The paths themselves are `parsec-orbit-layout`'s business.
+        assert_eq!(config.log_candidates.len(), 1);
+        assert_eq!(config.plugin_dirs.len(), 1);
         assert_eq!(config.devtools_port, Some(DEFAULT_DEVTOOLS_PORT));
         assert!(!config.any_host);
         assert_eq!(config.console, Target::Off);

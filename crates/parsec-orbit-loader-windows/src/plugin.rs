@@ -7,9 +7,8 @@
 
 use std::os::windows::ffi::OsStrExt;
 use std::path::Path;
-use std::sync::{Mutex, OnceLock};
 
-use parsec_orbit_core::{Env, Exports, Level, Loaded, Logger, Module, Platform};
+use parsec_orbit_core::{Env, Exports, Level, Logger, Module, Platform, Session};
 use parsec_orbit_plugin_abi::{
     InitFn, LegacyInitFn, QueryFn, ShutdownFn, EXPORT_INIT, EXPORT_LEGACY_INIT, EXPORT_QUERY,
     EXPORT_SHUTDOWN,
@@ -23,29 +22,14 @@ use crate::log;
 
 const LOADER_VERSION: &str = env!("CARGO_PKG_VERSION");
 
-// Safety: the registry is only touched through its mutex, and a module handle
-// is valid process wide.
-static REGISTRY: OnceLock<Mutex<Vec<Loaded>>> = OnceLock::new();
-
-fn remember(plugins: Vec<Loaded>) {
-    let registry = REGISTRY.get_or_init(|| Mutex::new(Vec::new()));
-    if let Ok(mut loaded) = registry.lock() {
-        loaded.extend(plugins);
-    }
-}
+/// The modules mapped so far; there is no unload, so it lives as long as the
+/// process.
+static SESSION: Session = Session::new();
 
 /// Ids of the plugins mapped so far, in load order.
 #[allow(dead_code)]
 pub fn loaded() -> Vec<String> {
-    REGISTRY
-        .get()
-        .and_then(|registry| {
-            registry
-                .lock()
-                .ok()
-                .map(|plugins| plugins.iter().map(|plugin| plugin.id.clone()).collect())
-        })
-        .unwrap_or_default()
+    SESSION.loaded_ids()
 }
 
 fn wide(path: &Path) -> Vec<u16> {
@@ -120,10 +104,10 @@ impl Logger for FileLogger {
 
 static FILE_LOGGER: FileLogger = FileLogger;
 
-/// Walks every configured plugin directory.
+/// Walks every configured plugin directory and logs the `ready:` summary.
 pub fn scan(config: &Config) -> Summary {
     parsec_orbit_core::host::install_logger(&FILE_LOGGER);
-    let result = parsec_orbit_core::scan(
+    SESSION.scan(
         Env {
             platform: &Win32Platform,
             logger: &FILE_LOGGER,
@@ -131,9 +115,7 @@ pub fn scan(config: &Config) -> Summary {
             data_root: config.data_root.as_deref(),
         },
         &config.plugin_dirs,
-    );
-    remember(result.loaded);
-    result.summary
+    )
 }
 
 #[cfg(test)]

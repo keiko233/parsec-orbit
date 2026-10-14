@@ -300,11 +300,8 @@ unsafe extern "system" fn worker(_parameter: *mut c_void) -> u32 {
     // Let the client finish its own start-up before plugin images are mapped.
     std::thread::sleep(PLUGIN_WARMUP);
 
-    let summary = plugin::scan(&config);
-    log::info(&format!(
-        "ready: {} loaded, {} skipped, {} failed",
-        summary.loaded, summary.skipped, summary.failed
-    ));
+    // Logs the `ready:` summary itself.
+    plugin::scan(&config);
     0
 }
 

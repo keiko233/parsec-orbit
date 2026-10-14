@@ -9,6 +9,7 @@ members = [
     "crates/parsec-orbit-plugin-sdk",
     "crates/parsec-orbit-plugin-sdk-testing",
     "crates/parsec-orbit-core",
+    "crates/parsec-orbit-layout",
     "crates/parsec-orbit-market",
     "libs/parsec-orbit-lib-webview-bridge",
     "libs/parsec-orbit-lib-config",
