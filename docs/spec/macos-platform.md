@@ -23,7 +23,7 @@ Status: **the M0 platform layer is implemented** (`crates/parsec-orbit-loader-ma
 | `data_dir` of a plugin | `<Orbit root>/data/<id>` (the host table's `data_dir`; may not exist yet) |
 | Log file, first usable | `PARSEC_ORBIT_LOG`, `<Orbit root>/parsec-orbit.log`, `$TMPDIR/parsec-orbit.log` |
 | Config service storage | `<Orbit root>/data/com.parsec-orbit.config/<owner>.json` |
-| Market | `<Orbit root>/market/` (`trusted-keys.txt`, `--keys` overrides) |
+| Market | `<Orbit root>/market/` (`trusted-keys.toml`, converted once from `trusted-keys.txt`; `--keys` overrides) |
 | Client state (owned by the client) | `<Orbit root>/home/.parsec` |
 | Shared-persistent replacement | `<Orbit root>/home/.parsec-persistent` (full API coverage remains a gate) |
 
@@ -163,7 +163,7 @@ The fix is in M0 and applies to the test: the affected fixtures
 
 * A macOS package is the same zip with one folder; its `plugin.toml` has `kind = "dylib"` and its `entry` is a `.dylib`.
 * After the checks and before the swap-in, the tool **checks every staged `.dylib` for an arm64 slice, then signs it ad-hoc** (`codesign --force --sign -`) and verifies it; a signing failure aborts the install and leaves the old version in place. The sha256 and size in the index are those of the package as published; the installed file is signed and so differs in bytes. `market.json` records the package digest.
-* Paths: plugins in `<Orbit root>/plugins/<id>`, keys in `<Orbit root>/market/trusted-keys.txt`.
+* Paths: plugins in `<Orbit root>/plugins/<id>`, keys in `<Orbit root>/market/trusted-keys.toml`.
 * A plugin that the running client holds mapped can be replaced on macOS (the old file is unlinked; the running process keeps its inode), but the new version loads at the next start; the tool does not refuse and says so.
 
 ## 10. Release installation and terminal diagnostics

@@ -7,10 +7,10 @@ Status: implemented (`crates/parsec-orbit-registry`, the `parsec-orbit-market` t
 Nothing is trusted because of where it came from.
 
 1. A **package** is trusted if its sha256 and size equal the entry of a signed index.
-2. An **index** is trusted if one of the keys in the user's `trusted-keys.txt` signed its exact bytes (ed25519).
+2. An **index** is trusted if one of the keys in the user's `trusted-keys.toml` signed its exact bytes (ed25519).
 3. **Plugins are native code** in the client process. The signature says who published a package, not that it is harmless; see the [security notes](plugin-abi.md#security-notes).
 
-The key list is `<Orbit root>/market/trusted-keys.txt` (or `--keys`): one `ed25519 <base64 public key> [comment]` per line, `#` for comments. On Windows, the Orbit root is `%APPDATA%\ParsecOrbit`. On macOS arm64, it is `~/Library/Application Support/ParsecOrbit`, or the directory in `PARSEC_ORBIT_HOME`. No key is built into the tool; users add the keys of the publishers they trust. With an empty list nothing verifies. `--allow-unsigned` accepts an index whose signature is missing or wrong (and says so); the digests in it are then only as good as the connection it came over.
+The key list is `<Orbit root>/market/trusted-keys.toml` (or `--keys`), with one `[[key]]` table per key: `algorithm = "ed25519"`, `public = "<base64 public key>"` and an optional `comment`. A `--keys` file whose name does not end in `.toml` is read in the older line format instead: one `ed25519 <base64 public key> [comment]` per line, `#` for comments. If there is no `trusted-keys.toml` but there is a `trusted-keys.txt` beside it, the text list is converted once into the TOML file; the text file is left as it was and is not read again. On Windows, the Orbit root is `%APPDATA%\ParsecOrbit`. On macOS arm64, it is `~/Library/Application Support/ParsecOrbit`, or the directory in `PARSEC_ORBIT_HOME`. No key is built into the tool; users add the keys of the publishers they trust. With an empty list nothing verifies. `--allow-unsigned` accepts an index whose signature is missing or wrong (and says so); the digests in it are then only as good as the connection it came over.
 
 ## The index
 

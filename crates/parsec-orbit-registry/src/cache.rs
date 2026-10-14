@@ -8,8 +8,9 @@
 //! that a trusted key signed is ever stored, and each file is replaced by
 //! writing a temporary file and renaming it over the old one.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
+use crate::source::write_atomic;
 use crate::trust;
 use crate::Error;
 
@@ -58,17 +59,6 @@ impl Cache {
         write_atomic(&dir.join(SIGNATURE), signature.as_bytes())?;
         write_atomic(&dir.join(ETAG), trust::sha256_hex(index).as_bytes())
     }
-}
-
-fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), Error> {
-    let temporary = PathBuf::from(format!("{}.tmp", path.display()));
-    if let Err(error) =
-        std::fs::write(&temporary, bytes).and_then(|()| std::fs::rename(&temporary, path))
-    {
-        let _ = std::fs::remove_file(&temporary);
-        return Err(error.into());
-    }
-    Ok(())
 }
 
 #[cfg(test)]

@@ -5,15 +5,27 @@
 //! entry, and trusts the index if one of the keys it was configured with
 //! signed it. Nothing is trusted because of where it came from.
 //!
-//! Keys and signatures travel as base64 text. A key list is a text file with
-//! one `ed25519 <base64 public key> [comment]` per line; `#` starts a comment.
+//! Keys and signatures travel as base64 text. The key list is
+//! `trusted-keys.toml`, one `[[key]]` table per key (see
+//! [`parse_trusted_keys_toml`]). The older `trusted-keys.txt` format, one
+//! `ed25519 <base64 public key> [comment]` per line, is still read and is
+//! converted once by [`load_trusted_keys`].
+
+use std::path::Path;
 
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
 use ed25519_dalek::{Signature, Signer, SigningKey, VerifyingKey};
+use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
+use crate::source::write_atomic;
 use crate::Error;
+
+/// The key list in the Orbit root.
+pub const KEYS_TOML: &str = "trusted-keys.toml";
+/// The line-based key list that `trusted-keys.toml` replaces.
+pub const KEYS_TXT: &str = "trusted-keys.txt";
 
 /// Lowercase hex sha256.
 pub fn sha256_hex(bytes: &[u8]) -> String {
@@ -87,6 +99,103 @@ pub fn parse_trusted_keys(text: &str) -> Result<Vec<TrustedKey>, Error> {
         });
     }
     Ok(keys)
+}
+
+/// `trusted-keys.toml`: one `[[key]]` table per key.
+#[derive(Deserialize)]
+struct KeyList {
+    #[serde(default)]
+    key: Vec<KeyTable>,
+}
+
+#[derive(Deserialize)]
+struct KeyTable {
+    algorithm: String,
+    public: String,
+    #[serde(default)]
+    comment: String,
+}
+
+/// Reads a `trusted-keys.toml`. Unknown keys are ignored, as in the index.
+pub fn parse_trusted_keys_toml(text: &str) -> Result<Vec<TrustedKey>, Error> {
+    let list: KeyList =
+        toml::from_str(text).map_err(|error| Error::Signature(format!("trusted keys: {error}")))?;
+    list.key
+        .into_iter()
+        .enumerate()
+        .map(|(number, table)| {
+            if table.algorithm != "ed25519" {
+                return Err(Error::Signature(format!(
+                    "key {}: algorithm {:?} is not ed25519",
+                    number + 1,
+                    table.algorithm
+                )));
+            }
+            Ok(TrustedKey {
+                key: public_key(&table.public)?,
+                comment: table.comment,
+            })
+        })
+        .collect()
+}
+
+/// The `[[key]]` table for `key`, ready to append to a `trusted-keys.toml`.
+pub fn to_toml_block(key: &TrustedKey) -> String {
+    let mut block = format!(
+        "[[key]]\nalgorithm = \"ed25519\"\npublic = \"{}\"\n",
+        STANDARD.encode(key.key.to_bytes())
+    );
+    if !key.comment.is_empty() {
+        block.push_str(&format!("comment = {}\n", toml_string(&key.comment)));
+    }
+    block
+}
+
+/// `text` as a TOML basic string, quotes included.
+fn toml_string(text: &str) -> String {
+    let mut quoted = String::from("\"");
+    for character in text.chars() {
+        match character {
+            '"' => quoted.push_str("\\\""),
+            '\\' => quoted.push_str("\\\\"),
+            control if control.is_control() => {
+                quoted.push_str(&format!("\\u{:04X}", control as u32))
+            }
+            other => quoted.push(other),
+        }
+    }
+    quoted.push('"');
+    quoted
+}
+
+/// The keys in the key list of the Orbit root `dir`: `trusted-keys.toml`, or
+/// the older `trusted-keys.txt` while there is no TOML file. A text list is
+/// converted once, by writing the TOML file beside it; the text file is left
+/// as it was and is not read again. No list at all is an empty list.
+pub fn load_trusted_keys(dir: &Path) -> Result<Vec<TrustedKey>, Error> {
+    let toml_path = dir.join(KEYS_TOML);
+    if let Some(text) = read_optional(&toml_path)? {
+        return parse_trusted_keys_toml(&text);
+    }
+    let Some(text) = read_optional(&dir.join(KEYS_TXT))? else {
+        return Ok(Vec::new());
+    };
+    let keys = parse_trusted_keys(&text)?;
+    let mut converted = format!("# Trusted keys, converted from {KEYS_TXT}.\n");
+    for key in &keys {
+        converted.push('\n');
+        converted.push_str(&to_toml_block(key));
+    }
+    write_atomic(&toml_path, converted.as_bytes())?;
+    Ok(keys)
+}
+
+fn read_optional(path: &Path) -> Result<Option<String>, Error> {
+    match std::fs::read_to_string(path) {
+        Ok(text) => Ok(Some(text)),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(Error::Io(format!("{}: {error}", path.display()))),
+    }
 }
 
 /// Checks that one of `trusted` signed `message`; returns which.
@@ -203,6 +312,108 @@ mod tests {
         assert!(verify(b"m", &STANDARD.encode([0u8; 10]), &trusted).is_err());
         assert!(signing_key("short").is_err());
         assert!(public_key(&STANDARD.encode([0u8; 31])).is_err());
+    }
+
+    struct Dir(std::path::PathBuf);
+    impl Dir {
+        fn new(label: &str) -> Dir {
+            use std::sync::atomic::{AtomicU32, Ordering};
+            static COUNTER: AtomicU32 = AtomicU32::new(0);
+            let path = std::env::temp_dir().join(format!(
+                "parsec-orbit-trust-{label}-{}-{}",
+                std::process::id(),
+                COUNTER.fetch_add(1, Ordering::SeqCst)
+            ));
+            let _ = std::fs::remove_dir_all(&path);
+            std::fs::create_dir_all(&path).unwrap();
+            Dir(path)
+        }
+    }
+    impl Drop for Dir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn public_base64() -> String {
+        generate_keypair().unwrap().1
+    }
+
+    #[test]
+    fn a_toml_key_block_round_trips_with_awkward_comments() {
+        let key = TrustedKey {
+            key: public_key(&public_base64()).unwrap(),
+            comment: "the \"maintainers\" \\ backup\nsecond line".into(),
+        };
+        let text = format!("# header\n\n{}", to_toml_block(&key));
+        let parsed = parse_trusted_keys_toml(&text).unwrap();
+        assert_eq!(parsed.len(), 1);
+        assert_eq!(parsed[0].key, key.key);
+        assert_eq!(parsed[0].comment, key.comment);
+    }
+
+    #[test]
+    fn malformed_toml_key_lists_are_refused() {
+        let public = public_base64();
+        let good = format!("[[key]]\nalgorithm = \"ed25519\"\npublic = \"{public}\"\n");
+        assert_eq!(parse_trusted_keys_toml(&good).unwrap().len(), 1);
+        assert!(parse_trusted_keys_toml("[[key]]\nalgorithm = \"ed25519\"\n").is_err());
+        assert!(parse_trusted_keys_toml("[[key]\n").is_err(), "not TOML");
+        assert!(parse_trusted_keys_toml("key = 3\n").is_err(), "wrong type");
+        let rsa = parse_trusted_keys_toml(&good.replace("ed25519", "rsa")).unwrap_err();
+        assert!(rsa.to_string().contains("not ed25519"), "{rsa}");
+        assert!(parse_trusted_keys_toml(
+            "[[key]]\nalgorithm = \"ed25519\"\npublic = \"not-base64!\"\n"
+        )
+        .is_err());
+        assert!(parse_trusted_keys_toml(&format!("{good}future = true\n")).is_ok());
+        assert!(parse_trusted_keys_toml("# nothing here\n")
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
+    fn the_text_key_list_is_converted_once_and_left_alone() {
+        let dir = Dir::new("convert");
+        let (first, second) = (public_base64(), public_base64());
+        let legacy = format!("# old list\ned25519 {first} the maintainers\n\ned25519 {second}\n");
+        std::fs::write(dir.0.join(KEYS_TXT), &legacy).unwrap();
+
+        let keys = load_trusted_keys(&dir.0).unwrap();
+        assert_eq!(keys.len(), 2);
+        assert_eq!(keys[0].comment, "the maintainers");
+        let converted = std::fs::read_to_string(dir.0.join(KEYS_TOML)).unwrap();
+        let again = parse_trusted_keys_toml(&converted).unwrap();
+        let bytes = |keys: &[TrustedKey]| keys.iter().map(|k| k.key.to_bytes()).collect::<Vec<_>>();
+        assert_eq!(bytes(&again), bytes(&keys));
+        assert_eq!(again[0].comment, "the maintainers");
+        assert_eq!(
+            std::fs::read_to_string(dir.0.join(KEYS_TXT)).unwrap(),
+            legacy,
+            "the text list is not rewritten"
+        );
+
+        // Once the TOML file exists the text list is not read again.
+        std::fs::write(dir.0.join(KEYS_TXT), "ed25519 not-a-key\n").unwrap();
+        assert_eq!(load_trusted_keys(&dir.0).unwrap().len(), 2);
+    }
+
+    #[test]
+    fn no_key_list_is_empty_and_a_malformed_toml_list_is_not_replaced() {
+        let dir = Dir::new("precedence");
+        assert!(load_trusted_keys(&dir.0).unwrap().is_empty());
+        assert!(!dir.0.join(KEYS_TOML).exists(), "nothing created");
+
+        std::fs::write(
+            dir.0.join(KEYS_TXT),
+            format!("ed25519 {}\n", public_base64()),
+        )
+        .unwrap();
+        std::fs::write(dir.0.join(KEYS_TOML), "[[key]\n").unwrap();
+        assert!(
+            load_trusted_keys(&dir.0).is_err(),
+            "a broken TOML list is an error, not a fallback to the text list"
+        );
     }
 
     #[test]

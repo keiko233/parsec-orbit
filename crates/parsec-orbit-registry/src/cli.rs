@@ -34,10 +34,12 @@ For publishers
 Options
   --index <location>         index file or URL (or PARSEC_ORBIT_INDEX)
   --plugins-dir <folder>     default <Orbit root>/plugins
-  --keys <file>              trusted keys, default <Orbit root>/market/trusted-keys.txt
+  --keys <file>              trusted keys: a .toml file of [[key]] tables, or a file of
+                             `ed25519 <base64 public key> [comment]` lines (any other name);
+                             default <Orbit root>/market/trusted-keys.toml, or the
+                             trusted-keys.txt beside it, converted once
                              (macOS arm64: ~/Library/Application Support/ParsecOrbit;
                               PARSEC_ORBIT_HOME overrides it)
-                             (one `ed25519 <base64 public key> [comment]` per line)
   --allow-unsigned           accept an index whose signature is missing or wrong
                              (the digests in it are then only as good as its source)
 ";
@@ -133,25 +135,24 @@ fn one<'a>(options: &'a Options, what: &str) -> Result<&'a str, Error> {
     }
 }
 
+/// The trusted keys: `--keys <file>` (a `.toml` file is a TOML key list, any
+/// other name the line format), else the key list of the Orbit root. With no
+/// key list at all nothing verifies, which the commands that need a signature
+/// say.
 fn read_keys(
     options: &Options,
     env: &dyn Environment,
     fetch: &dyn Fetch,
 ) -> Result<Vec<trust::TrustedKey>, Error> {
-    let location = match &options.keys {
-        Some(location) => location.clone(),
-        None => appdata(env)?
-            .join("market")
-            .join("trusted-keys.txt")
-            .to_string_lossy()
-            .into_owned(),
+    let Some(location) = &options.keys else {
+        return trust::load_trusted_keys(&appdata(env)?.join("market"));
     };
-    match fetch.fetch(&location, 1024 * 1024) {
-        Ok(bytes) => trust::parse_trusted_keys(&String::from_utf8_lossy(&bytes)),
-        // No key list is not an error by itself: nothing will verify, which
-        // the commands that need a signature say.
-        Err(_) if options.keys.is_none() => Ok(Vec::new()),
-        Err(error) => Err(error),
+    let bytes = fetch.fetch(location, 1024 * 1024)?;
+    let text = String::from_utf8_lossy(&bytes);
+    if location.ends_with(".toml") {
+        trust::parse_trusted_keys_toml(&text)
+    } else {
+        trust::parse_trusted_keys(&text)
     }
 }
 
@@ -386,7 +387,7 @@ fn run_on_platform(
             say(out, format!("ed25519 {public} {label}"))?;
             say(
                 out,
-                "add that last line to the trusted-keys.txt of everyone who should trust it"
+                "add a [[key]] table with that public key to the trusted-keys.toml of everyone who should trust it"
                     .to_string(),
             )
         }
@@ -861,6 +862,62 @@ mod tests {
         .unwrap();
 
         let verified = command(&["verify-any", &payload, "--keys", &keys], &none).unwrap();
+        assert!(verified.contains("ok: signed by key 1"), "{verified}");
+    }
+
+    #[test]
+    fn the_default_key_list_is_converted_and_an_explicit_toml_list_is_read() {
+        let root = Dir::new("default-keys");
+        let publisher = Dir::new("default-keys-pub");
+        write_package(&publisher, "com.example.p", "1.0.0", "");
+        let none = Vars(HashMap::new());
+        let index = publisher.path("index.json");
+        command(&["index", &publisher.path(""), "--out", &index], &none).unwrap();
+        let key_file = publisher.path("market");
+        let generated = command(&["keygen", &key_file], &none).unwrap();
+        let public = generated
+            .lines()
+            .find(|line| line.starts_with("ed25519 "))
+            .unwrap()
+            .to_string();
+        command(
+            &["sign", &index, "--key", &format!("{key_file}.key")],
+            &none,
+        )
+        .unwrap();
+
+        // The Orbit root holds the old text list; the first run converts it.
+        let orbit = root.0.join("ParsecOrbit");
+        let market_dir = orbit.join("market");
+        std::fs::create_dir_all(&market_dir).unwrap();
+        let key = public.split_whitespace().nth(1).unwrap();
+        let legacy = format!("ed25519 {key} publisher\n");
+        std::fs::write(market_dir.join("trusted-keys.txt"), &legacy).unwrap();
+        let mut values = HashMap::from([("PARSEC_ORBIT_INDEX".to_string(), index.clone())]);
+        #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+        values.insert(
+            "PARSEC_ORBIT_HOME".to_string(),
+            orbit.to_string_lossy().into_owned(),
+        );
+        #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
+        values.insert("APPDATA".to_string(), root.path(""));
+        let env = Vars(values);
+
+        let listed = command(&["list"], &env).unwrap();
+        assert!(listed.contains("com.example.p  1.0.0"), "{listed}");
+        let converted = std::fs::read_to_string(market_dir.join("trusted-keys.toml")).unwrap();
+        assert!(
+            converted.contains("[[key]]") && converted.contains("comment = \"publisher\""),
+            "{converted}"
+        );
+        assert_eq!(
+            std::fs::read_to_string(market_dir.join("trusted-keys.txt")).unwrap(),
+            legacy
+        );
+
+        let explicit = publisher.path("keys.toml");
+        std::fs::write(&explicit, &converted).unwrap();
+        let verified = command(&["verify", &index, "--keys", &explicit], &none).unwrap();
         assert!(verified.contains("ok: signed by key 1"), "{verified}");
     }
 

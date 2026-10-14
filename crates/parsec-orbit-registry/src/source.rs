@@ -112,6 +112,19 @@ impl Fetch for Real {
     }
 }
 
+/// Replaces the file at `path` with `bytes` through a temporary file, so a
+/// reader sees the old content or the new, never a part of either.
+pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), Error> {
+    let temporary = PathBuf::from(format!("{}.tmp", path.display()));
+    if let Err(error) =
+        std::fs::write(&temporary, bytes).and_then(|()| std::fs::rename(&temporary, path))
+    {
+        let _ = std::fs::remove_file(&temporary);
+        return Err(error.into());
+    }
+    Ok(())
+}
+
 /// `relative` as seen from `base`: absolute locations stay as they are, the
 /// rest is looked up next to the file (or URL) `base`. An index fetched over
 /// http(s) may only name http(s) locations: a path or UNC share in a remote
