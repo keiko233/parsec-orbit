@@ -10,9 +10,13 @@ fn main() {
         .map(|value| value.parse().unwrap_or(9222))
         .unwrap_or(9222);
 
-    match parsec_orbit_devtools::inject_once(
+    // The patch script is read from the plugin's asset instead of linking the
+    // plugin: every plugin exports the same ABI symbols, and a tool that links
+    // two plugin rlibs fails the release (LTO) build with a multiply defined
+    // `ParsecOrbitPluginInit`.
+    match parsec_orbit_plugin_webview_bridge::inject_once(
         port,
-        parsec_orbit_plugin_high_bitrate_webview::BITRATE_SCRIPT,
+        include_str!("../../parsec-orbit-plugin-high-bitrate-webview/assets/bandwidth.js"),
     ) {
         Ok(injection) => {
             println!("target: {}", injection.target_url);

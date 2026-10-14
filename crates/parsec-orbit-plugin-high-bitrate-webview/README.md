@@ -58,7 +58,7 @@ again if the page is recreated. The loader opens the endpoint unless
 `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` themselves; then the web UI is left
 untouched.
 
-`cargo run --release -p parsec-orbit-verify-webview-inject -- 9222` performs the
+`cargo run --release -p parsec-orbit-verify --bin webview-inject -- 9222` performs the
 same steps against a running client without restarting it.
 
 The loader log (`%APPDATA%\ParsecOrbit\parsec-orbit.log`) reports the result:

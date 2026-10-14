@@ -45,10 +45,10 @@ Parsec UI/client request/reply protocol (`protocol_version: 1`).
 * `src/lib.rs` - the plugin: port detection, registration.
 * `src/service.rs` - the `ParsecOrbitWebViewV1` table.
 * `src/bridge.rs` - scripts, subscriptions and the session thread.
-* `crates/parsec-orbit-devtools` - HTTP and WebSocket client for the endpoint
-  (also used by `parsec-orbit-verify-webview-inject` through `inject_once`);
-  kept out of the plugin crate because a dual `cdylib`/`rlib` crate cannot be
-  linked into an LTO build of a tool.
+* `src/devtools.rs` - HTTP and WebSocket client for the endpoint (also used by
+  the `webview-inject` tool of `parsec-orbit-verify` through `inject_once`, so
+  the tool links this crate's `rlib` and no other plugin: two plugin `rlib`s
+  export the same ABI symbols and fail an LTO build.)
 * `assets/orbit.js` - the page helper.
 
 ## Tests

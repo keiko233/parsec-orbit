@@ -8,7 +8,7 @@ use std::sync::{mpsc, Arc};
 use std::time::{Duration, Instant};
 
 use common::*;
-use parsec_orbit_devtools::{inject_once as inject, Injection};
+use parsec_orbit_plugin_webview_bridge::devtools::{inject_once as inject, Injection};
 
 /// A script with characters that need escaping on the wire.
 const SCRIPT: &str = "(() => {\n  const s = \"quote \\\" and backslash \\\\ done\";\n  return 'installed'; // \u{30ed}\u{30b0} \u{1F600}\n})();\n";

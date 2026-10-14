@@ -51,7 +51,7 @@ Budget: 360 KiB = 368,640 bytes, so phase 2 left 512 bytes. The growth is the re
 
 | Artifact | Size | Notes |
 | --- | ---: | --- |
-| `webview-bridge` | 379,904 | `std`, `serde_json`, `parsec-orbit-devtools` |
+| `webview-bridge` | 379,904 | `std`, `serde_json`, its `devtools` module (a crate of its own when measured) |
 | `js-runtime` | 4,226,048 | Boa without `temporal`/`intl`; a separate download on purpose |
 | `config` | 297,984 | `std`, `serde_json` |
 | `hooks` | 385,536 | `std`, `retour` |

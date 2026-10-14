@@ -43,8 +43,7 @@ native bitrate/WebView support remain unverified; see the
   restarts) and `parsec-orbit.hooks` (Windows inline detours; bounded imported-pointer hooks on macOS).
 * `crates/parsec-orbit-market/` - the `parsec-orbit-market` tool: plugin index,
   sha256 and ed25519 checks, safe installation; see
-  [Marketplace](docs/spec/marketplace.md). `crates/parsec-orbit-devtools/` is
-  the DevTools client the webview bridge and the verify tool share.
+  [Marketplace](docs/spec/marketplace.md).
 * `crates/parsec-orbit-plugin-js-runtime/` - official plugin that runs JavaScript
   and TypeScript plugins (`kind = "js"`) on Boa; see its
   [README](crates/parsec-orbit-plugin-js-runtime/README.md).
@@ -62,7 +61,7 @@ native bitrate/WebView support remain unverified; see the
   [README](crates/parsec-orbit-plugin-stun-swap/README.md).
 * `examples/parsec-orbit-plugin-hello-nostd/` - smallest possible plugin (10 KB, `no_std`).
 * `examples/parsec-orbit-plugin-hello/` - the same idea with `std`.
-* `crates/parsec-orbit-verify-*` - verification tools for the loader and the
+* `crates/parsec-orbit-verify/` - verification tools for the loader and the
   WebView patch delivery.
 * `tests/parsec-orbit-e2e/` - end-to-end tests that run the built loader and
   plugins inside a real process; see [Tests](#tests).
@@ -181,7 +180,7 @@ the script injected into the WebView UI; without it that one test is skipped
   plugins into `target/e2e`, install them into a throwaway client directory
   next to a host process named `parsecd.exe`, and check the log, the files the
   plugins write and the environment the host ends up with. They also run
-  the `crates/parsec-orbit-verify-*` tools (`callpaths`, `roundtrip`), so the forwarding checks of
+  the `crates/parsec-orbit-verify` tools (`callpaths`, `roundtrip`), so the forwarding checks of
   `scripts\verify.ps1` are part of `cargo test`.
 
 The tests never touch an installed Parsec client: the Windows suite redirects

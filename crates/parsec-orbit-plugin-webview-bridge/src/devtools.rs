@@ -7,7 +7,7 @@
 //! 3. Events (`Runtime.bindingCalled`) read from the same socket.
 //!
 //! The session that keeps this alive and serves the `parsec-orbit.webview`
-//! interface is in the webview bridge plugin; this crate is the wire.
+//! interface is in [`crate::bridge`]; this module is the wire.
 
 use std::io::{ErrorKind, Read, Write};
 use std::net::{SocketAddr, TcpStream};

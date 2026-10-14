@@ -197,7 +197,8 @@ valid one level down, and the crate directory still equals the package name.
 
 Libs and plugins meet only through services at run time, declared with
 `requires` in `plugin.toml`. A `cdylib + rlib` pair is allowed only so tests
-and verify tools can reach the code, and **never for a `no_std` plugin**: its
+and verify tools can reach the code, a tool links **at most one** plugin `rlib`
+(duplicate ABI symbols), and **never for a `no_std` plugin**: its
 `freestanding!` panic handler and allocator would clash with `std` in the
 consumer ([section 6.5](#65-costs-and-constraints)).
 
@@ -223,7 +224,7 @@ Review of the current splits:
 | Split | Verdict | Reason |
 | --- | --- | --- |
 | `sdk` / `sdk-std` | **merged** (`sdk-std` becomes `sdk-testing`) | A feature cannot do it (6.7), but almost nothing in `sdk-std` needs `std` once the five call sites are inlined. Only the test double does. |
-| `devtools` / `webview-bridge` | **merged** | Two consumers, one of which (the verify tool) can use the bridge's `rlib`; no boundary of kind 1 or 2. |
+| `devtools` / `webview-bridge` | **merged** | The verify tool uses the bridge's `rlib`. Merging showed a kind-1 limit worth recording: a tool may link at most one plugin `rlib`, because every plugin exports the same three ABI symbols and the LTO release build fails (`symbol multiply defined: ParsecOrbitPluginInit`). `webview-inject` therefore reads the patch script from the plugin's asset instead of linking the plugin. |
 | `verify-callpaths` / `-roundtrip` / `-webview-inject` | **merged** into `parsec-orbit-verify` | Three tiny binaries of one purpose; `[[bin]]` names keep `verify.ps1` unchanged. |
 | `market` lib+bin / `installer-macos` lib+bin | **one package each**, binary removed or merged into the installer | The library is the product. |
 | `abi` / `sdk` | kept | Kind 2: `core` and the loaders depend on the contract only, never on the author API, the allocator or the assembly runtime. |

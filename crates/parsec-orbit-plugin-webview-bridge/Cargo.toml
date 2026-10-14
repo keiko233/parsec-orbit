@@ -7,13 +7,12 @@ license.workspace = true
 repository.workspace = true
 publish = false
 
-# The loader maps the cdylib; the rlib exists so the verification tools can
-# drive the same DevTools client without a second copy of the code.
+# The loader maps the cdylib; the rlib exists so the verification tool can
+# drive the same DevTools client (`devtools` module) and the tests can reach it.
 [lib]
 name = "parsec_orbit_plugin_webview_bridge"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 parsec-orbit-plugin-sdk = { path = "../../crates/parsec-orbit-plugin-sdk" }
-parsec-orbit-devtools = { path = "../../crates/parsec-orbit-devtools" }
 serde_json = "1"

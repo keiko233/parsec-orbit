@@ -67,8 +67,7 @@ pub fn artifacts() -> &'static Artifacts {
             .args(["-p", "parsec-orbit-fixture-plugin"])
             .args(["-p", "parsec-orbit-fixture-nostd"])
             .args(["-p", "parsec-orbit-plugin-hello-nostd"])
-            .args(["-p", "parsec-orbit-verify-callpaths"])
-            .args(["-p", "parsec-orbit-verify-roundtrip"])
+            .args(["-p", "parsec-orbit-verify"])
             .output()
             .expect("start cargo");
         assert!(

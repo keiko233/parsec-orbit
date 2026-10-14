@@ -69,18 +69,17 @@ parsec-orbit-plugin-abi      no_std, zero deps. repr(C) types, constants, servic
         |       ^
         |       +-- parsec-orbit-plugin-sdk-testing   MockHost (std, dev-dependency only)         [crates.io]
         |-- parsec-orbit-core         loader logic (std; toml parse-only)
-        |-- parsec-orbit-devtools     HTTP + WebSocket + DevTools protocol client (std)
         |-- parsec-orbit-market       index, sha256/ed25519, safe installation, the market tool
                 ^
                 +-- parsec-orbit-loader   cdylib named `bcrypt`
 
 crates/     every Rust crate: the loader and SDK above, the official plugins and
             the verification tools; high-bitrate-native and high-bitrate-webview -> sdk
-            (official), webview-bridge (-> devtools), js-runtime (Boa), config,
+            (official), webview-bridge (devtools module), js-runtime (Boa), config,
             hooks (retour), ui (winio)                                              -> sdk + heavy deps
 examples/   parsec-orbit-plugin-hello (-> sdk), parsec-orbit-plugin-hello-nostd (-> sdk)
 javascript-sdk/  @parsec-orbit/sdk (TypeScript: types, definePlugin, ui helper, mock host)  [npm]
-tests/      parsec-orbit-e2e;  crates/parsec-orbit-verify-*  verification tools
+tests/      parsec-orbit-e2e;  crates/parsec-orbit-verify  verification tools
 ```
 
 Directory layout: every Rust crate - the loader, the SDKs, the official plugins and the verification tools - lives under `crates/` (done); the SDK is split into `-abi` and `-sdk` (done); `-core` holds the Win32-free loading logic (done).
