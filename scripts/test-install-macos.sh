@@ -66,6 +66,8 @@ exec "$@"
 EOF
 cat > "$mock_bin/lipo" <<'EOF'
 #!/bin/sh
+# Xcode's lipo consumes every argument after -verify_arch as an architecture.
+[ "$#" -eq 3 ] && [ -f "$1" ] && [ "$2" = -verify_arch ] && [ "$3" = arm64 ] || exit 70
 exit "${LIPO_EXIT:-0}"
 EOF
 chmod +x "$mock_bin/lipo" "$mock_bin/uname" "$mock_bin/codesign" "$mock_bin/sudo"

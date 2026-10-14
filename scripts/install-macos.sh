@@ -171,7 +171,7 @@ done
 [[ -x "$installer" ]] || fail "installer artifact is not executable: $installer"
 [[ -x "$codesign_bin" ]] || fail "missing required command: $codesign_bin"
 [[ -x "$lipo_bin" ]] || fail "missing required command: $lipo_bin"
-"$lipo_bin" -verify_arch arm64 "$loader" || fail "loader has no arm64 slice: $loader"
+"$lipo_bin" "$loader" -verify_arch arm64 || fail "loader has no arm64 slice: $loader"
 
 for record in "${plugins[@]}"; do
     IFS='|' read -r crate plugin_id library <<< "$record"
@@ -181,7 +181,7 @@ for record in "${plugins[@]}"; do
     check_no_symlink_components "$artifact" || fail "refusing a symlink in plugin artifact path: $artifact"
     [[ -f "$manifest" && ! -L "$manifest" ]] || fail "missing or unsafe macOS manifest: $manifest"
     [[ -f "$artifact" && ! -L "$artifact" ]] || fail "missing or unsafe release plugin: $artifact"
-    "$lipo_bin" -verify_arch arm64 "$artifact" || fail "plugin has no arm64 slice: $artifact"
+    "$lipo_bin" "$artifact" -verify_arch arm64 || fail "plugin has no arm64 slice: $artifact"
     grep -Fqx "id = \"$plugin_id\"" "$manifest" || fail "unexpected plugin id in $manifest"
     grep -Fqx "entry = \"$library\"" "$manifest" || fail "unexpected plugin entry in $manifest"
 done

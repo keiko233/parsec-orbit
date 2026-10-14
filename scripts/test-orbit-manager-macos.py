@@ -150,7 +150,10 @@ class OrbitManagerMacOSTests(unittest.TestCase):
     def setUpClass(cls):
         cls.market = ROOT / "target/release/parsec-orbit-market"
         if not cls.market.is_file() or not os.access(cls.market, os.X_OK):
-            raise unittest.SkipTest("release-built parsec-orbit-market is unavailable")
+            raise RuntimeError(
+                "release-built parsec-orbit-market is unavailable; run "
+                "cargo build --release --locked -p parsec-orbit-market"
+            )
         cls.signer_dir = tempfile.TemporaryDirectory(prefix="orbit-manager-signing-")
         cls.signer_root = Path(cls.signer_dir.name).resolve()
         cls.key_base = cls.signer_root / "ephemeral-release-key"

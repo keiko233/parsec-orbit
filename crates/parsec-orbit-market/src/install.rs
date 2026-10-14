@@ -109,8 +109,8 @@ fn run_codesign(action: &str, arguments: &[&str], dylib: &Path) -> Result<(), Er
 impl DylibSigner for SystemDylibSigner {
     fn sign(&self, dylib: &Path) -> Result<(), Error> {
         let output = Command::new("/usr/bin/lipo")
-            .args(["-verify_arch", "arm64"])
             .arg(dylib)
+            .args(["-verify_arch", "arm64"])
             .output()
             .map_err(|error| Error::Io(format!("could not verify arm64 architecture: {error}")))?;
         if !output.status.success() {

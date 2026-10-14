@@ -381,11 +381,13 @@ mod tests {
         fs::create_dir(scratch.path().join("sub")).unwrap();
         fs::write(scratch.path().join("sub/a.txt"), b"hello").unwrap();
         let snapshot = tree(scratch.path()).unwrap();
+        let file_key = Path::new("sub").join("a.txt");
+        let file_key = file_key.to_string_lossy();
         assert_eq!(snapshot["sub"].kind, EntryKind::Dir);
-        assert_eq!(snapshot["sub/a.txt"].kind, EntryKind::File);
-        assert_eq!(snapshot["sub/a.txt"].size, 5);
+        assert_eq!(snapshot[file_key.as_ref()].kind, EntryKind::File);
+        assert_eq!(snapshot[file_key.as_ref()].size, 5);
         assert_eq!(
-            snapshot["sub/a.txt"].sha256.as_deref(),
+            snapshot[file_key.as_ref()].sha256.as_deref(),
             Some(
                 sha256_file(&scratch.path().join("sub/a.txt"))
                     .unwrap()
@@ -594,7 +596,16 @@ mod tests {
         let scratch = TempDir::new("installer-digest-metadata");
         fs::create_dir(scratch.path().join("sub")).unwrap();
         fs::write(scratch.path().join("file"), b"content").unwrap();
-        let expected = tree(scratch.path()).unwrap();
+        let mut expected = tree(scratch.path()).unwrap();
+        // Comparison policy uses explicit timestamps even on hosts that do
+        // not capture Unix metadata, rather than requiring Unix filesystem APIs.
+        for entry in expected.values_mut() {
+            let metadata = entry.metadata.get_or_insert_with(MetadataSnapshot::default);
+            metadata.mtime = Some(FileTimestamp {
+                seconds: 0,
+                nanoseconds: 0,
+            });
+        }
         let mut actual = expected.clone();
         let changed_time = Some(FileTimestamp {
             seconds: 1,
