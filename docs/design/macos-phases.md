@@ -1,6 +1,6 @@
 # macOS phase plan
 
-Status: **planned implementation; disposable-copy native dependency PoC passed**. Specifications: [macos-host.md](../spec/macos-host.md), [macos-platform.md](../spec/macos-platform.md). Current decision: [ADR 0014](decisions/0014-macos-patched-bundle.md). Evidence: [native dependency PoC](macos/native-dependency-poc.md), [extension-project research](macos/extension-projects.md), and earlier [investigations](macos/README.md).
+Status: **M0 and M1a/M1b implemented; M1c local ad-hoc/original-path activation measured; M2 independent code and local plugin scenarios complete. Session, distribution and internals-dependent gates remain open (2026-10-15).** Specifications: [macos-host.md](../spec/macos-host.md), [macos-platform.md](../spec/macos-platform.md). Current decision: [ADR 0014](decisions/0014-macos-patched-bundle.md). Evidence: [native dependency PoC](macos/native-dependency-poc.md), [extension-project research](macos/extension-projects.md), and earlier [investigations](macos/README.md).
 
 Scope: arm64/client only. The target is ordinary launch of the locally patched installed `Parsec.app`, without an extra launcher. A copy passing Finder launch is not original-path or release validation. M0-M2 are independent of the completed Windows phases. Every implementation phase ends with appropriate checks, updated docs and an atomic local commit; do not collect the entire port into one final commit.
 
@@ -59,19 +59,17 @@ Keychain/data-protection behavior and the verified-build policy (M2).
 
 ### M1b - transactional apply/restore
 
-**Implemented and scratch-measured (2026-10-14, `8abf13a`).** The
-[installer checkpoint](macos/installer-checkpoint.md) records the step order,
-the on-disk layout, the stub whitelist, the CLI and eight disposable-bundle
-tests: apply/re-apply/uninstall round trip with a byte/metadata-equal restore,
-dyld actually honoring the inserted dependency, injected and crafted
-interruption recovery, running-app and unknown/stale-input refusals, a
-preseed warning and uninstall-failure restore. Reaching this state does not
-close the exit gate below: no real vendor bundle or `/Applications` path was
-mutated, full backup metadata (mtime/ACL/xattr) is not in the restore
-snapshot, and concurrent updates remain unmeasured. The macOS market
-`platform`/ad-hoc-signing work specified in
-[macos-platform.md](../spec/macos-platform.md#9-marketplace-on-macos) is not
-part of this step and remains open.
+**Implemented and scratch-measured (`8abf13a`, `af92789`, `3af8910`).**
+The [installer checkpoint](macos/installer-checkpoint.md) records the
+transaction, universal official-stub support, arm64 loader preflight, full
+recorded restore metadata, root-owned staging transformations, per-app lock,
+external-replacement refusals and 14 scratch scenarios. Formal apply, first
+launch, re-apply and exact uninstall passed on the disposable official bundle.
+The normal-user `/Applications` attempt was denied at backup rename and rolled
+back; a separate administrator-assisted original-path candidate roundtrip
+passed, as recorded in M1c. It is not a privileged production CLI workflow.
+Market platform filtering, arm64 preflight and staged ad-hoc signing are
+implemented separately in `37dc0c7`, with a real signed-index HTTP integration.
 
 - Version/hash/layout whitelist and idempotent pristine/applied/stale/invalid state machine.
 - Full pristine bundle/metadata backup, provenance and transaction journal; supported header-space patch only, no vendor instruction edits or client re-signing.
@@ -84,7 +82,19 @@ part of this step and remains open.
 
 ### M1c - signing, original-path and service gates
 
-- Clean downloaded/quarantined payload, codesign versus spctl outcomes, available signing identities and supported distribution behavior. Developer ID/notarization is a research route, not assumed success. No silent quarantine removal or global protection weakening.
+**Independent local route and explicit original-path activation measured
+(`70da8d3`, `06f5ead`).** The maintainer selected ad-hoc for development and
+user installation; Developer ID/notarization is not a missing credential gate.
+End-user installation scripts are deferred. Strict codesign passes separately
+from the measured ad-hoc spctl rejection (exit 3). Assessment preserves
+quarantine; a synthetic attribute test does not establish downloaded delivery.
+The [signing checkpoint](macos/signing-checkpoint.md) records one authorized
+administrator-assisted `/Applications` Launch Services run with fresh private
+state, ordinary-user execution, 6 successful plugins through 101a→104a,
+identity-verified stop and exact original restore. Existing Dock/Spotlight/URI
+entries, TCC/credentials and quarantined delivery are still unmeasured.
+
+- Clean downloaded/quarantined payload, codesign versus spctl outcomes, available signing identities and supported distribution behavior. The selected delivery route is local ad-hoc; no Developer ID/notarization is required. No silent quarantine removal or global protection weakening.
 - Same path/id, existing Finder/Dock/Spotlight/URI entries, foreground/window, identity/TCC/Keychain/updater behavior; test in an isolated environment.
 - `config`, market signing/staging and interpreted JS/Boa if compatible with retained HR. Measure executable-memory requirements before considering additional exceptions.
 - Installation/launch/rollback/uninstall guide stating exactly which gates passed.
@@ -92,6 +102,18 @@ part of this step and remains open.
 **Exit gate:** documented supported signing/install route and original-entry experience, with no unresolved blocker hidden behind ad-hoc copy success. If distribution needs external credentials or OS permissions, complete independent work, record the blocker and ask for the concrete missing input. Do not mark M1 release-ready while Gatekeeper behavior remains unsupported.
 
 ## M2 - client behavior and plugin parity
+
+**Independent code and local scenarios completed (`35d20c9`, `56bc6b2`,
+`06f5ead`, `b038686`); full M2 exit gate remains open.** The
+[client checkpoint](macos/client-checkpoint.md) records shared client ABI/SDK,
+bounded classic already-bound import rebinding under HR, official config/Boa
+Mac manifests, JS kind, actual 105c readiness and update handling, signed-out
+native UI inventory, static bitrate tooling and owned memory-protection
+canaries. Disposable 105c Launch Services acceptance has 7 loaded / 0 skipped /
+0 failed. Client builds remain `not-verified`; no internals-dependent native
+bitrate or WebView macOS package is offered. The maintainer currently has no
+dedicated account/remote endpoint and explicitly requested local independent
+work first. Account/session evidence cannot be substituted by scratch tests.
 
 Owner: implementation session plus maintainer-supplied test account/environment where required.
 
@@ -122,6 +144,25 @@ Suggested commits: **M2a** client/session harness and measured surfaces; **M2b**
 
 ## Evidence status and remaining questions
 
-Copy-only window/bundle/self-exec/native ABI gates passed in the PoC; formal platform code, full isolation and production gates remain open. The cold-seed branch is a static candidate; preseeded first launch passed. Ad-hoc spctl rejection is measured. Loader-as-Host remains optional development/fallback, with its historical limitations documented.
+| Phase / gate | Current evidence | Remaining |
+| --- | --- | --- |
+| M0 | Workspace/platform/SDK/owned fixtures implemented and locally tested | Windows runtime CI remains separate evidence |
+| M1a | Guarded copy first launch, re-exec and negative gates measured | Full syscall/IPC and credential audit is not claimed |
+| M1b | Formal toy/official-copy apply/re-apply/exact restore, metadata and injected replacement refusals | Privileged production workflow, real full-app concurrency/disk-full scenarios |
+| M1c | Local ad-hoc route, separate strict codesign/spctl, original-path explicit LS launch/exact restore | Quarantined delivery, existing Dock/Spotlight/URI and TCC/credentials |
+| M2 independent | Shared client SDK, bounded owned import hooks, config/Boa/JS kind, market, 105c update, bounded diagnostics | Generic/chained/lazy coverage is outside the shipped hooks boundary |
+| M2 account/session | Unverified; no supplied dedicated account/endpoint | Login/connect/reconnect/input/audio and coexistence |
+| M2 native/UI | Static bitrate candidate/xrefs; signed-out native Matoya view, no WKWebView; owned canaries only | Runtime table/menu/use-sites/rollback, usable WebView URL/DOM |
 
-Remaining: clean-machine tooling and size budget (M0/M1), alternate LOADER token (informational M1), Keychain/TCC/camera/microphone and account overlap (M1c/M2), whole-app updates/backup metadata (M1b), UI rollout/DOM and rebinding under HR (M2). Hosting, x86_64 and out-of-process plugin execution remain excluded. Signing/distribution research is no longer excluded: it is a mandatory gate.
+All independent checks passed on the final code: workspace test/check,
+formatting, targeted no-deps Clippy, Python and pnpm suites. See the client
+checkpoint for the pre-existing transitive/test lint warnings and local
+Windows C-toolchain limitations. Size measurements are recorded in
+[size-report.md](size-report.md), not hidden behind an unmeasured budget claim.
+The actual `/Applications/Parsec.app` and disposable test copy are restored;
+Orbit evidence is retained. No push, PR or release was performed.
+
+Hosting, x86_64 execution and out-of-process plugins remain excluded. Future
+end-user ad-hoc installation scripts are deferred by the maintainer; no
+Developer ID credential request is pending. Complete the remaining measured
+behavior gates before claiming all phases or release readiness.

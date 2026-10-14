@@ -127,3 +127,22 @@ without linking the loader `cdylib`) rebuilt the same default release dylib at
 Report` unchanged). The new installer binary `parsec-orbit-installer-macos`
 is **505,680 B** in the same release profile; it is an ordinary CLI, not part
 of the injected dylib, so it does not consume the loader budget.
+
+
+### M1c/M2 independent checkpoint (2026-10-15)
+
+Default release artifacts, macOS arm64, without `harness`. Sizes include the
+linker's signature; applying/signing copies changes their hashes.
+
+| Artifact | Bytes | SHA-256 |
+| --- | ---: | --- |
+| loader `libparsec_orbit_loader.dylib` | 571,472 | `e56a6f798babad9203f3bd16af951447acff14af26d3c4a1cee79f30ba063ce1` |
+| installer `parsec-orbit-installer-macos` | 539,328 | `172cf6d51cacd69c25e9078eca02d7866c9c367630e46b76ff52a82f5291b1cc` |
+| hooks `libparsec_orbit_plugin_hooks.dylib` | 336,688 | `ada192290452e2534240705a9176cfb3446c71a6e4f47212a29373debe393161` |
+
+The loader remains the same size as M1b after sharing the client ABI and
+accepting bounded numeric release tags. The installer grew by 33,648 B for
+universal parsing, full metadata, recovery/locking and assessment. Hooks are
+a separate optional plugin, not added to the injected loader. The historical
+360 KiB reference is still exceeded by the 571,472 B loader; no final macOS
+budget or size optimization is claimed here.
