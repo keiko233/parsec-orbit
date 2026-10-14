@@ -18,6 +18,7 @@
 | [spec/rust-sdk.md](spec/rust-sdk.md) | Implemented | `parsec-orbit-plugin-abi`, `-sdk` and `-sdk-std` crates, `freestanding!` runtime, size policy |
 | [spec/js-sdk.md](spec/js-sdk.md) | Implemented | JS plugin model, `@parsec-orbit/sdk` TypeScript API, WebView operations |
 | [spec/marketplace.md](spec/marketplace.md) | Implemented | Plugin index, sha256, signatures, safe installation, `parsec-orbit-market` |
+| [spec/ui-service.md](spec/ui-service.md) | Draft | Declarative UI service (parsec-orbit.ui), winio companion window, schema, SDK bindings |
 | [spec/macos-host.md](spec/macos-host.md) | Draft | macOS patched-app launch, loader, state isolation, signing and transactional installation |
 | [spec/macos-platform.md](spec/macos-platform.md) | Draft | macOS paths, `dylib` plugins, per-service behaviour, marketplace |
 
@@ -27,6 +28,7 @@ open questions at the end.
 ## Design
 
 * [design/architecture.md](design/architecture.md) - components, crate graph, size and concurrency policy
+* [design/orbit-ui.md](design/orbit-ui.md) - evaluation of in-app tab hack vs winio external companion window, unified ABI, and activation model
 * [design/roadmap.md](design/roadmap.md) - phases
 * [design/macos/native-dependency-poc.md](design/macos/native-dependency-poc.md) - measured copy PoC and remaining signing/original-path gates
 * [design/macos/bootstrap-checkpoint.md](design/macos/bootstrap-checkpoint.md) - M1a guarded activation: acceptance evidence and audit limits

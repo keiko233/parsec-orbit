@@ -16,6 +16,7 @@ parsec-orbit-plugin-sdk-std = { path = "../../crates/parsec-orbit-plugin-sdk-std
 
 # Windows-only: on other targets the crate compiles to an empty library.
 [target.'cfg(windows)'.dependencies]
+serde_json = "1"
 windows-sys = { version = "0.61", features = [
     "Win32_Foundation",
     "Win32_System_Diagnostics_ToolHelp",

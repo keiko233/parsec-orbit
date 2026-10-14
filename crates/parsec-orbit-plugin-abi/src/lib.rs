@@ -59,6 +59,7 @@ pub const INTERFACE_KIND_PREFIX: &str = "parsec-orbit.kind.";
 pub const INTERFACE_WEBVIEW: &str = "parsec-orbit.webview";
 pub const INTERFACE_JS: &str = "parsec-orbit.js";
 pub const INTERFACE_HOOKS: &str = "parsec-orbit.hooks";
+pub const INTERFACE_UI: &str = "parsec-orbit.ui";
 pub const INTERFACE_CONFIG: &str = "parsec-orbit.config";
 pub const INTERFACE_MARKET: &str = "parsec-orbit.market";
 pub const INTERFACE_CLIENT: &str = "parsec-orbit.client";
@@ -549,6 +550,53 @@ pub struct ParsecOrbitHooksV1 {
     /// Disables and forgets the hook, restoring the bytes of `target` and
     /// invalidating the `*original` pointer `install` handed out.
     pub remove: Option<unsafe extern "system" fn(hook: i64) -> i32>,
+}
+
+/// `parsec-orbit.ui` 1.0, provided by the UI service plugin: a native
+/// external management window powered by `winio`.
+///
+/// Plugins register declarative sections and controls, listen for user
+/// action callbacks, and query or control window visibility without bundling
+/// GUI runtimes.
+#[repr(C)]
+pub struct ParsecOrbitUiV1 {
+    pub header: ParsecOrbitInterfaceHeader,
+    /// Shows and focuses the companion window. Starts the event loop if
+    /// not already running. Returns 0 on success.
+    pub show: Option<unsafe extern "system" fn() -> i32>,
+    /// Hides the companion window without stopping the event loop.
+    pub hide: Option<unsafe extern "system" fn() -> i32>,
+    /// Returns 1 if visible, 0 if hidden.
+    pub is_visible: Option<unsafe extern "system" fn() -> i32>,
+    /// Registers a declarative section schema (UTF-8 JSON text).
+    /// Returns 0 on success, or a negative error.
+    pub register_section:
+        Option<unsafe extern "system" fn(schema_json: *const u8, schema_len: usize) -> i32>,
+    /// Unregisters a section by its ID (UTF-8 string).
+    pub unregister_section:
+        Option<unsafe extern "system" fn(section_id: *const u8, id_len: usize) -> i32>,
+    /// Pushes updated state values (UTF-8 JSON object mapping keys to values)
+    /// for a section. Returns 0 on success, or a negative error.
+    pub update_state: Option<
+        unsafe extern "system" fn(
+            section_id: *const u8,
+            id_len: usize,
+            state_json: *const u8,
+            state_len: usize,
+        ) -> i32,
+    >,
+    /// Subscribes to user interactions within the specified section. Returns
+    /// a subscription id greater than zero, or a negative error.
+    pub on_action: Option<
+        unsafe extern "system" fn(
+            section_id: *const u8,
+            id_len: usize,
+            cb: Option<MessageCallback>,
+            user: *mut c_void,
+        ) -> i64,
+    >,
+    /// Cancels an action subscription. Returns 0 or a negative error.
+    pub off_action: Option<unsafe extern "system" fn(subscription: i64) -> i32>,
 }
 
 /// `ParsecOrbitPluginQuery(host_abi) -> *const ParsecOrbitPluginDesc`

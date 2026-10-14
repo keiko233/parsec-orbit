@@ -32,6 +32,13 @@ Set-Content -LiteralPath $script:logPath -Encoding utf8 -Value @(
     "Parsec Orbit install $([char]0x2014) $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
 )
 
+if ($ClientDir -ieq 'install') {
+    $ClientDir = 'C:\Program Files\Parsec'
+}
+if (-not (Test-Path -LiteralPath $ClientDir)) {
+    throw "Parsec directory not found: $ClientDir (specify -ClientDir if Parsec is installed in a custom location)"
+}
+
 $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
 $principal = New-Object Security.Principal.WindowsPrincipal($identity)
 if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
@@ -61,6 +68,15 @@ $plugins = @(
         Dll = 'parsec_orbit_plugin_high_bitrate_native.dll'
     }
 )
+if (Test-Path -LiteralPath (Join-Path $release 'parsec_orbit_plugin_ui.dll')) {
+    $plugins += @(
+        @{
+            Name = 'parsec-orbit-plugin-ui'
+            Source = Join-Path $root 'crates\parsec-orbit-plugin-ui'
+            Dll = 'parsec_orbit_plugin_ui.dll'
+        }
+    )
+}
 if ($EnableStunSwap) {
     $plugins += @(
         @{

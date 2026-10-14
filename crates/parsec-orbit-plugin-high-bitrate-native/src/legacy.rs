@@ -116,17 +116,36 @@ impl Image {
 /// Extends the native bandwidth dropdown. Returns `None` when the table could
 /// not be found (unknown client build) or nothing was patched.
 pub fn extend_bandwidth<F: Fn(&str)>(log: F) -> Option<Report> {
-    extend_bandwidth_when_ready(&log, Duration::from_secs(10))
+    extend_bandwidth_with(|| crate::EXTRA_BANDWIDTH_MBPS.to_vec(), log)
+}
+
+/// Same as [`extend_bandwidth`], but asks `extras` for the options to append
+/// once the client module is there. Asking late is what lets the Orbit UI pick
+/// a different maximum while the plugin is still waiting for the module.
+pub fn extend_bandwidth_with<G: Fn() -> Vec<i32>, F: Fn(&str)>(
+    extras: G,
+    log: F,
+) -> Option<Report> {
+    extend_bandwidth_with_when_ready(&extras, &log, Duration::from_secs(10))
 }
 
 /// Same as [`extend_bandwidth`], but waits for the client module to be loaded
 /// first: the native UI lives in `parsecd-<version>.dll`, which the executable
 /// maps after start-up.
 pub fn extend_bandwidth_when_ready<F: Fn(&str)>(log: &F, timeout: Duration) -> Option<Report> {
+    extend_bandwidth_with_when_ready(&|| crate::EXTRA_BANDWIDTH_MBPS.to_vec(), log, timeout)
+}
+
+/// [`extend_bandwidth_when_ready`] with a caller-chosen extension of the ladder.
+pub fn extend_bandwidth_with_when_ready<G: Fn() -> Vec<i32>, F: Fn(&str)>(
+    extras: &G,
+    log: &F,
+    timeout: Duration,
+) -> Option<Report> {
     let deadline = Instant::now() + timeout;
     loop {
         if let Some(module) = find_client_module() {
-            return try_extend(&module, log);
+            return try_extend(&module, &extras(), log);
         }
         if Instant::now() >= deadline {
             log("legacy ui patch: the client module never loaded, skipped");
@@ -136,11 +155,16 @@ pub fn extend_bandwidth_when_ready<F: Fn(&str)>(log: &F, timeout: Duration) -> O
     }
 }
 
-fn try_extend<F: Fn(&str)>(module: &ModuleInfo, log: &F) -> Option<Report> {
+fn try_extend<F: Fn(&str)>(module: &ModuleInfo, extras: &[i32], log: &F) -> Option<Report> {
     log(&format!(
         "legacy ui patch: client module {} at 0x{:X}",
         module.name, module.base
     ));
+
+    if extras.is_empty() {
+        log("legacy ui patch: the extra ladder is empty, nothing to do");
+        return None;
+    }
 
     let image = unsafe { Image::parse(module.base) }?;
     let rdata = image.section(".rdata")?;
@@ -158,7 +182,6 @@ fn try_extend<F: Fn(&str)>(module: &ModuleInfo, log: &F) -> Option<Report> {
         return None;
     }
 
-    let extras = crate::EXTRA_BANDWIDTH_MBPS;
     let new_count = BUILT_IN_COUNT + extras.len();
     let new_table = allocate_near(module.base, new_count * RECORD_STRIDE, &sites)?;
     unsafe {
@@ -656,9 +679,11 @@ mod tests {
 
     fn extend(image: &FakeImage) -> (Option<Report>, Vec<String>) {
         let logs = RefCell::new(Vec::new());
-        let report = try_extend(&image.module(), &|message: &str| {
-            logs.borrow_mut().push(message.to_string())
-        });
+        let report = try_extend(
+            &image.module(),
+            crate::EXTRA_BANDWIDTH_MBPS.as_slice(),
+            &|message: &str| logs.borrow_mut().push(message.to_string()),
+        );
         (report, logs.into_inner())
     }
 

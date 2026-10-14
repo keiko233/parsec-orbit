@@ -33,9 +33,15 @@ test("capabilities are absent without their permission", async () => {
   const { host } = await loadPlugin({}, { permissions: [] });
   assert.equal(host.webview, undefined);
   assert.equal(host.config, undefined);
+  assert.equal(host.ui, undefined);
   const allowed = createMockHost({ permissions: ["webview"] });
   assert.equal(typeof allowed.host.webview, "object");
   assert.equal(allowed.host.config, undefined);
+  assert.equal(allowed.host.ui, undefined);
+  const allowedUi = createMockHost({ permissions: ["ui"] });
+  assert.equal(typeof allowedUi.host.ui, "object");
+  assert.equal(allowedUi.host.webview, undefined);
+  assert.equal(allowedUi.host.config, undefined);
 });
 
 test("inject registers a script once per key and remove marks it", async () => {
@@ -164,6 +170,70 @@ test("timers can be disposed", async () => {
   mock.dispose();
   await new Promise((resolve) => setTimeout(resolve, 30));
   assert.equal(fired, 0);
+});
+
+// ---- the companion window (ui) ------------------------------------------------------
+
+test("ui toggles visibility, registers sections, and manages state", async () => {
+  const mock = createMockHost({ permissions: ["ui"] });
+  const ui = granted(mock.host.ui);
+
+  assert.equal(await ui.isVisible(), false);
+  await ui.show();
+  assert.equal(await ui.isVisible(), true);
+  assert.equal(mock.ui.visible, true);
+  await ui.hide();
+  assert.equal(await ui.isVisible(), false);
+  assert.equal(mock.ui.visible, false);
+
+  const section = {
+    id: "com.example.tuning",
+    title: "Tuning",
+    items: [
+      { key: "boost", type: "toggle" as const, label: "Boost", default: true },
+      { key: "rate", type: "number_input" as const, label: "Rate", min: 10, max: 200, default: 50 },
+    ],
+  };
+  await ui.registerSection(section);
+  assert.deepEqual(mock.ui.sections.get("com.example.tuning"), section);
+
+  await ui.updateState("com.example.tuning", { boost: false, rate: 120 });
+  assert.deepEqual(mock.ui.states.get("com.example.tuning"), { boost: false, rate: 120 });
+
+  await ui.unregisterSection("com.example.tuning");
+  assert.equal(mock.ui.sections.has("com.example.tuning"), false);
+  assert.equal(mock.ui.states.has("com.example.tuning"), false);
+});
+
+test("ui delivers actions to subscribers until unsubscribed", async () => {
+  const mock = createMockHost({ permissions: ["ui"] });
+  const ui = granted(mock.host.ui);
+
+  const actions: unknown[] = [];
+  const unsubscribe = ui.onAction((action) => actions.push(action));
+
+  mock.ui.emitAction({
+    section: "com.example.tuning",
+    key: "boost",
+    type: "change",
+    value: true,
+  });
+  assert.deepEqual(actions, [
+    {
+      section: "com.example.tuning",
+      key: "boost",
+      type: "change",
+      value: true,
+    },
+  ]);
+
+  unsubscribe();
+  mock.ui.emitAction({
+    section: "com.example.tuning",
+    key: "apply",
+    type: "click",
+  });
+  assert.equal(actions.length, 1);
 });
 
 // ---- the page-side helper -----------------------------------------------------------

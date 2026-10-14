@@ -24,7 +24,7 @@ use boa_engine::context::{ContextBuilder, HostHooks};
 use boa_engine::object::builtins::{JsFunction, JsPromise};
 use boa_engine::object::JsObject;
 use boa_engine::{Context as JsContext, JsError, JsResult, JsValue, Module, Source};
-use parsec_orbit_plugin_sdk_std::services::{ConfigClient, WebViewClient};
+use parsec_orbit_plugin_sdk_std::services::{ConfigClient, UiClient, WebViewClient};
 use parsec_orbit_plugin_sdk_std::{Level, ERR_EXCEPTION, ERR_TIMEOUT};
 
 /// Where a context reports what happens in it.
@@ -75,6 +75,8 @@ pub struct Spec {
     /// The `parsec-orbit.config` service, if the config plugin is loaded;
     /// otherwise `host.config` keeps a file of its own.
     pub config: Option<ConfigClient>,
+    /// The parsec-orbit.ui service, if the UI plugin is loaded.
+    pub ui: Option<UiClient>,
 }
 
 /// Why an evaluation failed, with the ABI code that goes with it.
@@ -119,6 +121,11 @@ pub enum Command {
     Message {
         channel: String,
         payload: String,
+    },
+    /// An action event delivered from the UI service for a registered section.
+    UiAction {
+        section_id: String,
+        action_json: String,
     },
     Stop,
 }
@@ -189,6 +196,13 @@ pub(crate) struct Channel {
     pub subscriber: *mut crate::host::Subscriber,
 }
 
+/// A subscription to actions of a UI section through parsec-orbit.ui.
+pub(crate) struct UiSectionChannel {
+    pub subscription_id: i64,
+    pub handlers: Vec<(u64, JsFunction)>,
+    pub subscriber: *mut crate::host::UiSubscriber,
+}
+
 pub(crate) struct State {
     pub spec: Spec,
     pub tx: Sender<Command>,
@@ -202,6 +216,8 @@ pub(crate) struct State {
     pub next_pending: u64,
     pub channels: HashMap<String, Channel>,
     pub next_handler: u64,
+    pub ui_sections: HashMap<String, UiSectionChannel>,
+    pub next_ui_handler: u64,
     /// Rejections nobody handled (yet), reported after the jobs ran.
     pub rejected: Vec<JsObject<boa_engine::builtins::promise::Promise>>,
     /// The promise behind `host.webview.ready`, once asked for.
@@ -362,6 +378,8 @@ fn run(spec: Spec, tx: Sender<Command>, inbox: Receiver<Command>) {
             next_pending: 0,
             channels: HashMap::new(),
             next_handler: 0,
+            ui_sections: HashMap::new(),
+            next_ui_handler: 0,
             rejected: Vec::new(),
             ready: None,
         });
@@ -410,6 +428,12 @@ fn run(spec: Spec, tx: Sender<Command>, inbox: Receiver<Command>) {
             Ok(Command::Message { channel, payload }) => {
                 crate::host::deliver(&mut context, &channel, &payload);
             }
+            Ok(Command::UiAction {
+                section_id,
+                action_json,
+            }) => {
+                crate::host::deliver_ui_action(&mut context, &section_id, &action_json);
+            }
             Err(RecvTimeoutError::Timeout) => {}
         }
     }
@@ -428,6 +452,7 @@ fn run(spec: Spec, tx: Sender<Command>, inbox: Receiver<Command>) {
             .send(Err(EvalError::exception("the context was stopped")));
     }
     crate::host::unsubscribe_all();
+    crate::host::unsubscribe_ui_all();
     STATE.with(|state| *state.borrow_mut() = None);
 }
 

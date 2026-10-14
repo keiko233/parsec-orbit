@@ -99,6 +99,24 @@ Inline hooks on functions of the client process. (On macOS the interface is back
 
 Reports the client build the host is running and whether it is a verified one. Specified in [macos-platform.md](macos-platform.md#parsec-orbitclient); it does not exist on Windows.
 
+### `parsec-orbit.ui` (draft, provided by the UI service plugin), version 1.0
+
+A native external management window powered by `compio-rs/winio`. Plugins
+register declarative JSON schemas for configuration sections and listen for
+action callbacks without bundling GUI runtimes. Specified in detail in
+[ui-service.md](ui-service.md).
+
+| Function | Behaviour |
+| --- | --- |
+| `show()` | Shows and brings the companion window to the foreground. |
+| `hide()` | Hides the companion window without terminating the event loop. |
+| `is_visible()` | `1` if visible, `0` if hidden. |
+| `register_section(schema, len)` | Registers a declarative section JSON schema. |
+| `unregister_section(id, len)` | Removes a section and unmounts its controls. |
+| `update_state(id, id_len, state, len)` | Pushes updated control values (JSON object) to the UI. |
+| `on_action(id, id_len, cb, user)` | Subscribes to user interactions within the section. |
+| `off_action(subscription)` | Cancels an action subscription. |
+
 ### Reserved
 
 `parsec-orbit.market` (install source and update metadata of an installed plugin).

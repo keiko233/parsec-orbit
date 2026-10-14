@@ -21,7 +21,7 @@ use boa_engine::{
     js_string, Context as JsContext, JsArgs, JsError, JsNativeError, JsResult, JsString, JsValue,
     NativeFunction,
 };
-use parsec_orbit_plugin_sdk_std::services::WebViewClient;
+use parsec_orbit_plugin_sdk_std::services::{UiClient, WebViewClient};
 use parsec_orbit_plugin_sdk_std::Level;
 use serde_json::Value;
 
@@ -791,6 +791,292 @@ fn config_object(context: &mut JsContext) -> JsObject {
         .build()
 }
 
+// ---- host.ui ---------------------------------------------------------------------
+
+fn ui_client() -> Option<UiClient> {
+    with_state(|state| state.spec.ui)
+}
+
+const NO_UI: &str = "parsec-orbit.ui is not available (is the UI plugin installed?)";
+
+fn ui_show(_: &JsValue, _: &[JsValue], context: &mut JsContext) -> JsResult<JsValue> {
+    let Some(ui) = ui_client() else {
+        return rejected(NO_UI, context);
+    };
+    match ui.show() {
+        Ok(()) => resolved(JsValue::undefined(), context),
+        Err(error) => rejected(format!("show failed (code {})", error.code()), context),
+    }
+}
+
+fn ui_hide(_: &JsValue, _: &[JsValue], context: &mut JsContext) -> JsResult<JsValue> {
+    let Some(ui) = ui_client() else {
+        return rejected(NO_UI, context);
+    };
+    match ui.hide() {
+        Ok(()) => resolved(JsValue::undefined(), context),
+        Err(error) => rejected(format!("hide failed (code {})", error.code()), context),
+    }
+}
+
+fn ui_is_visible(_: &JsValue, _: &[JsValue], context: &mut JsContext) -> JsResult<JsValue> {
+    let Some(ui) = ui_client() else {
+        return rejected(NO_UI, context);
+    };
+    match ui.is_visible() {
+        Ok(visible) => resolved(JsValue::from(visible), context),
+        Err(error) => rejected(format!("isVisible failed (code {})", error.code()), context),
+    }
+}
+
+fn ui_register_section(
+    _: &JsValue,
+    args: &[JsValue],
+    context: &mut JsContext,
+) -> JsResult<JsValue> {
+    let Some(ui) = ui_client() else {
+        return rejected(NO_UI, context);
+    };
+    let schema_json = match args.get_or_undefined(0).to_json(context) {
+        Ok(Some(val)) => val.to_string(),
+        Ok(None) => return rejected("registerSection needs a schema object", context),
+        Err(error) => return rejected(describe(&error, context), context),
+    };
+    match ui.register_section(&schema_json) {
+        Ok(()) => resolved(JsValue::undefined(), context),
+        Err(error) => rejected(
+            format!("registerSection failed (code {})", error.code()),
+            context,
+        ),
+    }
+}
+
+fn ui_unregister_section(
+    _: &JsValue,
+    args: &[JsValue],
+    context: &mut JsContext,
+) -> JsResult<JsValue> {
+    let Some(ui) = ui_client() else {
+        return rejected(NO_UI, context);
+    };
+    let Some(section_id) = args.get_or_undefined(0).as_string() else {
+        return rejected("unregisterSection needs a section id as a string", context);
+    };
+    let section_id = section_id.to_std_string_escaped();
+    match ui.unregister_section(&section_id) {
+        Ok(()) => resolved(JsValue::undefined(), context),
+        Err(error) => rejected(
+            format!("unregisterSection failed (code {})", error.code()),
+            context,
+        ),
+    }
+}
+
+fn ui_update_state(_: &JsValue, args: &[JsValue], context: &mut JsContext) -> JsResult<JsValue> {
+    let Some(ui) = ui_client() else {
+        return rejected(NO_UI, context);
+    };
+    let Some(section_id) = args.get_or_undefined(0).as_string() else {
+        return rejected("updateState needs a section id as a string", context);
+    };
+    let section_id = section_id.to_std_string_escaped();
+    let state_json = match args.get_or_undefined(1).to_json(context) {
+        Ok(Some(val)) => val.to_string(),
+        Ok(None) => return rejected("updateState needs a state object", context),
+        Err(error) => return rejected(describe(&error, context), context),
+    };
+    match ui.update_state(&section_id, &state_json) {
+        Ok(()) => resolved(JsValue::undefined(), context),
+        Err(error) => rejected(
+            format!("updateState failed (code {})", error.code()),
+            context,
+        ),
+    }
+}
+
+pub(crate) struct UiSubscriber {
+    pub(crate) tx: Sender<Command>,
+    pub(crate) section_id: String,
+}
+
+unsafe extern "system" fn on_ui_action_message(user: *mut c_void, message: *const u8, len: usize) {
+    let subscriber = unsafe { &*(user as *const UiSubscriber) };
+    let action_json =
+        String::from_utf8_lossy(unsafe { std::slice::from_raw_parts(message, len) }).into_owned();
+    let _ = subscriber.tx.send(Command::UiAction {
+        section_id: subscriber.section_id.clone(),
+        action_json,
+    });
+}
+
+fn ui_unsubscribed(ui: &UiClient, subscription_id: i64) -> bool {
+    match ui.off_action(subscription_id) {
+        Ok(()) => true,
+        Err(error) => error.code() == parsec_orbit_plugin_sdk_std::ERR_NOT_FOUND,
+    }
+}
+
+fn ui_on_action(_: &JsValue, args: &[JsValue], context: &mut JsContext) -> JsResult<JsValue> {
+    let section_id = args
+        .get_or_undefined(0)
+        .as_string()
+        .ok_or_else(|| type_error("onAction needs a section id as a string"))?
+        .to_std_string_escaped();
+    let handler = args
+        .get_or_undefined(1)
+        .as_object()
+        .and_then(JsFunction::from_object)
+        .ok_or_else(|| type_error("onAction needs a handler function"))?;
+    let ui = ui_client().ok_or_else(|| type_error(NO_UI))?;
+
+    let local = with_state(|state| {
+        state.next_ui_handler += 1;
+        state.next_ui_handler
+    });
+    let known = with_state(|state| state.ui_sections.contains_key(&section_id));
+    if !known {
+        let tx = with_state(|state| state.tx.clone());
+        let user = Box::into_raw(Box::new(UiSubscriber {
+            tx,
+            section_id: section_id.clone(),
+        })) as *mut c_void;
+        let subscription_id = match unsafe { ui.on_action(&section_id, on_ui_action_message, user) }
+        {
+            Ok(sub_id) => sub_id,
+            Err(error) => {
+                drop(unsafe { Box::from_raw(user as *mut UiSubscriber) });
+                return Err(type_error(&format!(
+                    "on_action failed (code {})",
+                    error.code()
+                )));
+            }
+        };
+        with_state(|state| {
+            state.ui_sections.insert(
+                section_id.clone(),
+                crate::engine::UiSectionChannel {
+                    subscription_id,
+                    handlers: Vec::new(),
+                    subscriber: user as *mut UiSubscriber,
+                },
+            )
+        });
+    }
+    with_state(|state| {
+        if let Some(entry) = state.ui_sections.get_mut(&section_id) {
+            entry.handlers.push((local, handler));
+        }
+    });
+
+    let dispose = NativeFunction::from_copy_closure_with_captures(
+        |_, _, (sec, local): &(JsString, f64), _| {
+            remove_ui_handler(&sec.to_std_string_escaped(), *local as u64);
+            Ok(JsValue::undefined())
+        },
+        (JsString::from(section_id.as_str()), local as f64),
+    );
+
+    let obj = ObjectInitializer::new(context)
+        .function(dispose.clone(), js_string!("dispose"), 0)
+        .function(dispose, js_string!("unsubscribe"), 0)
+        .build();
+    Ok(obj.into())
+}
+
+fn remove_ui_handler(section_id: &str, local: u64) {
+    let (last, subscription_id, subscriber) = with_state(|state| {
+        let Some(entry) = state.ui_sections.get_mut(section_id) else {
+            return (false, 0, std::ptr::null_mut());
+        };
+        entry.handlers.retain(|(id, _)| *id != local);
+        let last = entry.handlers.is_empty();
+        let subscription_id = entry.subscription_id;
+        let subscriber = entry.subscriber;
+        if last {
+            state.ui_sections.remove(section_id);
+        }
+        (last, subscription_id, subscriber)
+    });
+    if last {
+        let confirmed = ui_client().is_some_and(|ui| ui_unsubscribed(&ui, subscription_id));
+        if confirmed {
+            drop(unsafe { Box::from_raw(subscriber) });
+        }
+    }
+}
+
+pub fn deliver_ui_action(context: &mut JsContext, section_id: &str, action_json: &str) {
+    let handlers: Vec<JsFunction> = with_state(|state| {
+        state
+            .ui_sections
+            .get(section_id)
+            .map(|entry| {
+                entry
+                    .handlers
+                    .iter()
+                    .map(|(_, handler)| handler.clone())
+                    .collect()
+            })
+            .unwrap_or_default()
+    });
+    if handlers.is_empty() {
+        return;
+    }
+    let value = serde_json::from_str::<Value>(action_json)
+        .ok()
+        .and_then(|value| JsValue::from_json(&value, context).ok())
+        .unwrap_or_default();
+    for handler in handlers {
+        if let Err(error) =
+            handler.call(&JsValue::undefined(), std::slice::from_ref(&value), context)
+        {
+            let text = describe(&error, context);
+            log(
+                Level::Error,
+                &format!("a UI action handler for \"{section_id}\" threw: {text}"),
+            );
+        }
+    }
+}
+
+pub fn unsubscribe_ui_all() {
+    let (ui, subscriptions) = with_state(|state| {
+        let subscriptions: Vec<(i64, *mut UiSubscriber)> = state
+            .ui_sections
+            .values()
+            .map(|entry| (entry.subscription_id, entry.subscriber))
+            .collect();
+        state.ui_sections.clear();
+        (state.spec.ui, subscriptions)
+    });
+    for (subscription_id, subscriber) in subscriptions {
+        let confirmed = ui.is_some_and(|ui| ui_unsubscribed(&ui, subscription_id));
+        if confirmed {
+            drop(unsafe { Box::from_raw(subscriber) });
+        }
+    }
+}
+
+fn ui_object(context: &mut JsContext) -> JsObject {
+    ObjectInitializer::new(context)
+        .function(function(ui_show), js_string!("show"), 0)
+        .function(function(ui_hide), js_string!("hide"), 0)
+        .function(function(ui_is_visible), js_string!("isVisible"), 0)
+        .function(
+            function(ui_register_section),
+            js_string!("registerSection"),
+            1,
+        )
+        .function(
+            function(ui_unregister_section),
+            js_string!("unregisterSection"),
+            1,
+        )
+        .function(function(ui_update_state), js_string!("updateState"), 2)
+        .function(function(ui_on_action), js_string!("onAction"), 2)
+        .build()
+}
+
 // ---- host ---------------------------------------------------------------------------
 
 /// The `host` object a plugin's `setup` receives.
@@ -848,6 +1134,10 @@ pub fn build_host(context: &mut JsContext, plugin: &PluginInfo) -> JsResult<JsOb
     if plugin.permits(Permission::Config.as_str()) {
         let config = config_object(context);
         host.set(js_string!("config"), config, true, context)?;
+    }
+    if plugin.permits(Permission::Ui.as_str()) {
+        let ui = ui_object(context);
+        host.set(js_string!("ui"), ui, true, context)?;
     }
     Ok(host)
 }

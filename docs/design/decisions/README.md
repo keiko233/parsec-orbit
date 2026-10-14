@@ -21,3 +21,4 @@ Format: Context, Decision, Consequences.
 | [0013](0013-macos-client-compatibility.md) | Client builds are detected, logged and checked against a verified list | Accepted |
 | [0014](0014-macos-patched-bundle.md) | macOS loads Orbit through a patched official app bundle | Accepted direction; product gates open |
 | [0015](0015-macos-loader-as-host.md) | macOS runs the client from a host we control | Superseded by 0014 |
+| [0016](0016-orbit-ui-winio.md) | Orbit UI: External winio companion window with unified declarative ABI | Accepted |

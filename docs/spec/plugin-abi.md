@@ -189,6 +189,21 @@ typedef struct ParsecOrbitHooksV1 {
     int32_t (*disable)(int64_t hook);
     int32_t (*remove)(int64_t hook);
 } ParsecOrbitHooksV1;
+
+/* parsec-orbit.ui, version 1.0 */
+typedef struct ParsecOrbitUiV1 {
+    ParsecOrbitInterfaceHeader header;
+    int32_t (*show)(void);
+    int32_t (*hide)(void);
+    int32_t (*is_visible)(void);
+    int32_t (*register_section)(const uint8_t *schema_json, size_t schema_len);
+    int32_t (*unregister_section)(const uint8_t *section_id, size_t id_len);
+    int32_t (*update_state)(const uint8_t *section_id, size_t id_len,
+                           const uint8_t *state_json, size_t state_len);
+    int64_t (*on_action)(const uint8_t *section_id, size_t id_len,
+                         ParsecOrbitMessageCallback cb, void *user);
+    int32_t (*off_action)(int64_t subscription);
+} ParsecOrbitUiV1;
 ```
 
 Error codes returned by the host and by interfaces:
@@ -212,6 +227,7 @@ Error codes returned by the host and by interfaces:
 | `parsec-orbit.hooks` | Function hook registration/unregistration (reserved) |
 | `parsec-orbit.webview` | WebView bridge (inject scripts, evaluate, messages); WebView2 on Windows, WKWebView on macOS |
 | `parsec-orbit.js` | JS runtime handle, for DLL plugins that need eval |
+| `parsec-orbit.ui` | Declarative UI service (winio companion window) |
 | `parsec-orbit.kind.<kind>` | Handler that loads plugins of a kind that is not a native kind (`dll`, `dylib`), for example `kind.js` |
 | `parsec-orbit.client` | macOS only (draft): which client build is running ([macos-platform.md](macos-platform.md#parsec-orbitclient)) |
 | `parsec-orbit.config`, `parsec-orbit.market` | Settings storage, marketplace metadata (reserved) |

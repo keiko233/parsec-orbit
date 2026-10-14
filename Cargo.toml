@@ -13,6 +13,7 @@ members = [
     "crates/parsec-orbit-devtools",
     "crates/parsec-orbit-plugin-webview-bridge",
     "crates/parsec-orbit-plugin-config",
+    "crates/parsec-orbit-plugin-ui",
     "crates/parsec-orbit-plugin-hooks",
     "crates/parsec-orbit-plugin-js-runtime",
     "crates/parsec-orbit-plugin-high-bitrate-webview",

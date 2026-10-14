@@ -15,12 +15,27 @@
 
 pub mod legacy;
 
+use std::ffi::c_void;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+
 use parsec_orbit_plugin_sdk_std::prelude::*;
+use parsec_orbit_plugin_sdk_std::services::UiClient;
 
 /// Bandwidth options appended after the built-in `3..50 mbps` ladder.
 ///
 /// Keep in sync with the WebView plugin's `assets/bandwidth.js`.
 pub const EXTRA_BANDWIDTH_MBPS: [i32; 10] = [60, 75, 100, 125, 150, 200, 250, 300, 400, 500];
+
+/// The values the Orbit UI offers as "Highest option".
+pub const MAX_PRESETS: [i32; 4] = [100, 200, 300, 500];
+
+/// Whether the patch runs at all, as chosen in the Orbit UI. The environment
+/// switch [`enabled`] still wins: it is the older, documented way to keep the
+/// plugin idle.
+static PATCH_ENABLED: AtomicBool = AtomicBool::new(true);
+
+/// Highest bandwidth the dropdown should offer. Read when the patch runs.
+static MAX_PRESET: AtomicUsize = AtomicUsize::new(500);
 
 /// `PARSEC_ORBIT_PATCHES=0` (or `off`/`false`) keeps the plugin idle. The switch
 /// predates the plugin split, when the patch was compiled into the loader, and
@@ -31,6 +46,92 @@ fn enabled() -> bool {
 
 fn enabled_with(switch: Option<&str>) -> bool {
     !matches!(switch, Some("0") | Some("off") | Some("false"))
+}
+
+/// The Orbit UI section for this plugin. Both settings are read when the patch
+/// runs, which is while the client maps its UI module, so the descriptions say
+/// what a change actually costs.
+const NATIVE_UI_SCHEMA: &str = r#"{
+    "id": "com.parsec-orbit.native",
+    "title": "High Bitrate",
+    "description": "Bandwidth limit options for the native (libmatoya) client UI",
+    "order": 10,
+    "items": [
+        {
+            "key": "enabled",
+            "type": "toggle",
+            "label": "Extend the bandwidth ladder",
+            "description": "Append the options above 50 Mbps to Parsec's Bandwidth Limit dropdown",
+            "default": true
+        },
+        {
+            "key": "max_preset",
+            "type": "select",
+            "label": "Highest option",
+            "description": "Highest bandwidth the dropdown offers",
+            "default": "500",
+            "options": [
+                {"label": "100 Mbps", "value": "100"},
+                {"label": "200 Mbps", "value": "200"},
+                {"label": "300 Mbps", "value": "300"},
+                {"label": "500 Mbps", "value": "500"}
+            ]
+        },
+        {
+            "key": "patch_status",
+            "type": "readonly_text",
+            "label": "Patch status",
+            "description": "What the in-memory patch did, written by the plugin",
+            "default": "Waiting for the client UI..."
+        }
+    ]
+}"#;
+
+/// The options to append, cut off at the highest bandwidth the user chose.
+fn selected_extras() -> Vec<i32> {
+    let highest = MAX_PRESET.load(Ordering::Acquire) as i32;
+    EXTRA_BANDWIDTH_MBPS
+        .iter()
+        .copied()
+        .filter(|mbps| *mbps <= highest)
+        .collect()
+}
+
+/// Logs a line and shows it in the Orbit UI's status row.
+fn report(cx: &Context, message: &str) {
+    info!(cx, "{message}");
+    if let Some(ui) = UiClient::new(cx) {
+        let escaped = message.replace('\\', "\\\\").replace('"', "\\\"");
+        let json = format!(r#"{{"patch_status":"{escaped}"}}"#);
+        let _ = ui.update_state("com.parsec-orbit.native", &json);
+    }
+}
+
+/// Handles the section's controls: `enabled` and `max_preset` are remembered
+/// for the patch, and the status row is written by [`report`].
+unsafe extern "system" fn on_native_action(_user: *mut c_void, msg: *const u8, len: usize) {
+    let slice = unsafe { std::slice::from_raw_parts(msg, len) };
+    let Ok(action) = serde_json::from_slice::<serde_json::Value>(slice) else {
+        return;
+    };
+    let value = action.get("value");
+    match action.get("key").and_then(|key| key.as_str()) {
+        Some("enabled") => {
+            if let Some(enabled) = value.and_then(|value| value.as_bool()) {
+                PATCH_ENABLED.store(enabled, Ordering::Release);
+            }
+        }
+        Some("max_preset") => {
+            let chosen = value
+                .and_then(|value| value.as_str())
+                .and_then(|text| text.parse::<i32>().ok())
+                .or_else(|| value.and_then(|value| value.as_i64()).map(|n| n as i32));
+            if let Some(chosen) = chosen.filter(|chosen| MAX_PRESETS.contains(chosen)) {
+                MAX_PRESET.store(chosen as usize, Ordering::Release);
+            }
+        }
+        _ => {}
+    }
 }
 
 #[derive(Default)]
@@ -55,9 +156,27 @@ impl Plugin for Native {
         // The table only exists once the client has loaded its UI module, and
         // the signature scan waits for it; never do that on the loader's
         // worker thread.
+        if let Some(ui) = UiClient::new(cx) {
+            let _ = ui.register_section(NATIVE_UI_SCHEMA);
+            let _ = unsafe {
+                ui.on_action(
+                    "com.parsec-orbit.native",
+                    on_native_action,
+                    std::ptr::null_mut(),
+                )
+            };
+        }
+
         let cx = *cx;
         cx.spawn("patch", move || {
-            legacy::extend_bandwidth(|message| info!(cx, "{message}"));
+            if !PATCH_ENABLED.load(Ordering::Acquire) {
+                report(
+                    &cx,
+                    "switched off in the Orbit UI, the bandwidth ladder is unchanged",
+                );
+                return;
+            }
+            legacy::extend_bandwidth_with(selected_extras, |message| report(&cx, message));
         })?;
 
         Ok(())
@@ -219,5 +338,108 @@ mod tests {
         let desc = unsafe { &*ParsecOrbitPluginQuery(ABI_VERSION) };
         assert_eq!(text(desc.id), "com.parsec-orbit.native");
         assert_ne!(text(desc.id), "com.parsec-orbit.webview");
+    }
+
+    #[test]
+    fn native_registers_ui_section() {
+        use std::sync::Mutex;
+
+        static REG_SCHEMA: Mutex<Option<String>> = Mutex::new(None);
+        unsafe extern "system" fn test_reg(schema: *const u8, len: usize) -> i32 {
+            let s = String::from_utf8_lossy(core::slice::from_raw_parts(schema, len)).into_owned();
+            *REG_SCHEMA.lock().unwrap() = Some(s);
+            0
+        }
+
+        static MOCK_UI: parsec_orbit_plugin_sdk_std::ParsecOrbitUiV1 =
+            parsec_orbit_plugin_sdk_std::ParsecOrbitUiV1 {
+                header: parsec_orbit_plugin_sdk_std::ParsecOrbitInterfaceHeader::new(
+                    std::mem::size_of::<parsec_orbit_plugin_sdk_std::ParsecOrbitUiV1>(),
+                    1,
+                    0,
+                ),
+                show: None,
+                hide: None,
+                is_visible: None,
+                register_section: Some(test_reg),
+                unregister_section: None,
+                update_state: None,
+                on_action: None,
+                off_action: None,
+            };
+
+        let host = parsec_orbit_plugin_sdk_std::testing::MockHost::new("com.parsec-orbit.native");
+        host.provide("parsec-orbit.ui", &MOCK_UI.header);
+
+        let ui = UiClient::new(&host.context()).expect("ui client");
+        assert!(ui.register_section(NATIVE_UI_SCHEMA).is_ok());
+        let reg = REG_SCHEMA.lock().unwrap().take().unwrap();
+        assert!(reg.contains("com.parsec-orbit.native"));
+        assert!(reg.contains("High Bitrate"));
+    }
+
+    /// Both settings are read when the patch runs, so the schema has to offer
+    /// exactly the presets the code accepts and no control without a setting
+    /// behind it.
+    #[test]
+    fn the_schema_offers_the_presets_the_code_accepts() {
+        for preset in MAX_PRESETS {
+            assert!(
+                NATIVE_UI_SCHEMA.contains(&format!("\"value\": \"{preset}\"")),
+                "the schema offers {preset} Mbps"
+            );
+        }
+        assert!(NATIVE_UI_SCHEMA.contains("\"key\": \"patch_status\""));
+        assert!(
+            !NATIVE_UI_SCHEMA.contains("custom_bitrate"),
+            "a target bitrate nothing applies is worse than no control"
+        );
+    }
+
+    #[test]
+    fn the_highest_option_cuts_the_extra_ladder() {
+        let previous = MAX_PRESET.swap(100, Ordering::AcqRel);
+        assert_eq!(selected_extras(), vec![60, 75, 100]);
+        assert_eq!(selected_extras().last(), Some(&100));
+
+        MAX_PRESET.store(500, Ordering::Release);
+        assert_eq!(selected_extras(), EXTRA_BANDWIDTH_MBPS.to_vec());
+
+        MAX_PRESET.store(previous, Ordering::Release);
+    }
+
+    #[test]
+    fn the_ui_actions_set_the_patch_switches() {
+        fn action(json: &str) {
+            unsafe { on_native_action(std::ptr::null_mut(), json.as_ptr(), json.len()) };
+        }
+
+        action(
+            r#"{"section":"com.parsec-orbit.native","key":"enabled","type":"change","value":false}"#,
+        );
+        assert!(!PATCH_ENABLED.load(Ordering::Acquire));
+        action(
+            r#"{"section":"com.parsec-orbit.native","key":"enabled","type":"change","value":true}"#,
+        );
+        assert!(PATCH_ENABLED.load(Ordering::Acquire));
+
+        action(
+            r#"{"section":"com.parsec-orbit.native","key":"max_preset","type":"change","value":"200"}"#,
+        );
+        assert_eq!(MAX_PRESET.load(Ordering::Acquire), 200);
+        assert_eq!(selected_extras().last(), Some(&200));
+
+        // A value outside the offered presets leaves the choice alone.
+        action(
+            r#"{"section":"com.parsec-orbit.native","key":"max_preset","type":"change","value":"999"}"#,
+        );
+        assert_eq!(MAX_PRESET.load(Ordering::Acquire), 200);
+
+        // Unknown keys and broken payloads are ignored rather than panicking.
+        action(r#"{"section":"com.parsec-orbit.native","key":"patch_status","type":"change"}"#);
+        action("not json");
+
+        MAX_PRESET.store(500, Ordering::Release);
+        PATCH_ENABLED.store(true, Ordering::Release);
     }
 }

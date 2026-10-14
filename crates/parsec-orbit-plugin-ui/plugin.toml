@@ -1,0 +1,12 @@
+# Metadata for the loader. Official plugin that provides `parsec-orbit.ui`:
+# external companion window with unified declarative ABI across Rust & JS.
+id = "com.parsec-orbit.ui"
+name = "Orbit UI Service"
+version = "0.1.1"
+kind = "dll"
+entry = "parsec_orbit_plugin_ui.dll"
+author = "Parsec Orbit contributors"
+description = "Provides parsec-orbit.ui: companion window for Orbit and plugin settings"
+license = "MIT"
+api = 1
+enabled = true

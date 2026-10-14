@@ -10,6 +10,8 @@ Supersedes the roadmap in the research repository. Status as of the SDK design s
 | 3 | Rust SDK on crates.io (`-abi`, `-sdk`, `-sdk-std`), samples migrated, size spike and report | done (publishing itself is a manual step) |
 | 4 | `webview-bridge` plugin (DevTools client extracted), JS runtime plugin (Boa), `@parsec-orbit/sdk` for npm, JS/TS samples (`bandwidth.js` as the baseline) | done (npm publishing is a manual step) |
 | 5 | Marketplace (index, sha256, signatures), hooks service, config storage service | done (no hosted service; the maintainer creates the signing key) |
+| 6 | UI service plugin (winio external companion window, `parsec-orbit.ui`), declarative UI schema, Rust and JS SDK bindings, hotkey and webview trigger | implemented on `feat/orbit-ui`, awaiting merge |
+| 7 | UI follow-up ([orbit-ui.md](orbit-ui.md#6-planned-settings-the-window-should-grow-into) section 6): editable bandwidth ladder, STUN latency table with pinning and custom servers, Overview actions (debug console, restart), restart-and-apply, Log tab | planned |
 
 Each phase ends with `cargo test --workspace` green, docs updated in the same commits, and a recorded size report where relevant.
 

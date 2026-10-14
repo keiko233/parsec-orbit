@@ -11,3 +11,5 @@ license = "MIT"
 api = 1
 enabled = true
 requires = ["com.parsec-orbit.hooks"]
+
+optional = ["com.parsec-orbit.ui"]
