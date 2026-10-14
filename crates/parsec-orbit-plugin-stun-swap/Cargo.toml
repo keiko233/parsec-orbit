@@ -14,3 +14,4 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 parsec-orbit-plugin-sdk-std = { path = "../../crates/parsec-orbit-plugin-sdk-std" }
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_LibraryLoader"] }
+serde_json = "1"

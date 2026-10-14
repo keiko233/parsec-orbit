@@ -10,7 +10,9 @@
 
 pub mod legacy;
 
+use std::ffi::c_void;
 use parsec_orbit_plugin_sdk_std::prelude::*;
+use parsec_orbit_plugin_sdk_std::services::UiClient;
 
 /// Bandwidth options appended after the built-in `3..50 mbps` ladder.
 ///
@@ -27,6 +29,55 @@ fn enabled() -> bool {
 fn enabled_with(switch: Option<&str>) -> bool {
     !matches!(switch, Some("0") | Some("off") | Some("false"))
 }
+
+
+const NATIVE_UI_SCHEMA: &str = r#"{
+    "id": "com.parsec-orbit.native",
+    "title": "High Bitrate (Native)",
+    "description": "Bandwidth limit presets and options for Parsec Native UI",
+    "order": 10,
+    "items": [
+        {
+            "key": "enabled",
+            "type": "toggle",
+            "label": "Extend Bandwidth Ladder",
+            "description": "Patch in-memory table to append 60..500 Mbps options to settings",
+            "default": true
+        },
+        {
+            "key": "max_preset",
+            "type": "select",
+            "label": "Maximum Bandwidth Option",
+            "description": "Highest selectable bandwidth in Parsec settings",
+            "default": "500 Mbps",
+            "options": [
+                {"label": "100 Mbps", "value": "100"},
+                {"label": "200 Mbps", "value": "200"},
+                {"label": "300 Mbps", "value": "300"},
+                {"label": "500 Mbps", "value": "500"}
+            ]
+        },
+        {
+            "key": "custom_bitrate",
+            "type": "slider",
+            "label": "Target Bitrate (Mbps)",
+            "description": "Preferred encoder bitrate target",
+            "min": 10.0,
+            "max": 500.0,
+            "step": 10.0,
+            "default": 100.0
+        },
+        {
+            "key": "patch_status",
+            "type": "text",
+            "label": "Patch Status",
+            "description": "In-memory UI patch status",
+            "default": "Waiting for client UI..."
+        }
+    ]
+}"#;
+
+unsafe extern "system" fn on_native_action(_user: *mut c_void, _msg: *const u8, _len: usize) {}
 
 #[derive(Default)]
 struct Native;
@@ -50,9 +101,21 @@ impl Plugin for Native {
         // The table only exists once the client has loaded its UI module, and
         // the signature scan waits for it; never do that on the loader's
         // worker thread.
+        if let Some(ui) = UiClient::new(cx) {
+            let _ = ui.register_section(NATIVE_UI_SCHEMA);
+            let _ = unsafe { ui.on_action("com.parsec-orbit.native", on_native_action, std::ptr::null_mut()) };
+        }
+
         let cx = *cx;
         cx.spawn("patch", move || {
-            legacy::extend_bandwidth(|message| info!(cx, "{message}"));
+            legacy::extend_bandwidth(|message| {
+                info!(cx, "{message}");
+                if let Some(ui) = UiClient::new(&cx) {
+                    let escaped = message.replace('\\', "\\\\").replace('"', "\\\"");
+                    let json = format!(r#"{{"patch_status":"{escaped}"}}"#);
+                    let _ = ui.update_state("com.parsec-orbit.native", &json);
+                }
+            });
         })?;
 
         Ok(())
@@ -214,5 +277,42 @@ mod tests {
         let desc = unsafe { &*ParsecOrbitPluginQuery(ABI_VERSION) };
         assert_eq!(text(desc.id), "com.parsec-orbit.native");
         assert_ne!(text(desc.id), "com.parsec-orbit.webview");
+    }
+
+    #[test]
+    fn native_registers_ui_section() {
+        use std::sync::Mutex;
+
+        static REG_SCHEMA: Mutex<Option<String>> = Mutex::new(None);
+        unsafe extern "system" fn test_reg(schema: *const u8, len: usize) -> i32 {
+            let s = String::from_utf8_lossy(core::slice::from_raw_parts(schema, len)).into_owned();
+            *REG_SCHEMA.lock().unwrap() = Some(s);
+            0
+        }
+
+        static MOCK_UI: parsec_orbit_plugin_sdk_std::ParsecOrbitUiV1 = parsec_orbit_plugin_sdk_std::ParsecOrbitUiV1 {
+            header: parsec_orbit_plugin_sdk_std::ParsecOrbitInterfaceHeader::new(
+                std::mem::size_of::<parsec_orbit_plugin_sdk_std::ParsecOrbitUiV1>(),
+                1,
+                0,
+            ),
+            show: None,
+            hide: None,
+            is_visible: None,
+            register_section: Some(test_reg),
+            unregister_section: None,
+            update_state: None,
+            on_action: None,
+            off_action: None,
+        };
+
+        let host = parsec_orbit_plugin_sdk_std::testing::MockHost::new("com.parsec-orbit.native");
+        host.provide("parsec-orbit.ui", &MOCK_UI.header);
+
+        let ui = UiClient::new(&host.context()).expect("ui client");
+        assert!(ui.register_section(NATIVE_UI_SCHEMA).is_ok());
+        let reg = REG_SCHEMA.lock().unwrap().take().unwrap();
+        assert!(reg.contains("com.parsec-orbit.native"));
+        assert!(reg.contains("High Bitrate"));
     }
 }

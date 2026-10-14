@@ -11,12 +11,12 @@ use std::ffi::{c_char, c_int, c_void, CStr, CString};
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4, ToSocketAddrs, UdpSocket};
 use std::os::windows::ffi::OsStrExt;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicI64, AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{mpsc, Mutex, OnceLock, RwLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use parsec_orbit_plugin_sdk_std::prelude::*;
-use parsec_orbit_plugin_sdk_std::services::HooksClient;
+use parsec_orbit_plugin_sdk_std::services::{HooksClient, UiClient};
 use parsec_orbit_plugin_sdk_std::{ERR_NOT_FOUND, ERR_NOT_READY};
 use windows_sys::Win32::System::LibraryLoader::LoadLibraryW;
 
@@ -48,6 +48,9 @@ static CONTEXT: OnceLock<Context> = OnceLock::new();
 static ORIGINAL_GETADDRINFO: AtomicUsize = AtomicUsize::new(0);
 static HOOK_ID: AtomicI64 = AtomicI64::new(0);
 static COUNTER: AtomicU64 = AtomicU64::new(0);
+static UI_ENABLED: AtomicBool = AtomicBool::new(true);
+static PROBE_INTERVAL_OVERRIDE: AtomicU64 = AtomicU64::new(0);
+static PROBE_WAKER: OnceLock<mpsc::SyncSender<()>> = OnceLock::new();
 
 thread_local! {
     // The probe resolves hostnames too. Without this, a probe of
@@ -73,12 +76,22 @@ fn enabled() -> bool {
 }
 
 fn probe_interval() -> Duration {
+    let overridden = PROBE_INTERVAL_OVERRIDE.load(Ordering::Acquire);
+    if overridden >= 10 {
+        return Duration::from_secs(overridden);
+    }
     let seconds = std::env::var("PARSEC_ORBIT_STUN_SWAP_INTERVAL_SECS")
         .ok()
         .and_then(|value| value.parse::<u64>().ok())
         .filter(|value| *value >= 10)
         .unwrap_or(300);
     Duration::from_secs(seconds)
+}
+
+fn trigger_probe() {
+    if let Some(waker) = PROBE_WAKER.get() {
+        let _ = waker.try_send(());
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -361,25 +374,35 @@ fn refresh(cx: &Context, candidates: &[Candidate]) {
             }
         }
     }
+
+    if let Some(ui) = UiClient::new(cx) {
+        let status = match &best {
+            Some((ip, rtt)) => format!("{ip} ({} ms)", rtt.as_millis()),
+            None => "Parsec default (no domestic server)".to_string(),
+        };
+        let json = format!(r#"{{"active_server":"{status}"}}"#);
+        let _ = ui.update_state("com.keiko233.stun-swap", &json);
+    }
 }
 
-fn probe_loop(cx: Context) {
+fn probe_loop(cx: Context, rx: mpsc::Receiver<()>) {
     if load_candidates(&cx).is_empty() {
         error!(cx, "stun swap: no candidates configured");
         return;
     }
-    let interval = probe_interval();
     loop {
         // Reload every pass so a servers.txt edit takes effect without a
         // Parsec restart.
         let candidates = load_candidates(&cx);
         if candidates.is_empty() {
             error!(cx, "stun swap: no candidates configured");
-            std::thread::sleep(interval);
+            let interval = probe_interval();
+            let _ = rx.recv_timeout(interval);
             continue;
         }
         refresh(&cx, &candidates);
-        std::thread::sleep(interval);
+        let interval = probe_interval();
+        let _ = rx.recv_timeout(interval);
     }
 }
 
@@ -410,7 +433,7 @@ unsafe extern "system" fn getaddrinfo_detour(
         if let Ok(name) = name.to_str() {
             let probing = PROBING.with(Cell::get);
             let name = name.trim_end_matches('.');
-            if !probing && name.eq_ignore_ascii_case(PARSEC_STUN_V4) {
+            if !probing && UI_ENABLED.load(Ordering::Acquire) && name.eq_ignore_ascii_case(PARSEC_STUN_V4) {
                 if let Some(replacement) = selected().read().ok().and_then(|guard| guard.clone()) {
                     if let Ok(replacement) = CString::new(replacement) {
                         if let Some(cx) = CONTEXT.get() {
@@ -432,6 +455,69 @@ unsafe extern "system" fn getaddrinfo_detour(
     }
 
     unsafe { original(node, service, hints, result) }
+}
+
+
+const STUN_UI_SCHEMA: &str = r#"{
+    "id": "com.keiko233.stun-swap",
+    "title": "STUN Swap",
+    "description": "Redirects Parsec STUN lookups to healthy mainland China STUN servers",
+    "order": 20,
+    "items": [
+        {
+            "key": "enabled",
+            "type": "toggle",
+            "label": "Enable STUN Redirection",
+            "description": "Intercept stun.parsec.app lookups and answer with chosen low-latency server",
+            "default": true
+        },
+        {
+            "key": "interval",
+            "type": "slider",
+            "label": "Probe Interval (seconds)",
+            "description": "Frequency of background latency probes",
+            "min": 10.0,
+            "max": 600.0,
+            "step": 10.0,
+            "default": 300.0
+        },
+        {
+            "key": "active_server",
+            "type": "text",
+            "label": "Active STUN Target",
+            "description": "Currently selected STUN server endpoint (updated on probe)",
+            "default": "Probing..."
+        },
+        {
+            "key": "probe_now",
+            "type": "button",
+            "label": "Probe Now",
+            "description": "Trigger an immediate round of latency probes across all servers"
+        }
+    ]
+}"#;
+
+unsafe extern "system" fn on_ui_action(_user: *mut c_void, msg: *const u8, len: usize) {
+    let slice = unsafe { std::slice::from_raw_parts(msg, len) };
+    if let Ok(val) = serde_json::from_slice::<serde_json::Value>(slice) {
+        let key = val.get("key").and_then(|v| v.as_str()).unwrap_or_default();
+        match key {
+            "enabled" => {
+                if let Some(enabled) = val.get("value").and_then(|v| v.as_bool()) {
+                    UI_ENABLED.store(enabled, Ordering::Release);
+                }
+            }
+            "interval" => {
+                if let Some(sec) = val.get("value").and_then(|v| v.as_f64()) {
+                    PROBE_INTERVAL_OVERRIDE.store(sec as u64, Ordering::Release);
+                }
+            }
+            "probe_now" => {
+                trigger_probe();
+            }
+            _ => {}
+        }
+    }
 }
 
 #[derive(Default)]
@@ -475,8 +561,16 @@ impl Plugin for StunSwap {
             return Err(error);
         }
 
+        if let Some(ui) = UiClient::new(cx) {
+            let _ = ui.register_section(STUN_UI_SCHEMA);
+            let _ = unsafe { ui.on_action("com.keiko233.stun-swap", on_ui_action, std::ptr::null_mut()) };
+        }
+
+        let (tx, rx) = mpsc::sync_channel(1);
+        let _ = PROBE_WAKER.set(tx);
+
         let cx = *cx;
-        if let Err(error) = cx.spawn("probe", move || probe_loop(cx)) {
+        if let Err(error) = cx.spawn("probe", move || probe_loop(cx, rx)) {
             error!(cx, "stun swap: could not start probe thread: {error}");
             let _ = hooks.disable(hook);
             let _ = hooks.remove(hook);
@@ -726,5 +820,71 @@ mod tests {
         );
         let host = MockHost::new("com.keiko233.stun-swap");
         assert!(host.logs().is_empty());
+    }
+
+    #[test]
+    fn stun_swap_registers_ui_and_handles_actions() {
+        static REG_SCHEMA: Mutex<Option<String>> = Mutex::new(None);
+        static ACTION_CB: Mutex<Option<parsec_orbit_plugin_sdk_std::MessageCallback>> = Mutex::new(None);
+
+        unsafe extern "system" fn test_reg(schema: *const u8, len: usize) -> i32 {
+            let s = String::from_utf8_lossy(core::slice::from_raw_parts(schema, len)).into_owned();
+            *REG_SCHEMA.lock().unwrap() = Some(s);
+            0
+        }
+        unsafe extern "system" fn test_on_action(
+            _id: *const u8,
+            _len: usize,
+            cb: Option<parsec_orbit_plugin_sdk_std::MessageCallback>,
+            _user: *mut c_void,
+        ) -> i64 {
+            *ACTION_CB.lock().unwrap() = cb;
+            42
+        }
+
+        static MOCK_UI: parsec_orbit_plugin_sdk_std::ParsecOrbitUiV1 = parsec_orbit_plugin_sdk_std::ParsecOrbitUiV1 {
+            header: parsec_orbit_plugin_sdk_std::ParsecOrbitInterfaceHeader::new(
+                std::mem::size_of::<parsec_orbit_plugin_sdk_std::ParsecOrbitUiV1>(),
+                1,
+                0,
+            ),
+            show: None,
+            hide: None,
+            is_visible: None,
+            register_section: Some(test_reg),
+            unregister_section: None,
+            update_state: None,
+            on_action: Some(test_on_action),
+            off_action: None,
+        };
+
+        let host = MockHost::new("com.keiko233.stun-swap");
+        host.provide("parsec-orbit.ui", &MOCK_UI.header);
+
+        let ui = UiClient::new(&host.context()).expect("ui client available");
+        assert!(ui.register_section(STUN_UI_SCHEMA).is_ok());
+        let reg = REG_SCHEMA.lock().unwrap().take().unwrap();
+        assert!(reg.contains("com.keiko233.stun-swap"));
+        assert!(reg.contains("STUN Swap"));
+
+        // Initial state
+        assert!(UI_ENABLED.load(Ordering::Acquire));
+
+        // Action callback for enabled toggle
+        let action_json = r#"{"key":"enabled","type":"change","value":false}"#;
+        unsafe { on_ui_action(std::ptr::null_mut(), action_json.as_ptr(), action_json.len()) };
+        assert!(!UI_ENABLED.load(Ordering::Acquire));
+
+        // Action callback for interval slider
+        let action_json2 = r#"{"key":"interval","type":"change","value":60.0}"#;
+        unsafe { on_ui_action(std::ptr::null_mut(), action_json2.as_ptr(), action_json2.len()) };
+        assert_eq!(PROBE_INTERVAL_OVERRIDE.load(Ordering::Acquire), 60);
+
+        // Action callback for probe_now button
+        let action_json3 = r#"{"key":"probe_now","type":"click"}"#;
+        unsafe { on_ui_action(std::ptr::null_mut(), action_json3.as_ptr(), action_json3.len()) };
+
+        // Reset back
+        UI_ENABLED.store(true, Ordering::Release);
     }
 }

@@ -10,3 +10,5 @@ description = "Adds bandwidth limits above 50 Mbps to the native (legacy) UI"
 license = "MIT"
 api = 1
 enabled = true
+
+optional = ["com.parsec-orbit.ui"]

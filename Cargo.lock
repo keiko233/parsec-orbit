@@ -1932,6 +1932,7 @@ name = "parsec-orbit-plugin-stun-swap"
 version = "0.1.1"
 dependencies = [
  "parsec-orbit-plugin-sdk-std",
+ "serde_json",
  "windows-sys 0.61.2",
 ]
 
