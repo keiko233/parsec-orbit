@@ -12,6 +12,7 @@ these guides, and restates only the most frequently violated rules.
 | Repository scripts, worktrees, or commits                            | [Development workflow](workflow.md)             |
 | Tests, mocks, verification, or final review                          | [Testing and review](testing.md)                |
 | Rust style and current formatter/lint behavior                       | [Rust code style](rust.md)                      |
+| Configuration, manifest or metadata files (TOML vs JSON)             | [File formats](formats.md)                      |
 | Components, crate graph, size and concurrency policy                 | [Architecture](../design/architecture.md)       |
 | ABI, manifest, loading rules, host services, or SDK APIs             | [Specifications](../spec/)                      |
 | How to write a Rust or TypeScript plugin                             | [Guides](../guides/)                            |

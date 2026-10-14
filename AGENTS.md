@@ -150,17 +150,27 @@ Read [Rust code style](docs/development/rust.md) for formatting, lint, types and
 errors. The crate directory equals the package name. The SDK guides under
 [docs/guides/](docs/guides/) are written together with the SDKs they describe.
 
-## 8. Repository Scripts
+## 8. Repository Scripts and Tools
 
-Automation lives in `scripts/` as PowerShell (`kebab-case.ps1`) with a usage
-header, `[CmdletBinding()] param(...)` first, `$ErrorActionPreference = 'Stop'` and
-`-LiteralPath` for file operations. CI calls the same scripts a developer runs
-(`scripts/verify.ps1`, `scripts/package.ps1`); keep execution logic in one place
-and keep the pnpm commands as thin delegates. See
-[Repository scripts](docs/development/workflow.md#repository-scripts).
+Product automation (install, upgrade, packaging, registry generation and
+signing) is Rust, in `tools/parsec-orbit-installer` and
+`tools/parsec-orbit-release`; logic and security-sensitive code never lives in
+shell, PowerShell or Python. `scripts/` holds thin PowerShell entry points
+(`kebab-case.ps1`, usage header, `[CmdletBinding()] param(...)` first,
+`$ErrorActionPreference = 'Stop'`, `-LiteralPath` for file operations) that
+build and delegate to those tools; CI calls the same scripts a developer runs
+(`scripts/verify.ps1`, `scripts/package.ps1`) and the pnpm commands stay thin
+delegates. The bootstrap scripts shipped to users (`get-orbit.ps1`,
+`get-orbit.sh`) only download, check `SHA256SUMS.txt` and run `orbit`.
+One-off research scripts live in `research/` and are not product automation.
+Until the tools land, the existing scripts stay; do not add logic to them. See
+[Repository scripts](docs/development/workflow.md#repository-scripts) and
+[File formats](docs/development/formats.md).
 
 ## 9. Documentation
 
+- Configuration and metadata files follow [File formats](docs/development/formats.md):
+  TOML for what people edit, JSON for what programs exchange, one source per fact.
 - `docs/spec/` is normative: a change in behaviour changes the spec in the same
   commit.
 - `docs/design/` explains why; `docs/guides/` are task-oriented how-tos written
