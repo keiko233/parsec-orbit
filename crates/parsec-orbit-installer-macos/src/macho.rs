@@ -85,6 +85,10 @@ fn u64_at(image: &[u8], offset: usize) -> Result<u64, String> {
 }
 
 fn parse(image: &[u8], dependency: &str) -> Result<Parsed, String> {
+    parse_as(image, dependency, MH_EXECUTE)
+}
+
+fn parse_as(image: &[u8], dependency: &str, file_type: u32) -> Result<Parsed, String> {
     if image.len() < HEADER_BYTES {
         return Err("the stub is shorter than a Mach-O header".into());
     }
@@ -94,8 +98,10 @@ fn parse(image: &[u8], dependency: &str) -> Result<Parsed, String> {
     if !matches!(u32_at(image, 4)?, CPU_TYPE_ARM64 | 0x0100_0007) {
         return Err("unsupported Mach-O CPU".into());
     }
-    if u32_at(image, 12)? != MH_EXECUTE {
-        return Err("the stub is not a Mach-O executable".into());
+    if u32_at(image, 12)? != file_type {
+        return Err(format!(
+            "unexpected Mach-O file type (expected {file_type})"
+        ));
     }
 
     let ncmds = u32_at(image, 16)?;
@@ -195,6 +201,19 @@ fn parse(image: &[u8], dependency: &str) -> Result<Parsed, String> {
         signature,
         dependency_present,
     })
+}
+
+/// Require a real arm64 dynamic library before accepting a loader input.
+/// codesign also signs ordinary data files; its success is not this check.
+pub fn verify_loader(image: &[u8]) -> Result<(), String> {
+    const MH_DYLIB: u32 = 6;
+    let slices = slices(image)?;
+    let &(offset, size, _) = slices
+        .iter()
+        .find(|(_, _, cpu)| *cpu == CPU_TYPE_ARM64)
+        .ok_or("the loader has no arm64 slice")?;
+    parse_as(&image[offset..offset + size], "", MH_DYLIB)?;
+    Ok(())
 }
 
 /// Inserts one `LC_LOAD_DYLIB` for `dependency` into the listed header

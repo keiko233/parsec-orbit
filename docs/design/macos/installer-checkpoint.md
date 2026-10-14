@@ -3,8 +3,8 @@
 Date: 2026-10-14. Host: macOS 27.0 (26A428), arm64.
 **M1b is implemented and scratch-measured.** The initial 2026-10-14
 measurements used toy bundles. The 2026-10-15 follow-up below also applies
-and restores a disposable real vendor copy; the live `/Applications`
-installation remains untouched. The [phase
+and restores a disposable real vendor copy; the original-path roundtrip is recorded separately in the
+[signing checkpoint](signing-checkpoint.md). The [phase
 exit gate](../macos-phases.md#m1b---transactional-applyrestore) asks for
 scratch apply/re-apply/uninstall and failure/interruption recovery, an exact
 pristine restore and refusals without mutation; the measured evidence below
@@ -43,7 +43,7 @@ covers that scope and nothing beyond it.
    the stub hash must be whitelisted or match the recorded applied stub; the
    bundle id is read from `Info.plist`; `libproc` must show no running process
    whose executable path equals the canonical stub; the loader input must be
-   a regular file and is hashed; the pristine tree snapshot is taken. Nothing
+   a regular arm64 `MH_DYLIB` (bounded to 64 MiB) and is hashed; the pristine tree snapshot is taken. Nothing
    here writes.
 3. **Recover.** A recorded `Installed` state is accepted only when the whole
    tree still matches the applied snapshot *and* strict signature
@@ -273,3 +273,32 @@ Evidence: `/tmp/orbit-continue-installer-tests.log`,
 `/tmp/orbit-m1c-uninstall.json`, and the direct/open acceptance JSON under
 the scratch path. No vendor preinstall, root, Keychain transaction or real
 account operation was performed.
+
+
+## Follow-up: protected-source staging and loader validation (2026-10-15)
+
+A root-owned official app copied by an ordinary user transfers ownership to
+that user (the source group may remain), and macOS may attach new
+`com.apple.provenance`. Staging now permits exactly those copy transformations,
+plus the measured symlink mtime reset. Existing xattrs, ACLs, content and other
+metadata remain checked; no attributes are deleted. The verified copy receives
+its own pristine snapshot. Post-signing verification compares against that
+snapshot, so signing does not inherit relaxed owner/provenance exceptions.
+The rename backup and final restored original still require exact original
+ownership and metadata. A read-only root-owned source copy preflight passed
+(`/tmp/orbit-root-ownership-preflight.log`).
+
+`codesign` can sign an ordinary data file using xattrs. Signature success alone
+therefore cannot validate a loader. Inspect now requires a structurally valid
+arm64 dynamic library before backup. A regression first signs a data file and
+then confirms refusal without bundle/state mutation. Installer verification is
+now 21 unit tests, 14 scratch tests and the separate metadata roundtrip.
+
+The ordinary-user original-path apply attempt was refused at the backup
+rename with `Permission denied (13)` and recorded `RolledBack`; the original
+remained pristine. The separately authorized administrator experiment then
+used a fully verified candidate prepared with the real patch/sign/metadata
+primitives and privileged renames only. It launched as the ordinary user and
+restored the exact original. This measures original-path activation, not a
+privileged production CLI workflow. End-user privilege handling remains
+explicitly deferred.

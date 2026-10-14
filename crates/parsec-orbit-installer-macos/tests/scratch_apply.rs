@@ -425,6 +425,22 @@ fn an_injected_failure_rolls_back_and_the_next_run_recovers() {
     );
 }
 
+#[test]
+fn a_signable_data_file_is_not_accepted_as_a_loader() {
+    let toy = build_toy("installer-signing-failure", true);
+    fs::write(&toy.loader, b"not a Mach-O library").unwrap();
+    // codesign accepts ordinary data using xattrs. A valid code signature
+    // therefore cannot substitute for a dylib architecture/type check.
+    platform::codesign_sign(&toy.loader, None, false).unwrap();
+    let failure = apply(&toy.app, &toy.loader, &toy.options()).unwrap_err();
+    assert_eq!(failure.step, Step::Inspect);
+    assert!(!failure.rolled_back, "{failure:?}");
+    assert!(!toy.orbit.exists());
+    assert!(digest::differences(&toy.tree, &digest::tree(&toy.app).unwrap()).is_empty());
+    platform::codesign_verify(&toy.app).unwrap();
+    assert!(!toy.orbit.join("home/.parsec").exists());
+}
+
 /// Crafts the on-disk state an interrupted transaction leaves behind.
 fn craft_interruption(toy: &Toy, after_swap: bool) {
     let install = toy.install_dir();

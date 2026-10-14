@@ -238,6 +238,7 @@ struct Transaction<'a> {
     bundle_id: String,
     stub_sha256: String,
     pristine_tree: Tree,
+    staged_pristine_tree: Option<Tree>,
     loader_source: PathBuf,
     loader_sha256: String,
     orbit_root: PathBuf,
@@ -261,6 +262,7 @@ impl<'a> Transaction<'a> {
             bundle_id: String::new(),
             stub_sha256: String::new(),
             pristine_tree: Tree::new(),
+            staged_pristine_tree: None,
             loader_source: loader.to_path_buf(),
             loader_sha256: String::new(),
             orbit_root: options.orbit_root.clone(),
@@ -499,9 +501,16 @@ impl<'a> Transaction<'a> {
                 self.loader_source.display()
             ));
         }
+        if metadata.len() > 64 * 1024 * 1024 {
+            return Err("the loader input exceeds the 64 MiB inspection limit".into());
+        }
         self.loader_source = fs::canonicalize(&self.loader_source)
             .map_err(|error| format!("{}: {error}", self.loader_source.display()))?;
         self.loader_sha256 = digest::sha256_file(&self.loader_source)?;
+        let loader = fs::read(&self.loader_source)
+            .map_err(|error| format!("{}: {error}", self.loader_source.display()))?;
+        macho::verify_loader(&loader)
+            .map_err(|error| format!("the loader input is not a valid arm64 dylib: {error}"))?;
 
         self.pristine_tree = digest::tree(&self.app)?;
         Ok(())
@@ -743,6 +752,7 @@ impl<'a> Transaction<'a> {
                 differences.join("; ")
             ));
         }
+        self.staged_pristine_tree = Some(staged);
         self.note(
             "staged",
             serde_json::json!({"staged": self.install.staged()}),
@@ -867,8 +877,12 @@ impl<'a> Transaction<'a> {
         verify_record(&staged, &self.executable, &self.orbit_root)?;
 
         let tree = digest::tree(&staged)?;
+        let pristine_copy = self
+            .staged_pristine_tree
+            .as_ref()
+            .ok_or("the transaction lost its staged pristine snapshot")?;
         let changed = digest::changed_paths_for_signing(
-            &self.pristine_tree,
+            pristine_copy,
             &tree,
             &["", "Contents", "Contents/Resources", "Contents/MacOS"],
         );

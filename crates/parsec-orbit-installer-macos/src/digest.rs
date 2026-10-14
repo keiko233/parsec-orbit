@@ -174,7 +174,10 @@ pub fn differences(expected: &Tree, actual: &Tree) -> Vec<String> {
 
 /// Differences between a pristine tree and its macOS `ditto` staging copy.
 /// `ditto` resets symlink modification times on macOS, so this comparison
-/// permits that one copy transformation while checking all other metadata.
+/// permits that copy transformation and transfer to the effective user's
+/// uid/gid when copying a root-owned app without privilege. The rename backup
+/// retains its exact original ownership; post-signing checks use this copy's
+/// validated snapshot rather than exempting owner changes from signing.
 pub fn staged_copy_differences(expected: &Tree, actual: &Tree) -> Vec<String> {
     format_changes(changed_paths_impl(
         expected,
@@ -288,16 +291,50 @@ fn metadata_matches(
                 || (expected.kind == EntryKind::Dir && directory_exceptions.contains(&path))
         }
     };
-    if ignore_mtime {
-        expected_metadata.uid == actual_metadata.uid
-            && expected_metadata.gid == actual_metadata.gid
-            && expected_metadata.xattrs == actual_metadata.xattrs
-            && expected_metadata.acl == actual_metadata.acl
-            && (expected.kind != EntryKind::File
-                || expected_metadata.mtime == actual_metadata.mtime)
-    } else {
-        expected_metadata == actual_metadata
+    let same_owner = expected_metadata.uid == actual_metadata.uid
+        && expected_metadata.gid == actual_metadata.gid;
+    #[cfg(unix)]
+    let copied_to_current_user = matches!(comparison, MetadataComparison::DittoCopy)
+        && actual_metadata.uid == Some(crate::platform::effective_uid())
+        && (actual_metadata.gid == expected_metadata.gid
+            || actual_metadata.gid == Some(unsafe { libc::getegid() }));
+    #[cfg(not(unix))]
+    let copied_to_current_user = false;
+    (same_owner || copied_to_current_user)
+        && xattrs_match(expected_metadata, actual_metadata, comparison)
+        && expected_metadata.acl == actual_metadata.acl
+        && (ignore_mtime || expected_metadata.mtime == actual_metadata.mtime)
+}
+
+fn xattrs_match(
+    expected: &MetadataSnapshot,
+    actual: &MetadataSnapshot,
+    comparison: MetadataComparison<'_>,
+) -> bool {
+    if expected.xattrs == actual.xattrs {
+        return true;
     }
+    // macOS attaches provenance to new copies of installed apps. Preserve
+    // it rather than deleting it. Only its addition is a copy exception;
+    // changing/removing an existing attribute or any other xattr refuses.
+    if !matches!(comparison, MetadataComparison::DittoCopy) {
+        return false;
+    }
+    let (Some(expected), Some(actual)) = (&expected.xattrs, &actual.xattrs) else {
+        return false;
+    };
+    let provenance = b"com.apple.provenance";
+    if expected
+        .iter()
+        .any(|attribute| attribute.name == provenance)
+    {
+        return false;
+    }
+    let filtered: Vec<_> = actual
+        .iter()
+        .filter(|attribute| attribute.name != provenance)
+        .collect();
+    expected.iter().eq(filtered)
 }
 
 /// Convenience: the canonical path of an existing path.
@@ -327,6 +364,74 @@ mod tests {
                     .as_str()
             )
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn staging_can_transfer_ownership_but_restore_and_signing_cannot() {
+        let scratch = TempDir::new("installer-staging-owner");
+        fs::write(scratch.path().join("payload"), b"unchanged payload").unwrap();
+        let copy = tree(scratch.path()).unwrap();
+        let mut original = copy.clone();
+        for entry in original.values_mut() {
+            let metadata = entry.metadata.as_mut().unwrap();
+            metadata.uid = Some(crate::platform::effective_uid().wrapping_add(1));
+            metadata.gid = Some(unsafe { libc::getegid() }.wrapping_add(1));
+        }
+        assert!(staged_copy_differences(&original, &copy).is_empty());
+        assert!(!differences(&original, &copy).is_empty());
+        assert!(!changed_paths_for_signing(&original, &copy, &[""]).is_empty());
+        let mut tampered = copy.clone();
+        tampered
+            .get_mut("payload")
+            .unwrap()
+            .metadata
+            .as_mut()
+            .unwrap()
+            .acl = Some(vec![1]);
+        assert!(!staged_copy_differences(&original, &tampered).is_empty());
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn staging_preserves_added_os_provenance_without_exempting_other_attributes() {
+        let scratch = TempDir::new("installer-copy-provenance");
+        let mut original = tree(scratch.path()).unwrap();
+        // Model a source without OS provenance without removing any on disk.
+        original
+            .get_mut("")
+            .unwrap()
+            .metadata
+            .as_mut()
+            .unwrap()
+            .xattrs
+            .as_mut()
+            .unwrap()
+            .retain(|attribute| attribute.name != b"com.apple.provenance");
+        let mut copy = original.clone();
+        let metadata = copy.get_mut("").unwrap().metadata.as_mut().unwrap();
+        metadata.xattrs.as_mut().unwrap().push(ExtendedAttribute {
+            name: b"com.apple.provenance".to_vec(),
+            value: vec![1, 2, 3],
+        });
+        assert!(staged_copy_differences(&original, &copy).is_empty());
+        assert!(!differences(&original, &copy).is_empty());
+        assert!(!changed_paths_for_signing(&original, &copy, &[""]).is_empty());
+        let mut changed = copy.clone();
+        changed
+            .get_mut("")
+            .unwrap()
+            .metadata
+            .as_mut()
+            .unwrap()
+            .xattrs
+            .as_mut()
+            .unwrap()
+            .iter_mut()
+            .find(|attribute| attribute.name == b"com.apple.provenance")
+            .unwrap()
+            .value = vec![4];
+        assert!(!staged_copy_differences(&copy, &changed).is_empty());
     }
 
     #[test]
