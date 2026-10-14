@@ -272,7 +272,7 @@ uses a throwaway client directory and a local `dist\` manifest:
 * An offline smoke test can install into a temporary client directory with a
   fake `parsecd.exe`, then run `upgrade` and `uninstall` and assert that the
   original `bcrypt.dll` bytes are back.
-* The market half is already covered by `cargo test -p parsec-orbit-market`;
+* The market half is already covered by `cargo test -p parsec-orbit-registry`;
   `verify-any` adds a test for arbitrary signed files.
 
 ## Open questions

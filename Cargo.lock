@@ -1918,22 +1918,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "parsec-orbit-market"
-version = "0.1.1"
-dependencies = [
- "base64",
- "ed25519-dalek",
- "getrandom 0.4.3",
- "semver",
- "serde",
- "serde_json",
- "sha2",
- "toml",
- "ureq",
- "zip",
-]
-
-[[package]]
 name = "parsec-orbit-plugin-abi"
 version = "0.1.1"
 
@@ -1994,6 +1978,22 @@ dependencies = [
  "parsec-orbit-plugin-sdk-testing",
  "serde_json",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "parsec-orbit-registry"
+version = "0.1.1"
+dependencies = [
+ "base64",
+ "ed25519-dalek",
+ "getrandom 0.4.3",
+ "semver",
+ "serde",
+ "serde_json",
+ "sha2",
+ "toml",
+ "ureq",
+ "zip",
 ]
 
 [[package]]

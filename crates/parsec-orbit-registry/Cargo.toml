@@ -1,5 +1,5 @@
 [package]
-name = "parsec-orbit-market"
+name = "parsec-orbit-registry"
 description = "Plugin index, sha256 and ed25519 verification, safe installation and the parsec-orbit-market command line tool"
 version.workspace = true
 edition.workspace = true
@@ -8,7 +8,7 @@ repository.workspace = true
 publish = false
 
 [lib]
-name = "parsec_orbit_market"
+name = "parsec_orbit_registry"
 path = "src/lib.rs"
 
 [[bin]]

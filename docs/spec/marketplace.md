@@ -1,6 +1,6 @@
 # Marketplace
 
-Status: implemented (`crates/parsec-orbit-market`, the `parsec-orbit-market` tool). There is no hosted service: a *market* is an index file, the packages it lists, and a signature, served from anywhere (a GitHub release, a static web server, a folder).
+Status: implemented (`crates/parsec-orbit-registry`, the `parsec-orbit-market` tool). There is no hosted service: a *market* is an index file, the packages it lists, and a signature, served from anywhere (a GitHub release, a static web server, a folder).
 
 ## What is trusted
 

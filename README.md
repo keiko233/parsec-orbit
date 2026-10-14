@@ -48,7 +48,7 @@ libraries), `libs/` (service providers such as `config`, `hooks`, `js-runtime`,
 * `libs/parsec-orbit-lib-config/` and `libs/parsec-orbit-lib-hooks/` -
   official plugins that provide `parsec-orbit.config` (settings that survive
   restarts) and `parsec-orbit.hooks` (Windows inline detours; bounded imported-pointer hooks on macOS).
-* `crates/parsec-orbit-market/` - the `parsec-orbit-market` tool: plugin index,
+* `crates/parsec-orbit-registry/` - the `parsec-orbit-market` tool: plugin index,
   sha256 and ed25519 checks, safe installation; see
   [Marketplace](docs/spec/marketplace.md).
 * `libs/parsec-orbit-lib-js-runtime/` - official plugin that runs JavaScript

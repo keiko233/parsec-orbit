@@ -30,7 +30,7 @@ reorganizations.
 - There is no `anyhow` or `thiserror`; each layer keeps its own error type and the
   consuming crate decides the convention. `parsec-orbit-core` returns
   `Result<T, String>` (the text goes into the log as-is); the loader's Win32 layer
-  returns `Result<T, u32>` (the Win32 error code); `parsec-orbit-market` has an
+  returns `Result<T, u32>` (the Win32 error code); `parsec-orbit-registry` has an
   `Error` enum with a manual `Display` and `From<std::io::Error>`;
   `parsec-orbit-plugin-sdk` has `Error { code, message }` with a `Result` alias.
 - Propagate recoverable errors with `Result` and `?`. Follow the consuming crate's

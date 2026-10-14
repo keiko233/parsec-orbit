@@ -6,9 +6,9 @@ use std::io::{Read, Write};
 use std::net::TcpListener;
 use std::sync::{Arc, Mutex};
 
-use parsec_orbit_market::cli::{self, Environment};
-use parsec_orbit_market::source::Real;
-use parsec_orbit_market::{trust, Error};
+use parsec_orbit_registry::cli::{self, Environment};
+use parsec_orbit_registry::source::Real;
+use parsec_orbit_registry::{trust, Error};
 
 struct NoEnv;
 impl Environment for NoEnv {
@@ -113,7 +113,7 @@ fn a_plugin_is_installed_from_a_signed_index_over_http() {
     let (secret, public) = trust::generate_keypair().unwrap();
     let index = format!(
         "{{\"format\":1,\"name\":\"http\",\"plugins\":[{{\"id\":\"{id}\",\"versions\":[{{\"version\":\"1.0.0\",\"platform\":\"{}\",\"url\":\"files/p.zip\",\"sha256\":\"{}\",\"size\":{}}}]}}]}}",
-        parsec_orbit_market::index::Platform::current().as_str(),
+        parsec_orbit_registry::index::Platform::current().as_str(),
         trust::sha256_hex(&package),
         package.len()
     );

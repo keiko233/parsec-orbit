@@ -152,7 +152,7 @@ class OrbitManagerMacOSTests(unittest.TestCase):
         if not cls.market.is_file() or not os.access(cls.market, os.X_OK):
             raise RuntimeError(
                 "release-built parsec-orbit-market is unavailable; run "
-                "cargo build --release --locked -p parsec-orbit-market"
+                "cargo build --release --locked -p parsec-orbit-registry"
             )
         cls.signer_dir = tempfile.TemporaryDirectory(prefix="orbit-manager-signing-")
         cls.signer_root = Path(cls.signer_dir.name).resolve()

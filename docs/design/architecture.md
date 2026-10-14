@@ -70,11 +70,11 @@ parsec-orbit-plugin-abi      no_std, zero deps. repr(C) types, constants, servic
         |       +-- parsec-orbit-plugin-sdk-testing   MockHost (std, dev-dependency only)         [crates.io]
         |-- parsec-orbit-core         loader logic (std; toml parse-only)
         |-- parsec-orbit-layout       where files live per OS: Orbit root, plugin dirs, logs, data (std, no deps)
-        |-- parsec-orbit-market       index, sha256/ed25519, safe installation, the market tool
+        |-- parsec-orbit-registry     index, sha256/ed25519, safe installation; CLI `parsec-orbit-market`
                 ^
                 +-- parsec-orbit-loader-windows   cdylib named `bcrypt`
 
-crates/     the SDK, the loaders, `core` and the shared Rust libraries (macos-state, market)
+crates/     the SDK, the loaders, `core` and the shared Rust libraries (macos-state, registry)
 libs/       service providers, loaded like plugins: webview-bridge (devtools module),
             js-runtime (Boa), config, hooks (retour), ui (winio)                    -> sdk + heavy deps
 plugins/    features: high-bitrate-native, high-bitrate-webview, stun-swap          -> sdk
