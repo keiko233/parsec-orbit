@@ -93,6 +93,24 @@ Storage: `%APPDATA%\ParsecOrbit\data\com.parsec-orbit.config\<owner>.json`, the 
 
 Inline hooks on functions of the client process. `resolve(module, symbol)` returns the address of an export of a loaded module (or null). `install(target, detour, &original)` prepares a hook and returns its id (`-2` if `target` is hooked already, `-6` if the function start cannot be relocated); `*original` receives a pointer that calls the unhooked function. Hooks are installed disabled; `enable`, `disable` and `remove` take the id. `remove` restores the original bytes and frees the trampoline, so the `*original` pointer of that hook must not be used afterwards. A detour has the exact signature and calling convention of the target and must never unwind. The functions are thread-safe; the hook itself is applied while the process runs, so a hook on a function that other threads are executing is the plugin's responsibility, as is everything a detour does.
 
+### `parsec-orbit.ui` (draft, provided by the UI service plugin), version 1.0
+
+A native external management window powered by `compio-rs/winio`. Plugins
+register declarative JSON schemas for configuration sections and listen for
+action callbacks without bundling GUI runtimes. Specified in detail in
+[ui-service.md](ui-service.md).
+
+| Function | Behaviour |
+| --- | --- |
+| `show()` | Shows and brings the companion window to the foreground. |
+| `hide()` | Hides the companion window without terminating the event loop. |
+| `is_visible()` | `1` if visible, `0` if hidden. |
+| `register_section(schema, len)` | Registers a declarative section JSON schema. |
+| `unregister_section(id, len)` | Removes a section and unmounts its controls. |
+| `update_state(id, id_len, state, len)` | Pushes updated control values (JSON object) to the UI. |
+| `on_action(id, id_len, cb, user)` | Subscribes to user interactions within the section. |
+| `off_action(subscription)` | Cancels an action subscription. |
+
 ### Reserved
 
 `parsec-orbit.market` (install source and update metadata of an installed plugin).

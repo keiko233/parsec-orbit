@@ -11,3 +11,4 @@ Format: Context, Decision, Consequences.
 | [0004](0004-loader-stays-light.md) | The loader stays light | Accepted |
 | [0005](0005-boa-as-js-engine.md) | Boa as the JS engine | Accepted |
 | [0006](0006-network-installer.md) | Orbit Manager: PowerShell orchestration, Rust verification | Accepted |
+| [0007](0007-orbit-ui-winio.md) | Orbit UI: External winio companion window with unified declarative ABI | Accepted |

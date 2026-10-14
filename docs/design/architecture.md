@@ -40,6 +40,7 @@
 * **Plugins** are DLLs speaking the C ABI in [spec/plugin-abi.md](../spec/plugin-abi.md). The same ABI is used for *services*: a plugin can register typed vtables that other plugins query ([spec/services.md](../spec/services.md)).
 * **JS runtime is a plugin** (`kind.js` handler). A JS plugin declares `requires = ["com.parsec-orbit.js-runtime"]`; with the runtime absent (the default install) the loader skips it with a clear message. See [ADR 0003](decisions/0003-js-runtime-is-a-plugin.md).
 * **WebView operations are a plugin too** (`parsec-orbit.webview`), because the DevTools client (HTTP + WebSocket) is not something the bcrypt proxy should carry. The loader keeps only the existing job of opening the DevTools port.
+* **UI operations are a plugin too** (`parsec-orbit.ui`), providing an external native companion window via `winio` on a dedicated thread, driven by a unified declarative schema across the Rust and JS SDKs ([ADR 0007](decisions/0007-orbit-ui-winio.md), [design/orbit-ui.md](orbit-ui.md)). The loader stays light and Win32/GUI-free.
 
 ## Crate graph
 
@@ -58,7 +59,7 @@ parsec-orbit-plugin-abi      no_std, zero deps. repr(C) types, constants, servic
 crates/     every Rust crate: the loader and SDK above, the official plugins and
             the verification tools; high-bitrate-native and high-bitrate-webview -> sdk-std
             (official), webview-bridge (-> devtools), js-runtime (Boa), config,
-            hooks (retour)                                                          -> sdk-std + heavy deps
+            hooks (retour), ui (winio)                                              -> sdk-std + heavy deps
 examples/   parsec-orbit-plugin-hello (-> sdk-std), parsec-orbit-plugin-hello-nostd (-> sdk)
 javascript-sdk/  @parsec-orbit/sdk (TypeScript: types, definePlugin, ui helper, mock host)  [npm]
 tests/      parsec-orbit-e2e;  crates/parsec-orbit-verify-*  verification tools

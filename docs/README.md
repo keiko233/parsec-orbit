@@ -18,6 +18,7 @@
 | [spec/rust-sdk.md](spec/rust-sdk.md) | Implemented | `parsec-orbit-plugin-abi`, `-sdk` and `-sdk-std` crates, `freestanding!` runtime, size policy |
 | [spec/js-sdk.md](spec/js-sdk.md) | Implemented | JS plugin model, `@parsec-orbit/sdk` TypeScript API, WebView operations |
 | [spec/marketplace.md](spec/marketplace.md) | Implemented | Plugin index, sha256, signatures, safe installation, `parsec-orbit-market` |
+| [spec/ui-service.md](spec/ui-service.md) | Draft | Declarative UI service (parsec-orbit.ui), winio companion window, schema, SDK bindings |
 
 "Draft" means agreed direction, not yet implemented; each draft spec lists its
 open questions at the end.
@@ -25,6 +26,7 @@ open questions at the end.
 ## Design
 
 * [design/architecture.md](design/architecture.md) - components, crate graph, size and concurrency policy
+* [design/orbit-ui.md](design/orbit-ui.md) - evaluation of in-app tab hack vs winio external companion window, unified ABI, and activation model
 * [design/roadmap.md](design/roadmap.md) - phases
 * [design/size-report.md](design/size-report.md) - measured sizes: runtime spike, plugins, loader
 * [design/releasing.md](design/releasing.md) - how releases and crate publishing are done
