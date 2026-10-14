@@ -4,7 +4,7 @@ use std::ffi::c_void;
 use std::sync::OnceLock;
 
 use parsec_orbit_plugin_sdk_std::{
-    MessageCallback, ParsecOrbitInterfaceHeader, ParsecOrbitUiV1, ERR_INVALID,
+    MessageCallback, ParsecOrbitInterfaceHeader, ParsecOrbitUiV1, ERR_INVALID, OK,
 };
 
 use crate::registry::Registry;
@@ -26,6 +26,27 @@ pub fn toggle() {
     #[cfg(windows)]
     crate::window::toggle();
 }
+
+/// Tells the window that the set of registered sections changed. The window
+/// rebuilds its tabs from the registry, so a plugin that registers a section
+/// after start-up is picked up without a restart.
+#[cfg(windows)]
+fn sections_changed() {
+    crate::window::notify_sections_changed();
+}
+
+#[cfg(not(windows))]
+fn sections_changed() {}
+
+/// Tells the window that a section's values changed, so a plugin can push new
+/// state (a probe result, a patch report) and see it on screen.
+#[cfg(windows)]
+fn state_updated(section: &str) {
+    crate::window::notify_state_updated(section);
+}
+
+#[cfg(not(windows))]
+fn state_updated(_section: &str) {}
 
 unsafe extern "system" fn svc_show() -> i32 {
     #[cfg(windows)]
@@ -54,14 +75,22 @@ unsafe extern "system" fn svc_register_section(schema: *const u8, len: usize) ->
     let Some(schema_str) = (unsafe { utf8(schema, len) }) else {
         return ERR_INVALID;
     };
-    registry().register_section(schema_str)
+    let result = registry().register_section(schema_str);
+    if result == OK {
+        sections_changed();
+    }
+    result
 }
 
 unsafe extern "system" fn svc_unregister_section(id: *const u8, len: usize) -> i32 {
     let Some(id_str) = (unsafe { utf8(id, len) }) else {
         return ERR_INVALID;
     };
-    registry().unregister_section(id_str)
+    let result = registry().unregister_section(id_str);
+    if result == OK {
+        sections_changed();
+    }
+    result
 }
 
 unsafe extern "system" fn svc_update_state(
@@ -70,13 +99,16 @@ unsafe extern "system" fn svc_update_state(
     state: *const u8,
     state_len: usize,
 ) -> i32 {
-    let (Some(id_str), Some(state_str)) = (
-        unsafe { utf8(id, id_len) },
-        unsafe { utf8(state, state_len) },
-    ) else {
+    let (Some(id_str), Some(state_str)) = (unsafe { utf8(id, id_len) }, unsafe {
+        utf8(state, state_len)
+    }) else {
         return ERR_INVALID;
     };
-    registry().update_state(id_str, state_str)
+    let result = registry().update_state(id_str, state_str);
+    if result == OK {
+        state_updated(id_str);
+    }
+    result
 }
 
 unsafe extern "system" fn svc_on_action(
@@ -100,11 +132,7 @@ unsafe extern "system" fn svc_off_action(subscription: i64) -> i32 {
 
 /// The table registered under `parsec-orbit.ui`.
 pub static UI_SERVICE: ParsecOrbitUiV1 = ParsecOrbitUiV1 {
-    header: ParsecOrbitInterfaceHeader::new(
-        std::mem::size_of::<ParsecOrbitUiV1>(),
-        1,
-        0,
-    ),
+    header: ParsecOrbitInterfaceHeader::new(std::mem::size_of::<ParsecOrbitUiV1>(), 1, 0),
     show: Some(svc_show),
     hide: Some(svc_hide),
     is_visible: Some(svc_is_visible),

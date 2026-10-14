@@ -10,6 +10,8 @@ pub mod service;
 #[cfg(windows)]
 pub mod hotkey;
 #[cfg(windows)]
+pub mod instance;
+#[cfg(windows)]
 pub mod window;
 
 use parsec_orbit_plugin_sdk_std::prelude::*;
@@ -20,12 +22,27 @@ pub struct OrbitUiPlugin;
 
 impl Plugin for OrbitUiPlugin {
     fn init(&mut self, cx: &Context) -> Result {
-        info!(cx, "orbit ui service {} starting", env!("CARGO_PKG_VERSION"));
+        info!(
+            cx,
+            "orbit ui service {} starting",
+            env!("CARGO_PKG_VERSION")
+        );
         cx.register::<Ui>(&service::UI_SERVICE)?;
 
         #[cfg(windows)]
         {
+            // The client runs twice: a window in the service's session is
+            // invisible to the user and its hotkeys never reach this desktop,
+            // so the instance the user started owns the companion window.
+            if !instance::is_client() {
+                info!(
+                    cx,
+                    "orbit ui: the host instance keeps the service only; the companion window belongs to the client instance"
+                );
+                return Ok(());
+            }
             let cx = *cx;
+            window::ensure_started(cx);
             cx.spawn("hotkey", || hotkey::run(service::toggle))?;
         }
 
@@ -46,21 +63,18 @@ parsec_orbit_plugin_sdk_std::declare_plugin! {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::ffi::c_void;
-    use std::sync::Mutex;
     use parsec_orbit_plugin_sdk_std::services::UiClient;
     use parsec_orbit_plugin_sdk_std::testing::MockHost;
     use parsec_orbit_plugin_sdk_std::{ERR_EXISTS, ERR_INVALID, ERR_NOT_FOUND};
+    use std::ffi::c_void;
+    use std::sync::Mutex;
 
     static ACTION_RECEIVED: Mutex<Option<String>> = Mutex::new(None);
 
     unsafe extern "system" fn test_action_sink(user: *mut c_void, msg: *const u8, len: usize) {
         let slice = unsafe { core::slice::from_raw_parts(msg, len) };
-        *ACTION_RECEIVED.lock().unwrap() = Some(format!(
-            "{}:{:?}",
-            String::from_utf8_lossy(slice),
-            user
-        ));
+        *ACTION_RECEIVED.lock().unwrap() =
+            Some(format!("{}:{:?}", String::from_utf8_lossy(slice), user));
     }
 
     #[test]
@@ -111,7 +125,10 @@ mod tests {
         assert_eq!(client.is_visible().unwrap(), false);
 
         // Invalid schema
-        assert_eq!(client.register_section("not json").unwrap_err().code(), ERR_INVALID);
+        assert_eq!(
+            client.register_section("not json").unwrap_err().code(),
+            ERR_INVALID
+        );
 
         // Valid section
         let schema = r#"{
@@ -124,18 +141,28 @@ mod tests {
         assert!(client.register_section(schema).is_ok());
 
         // Duplicate registration
-        assert_eq!(client.register_section(schema).unwrap_err().code(), ERR_EXISTS);
+        assert_eq!(
+            client.register_section(schema).unwrap_err().code(),
+            ERR_EXISTS
+        );
 
         // Update state
-        assert!(client.update_state("consumer.tuning", r#"{"fps": 120}"#).is_ok());
+        assert!(client
+            .update_state("consumer.tuning", r#"{"fps": 120}"#)
+            .is_ok());
         assert_eq!(
-            client.update_state("nonexistent", r#"{"fps": 120}"#).unwrap_err().code(),
+            client
+                .update_state("nonexistent", r#"{"fps": 120}"#)
+                .unwrap_err()
+                .code(),
             ERR_NOT_FOUND
         );
 
         // Action subscription
         let sub = unsafe {
-            client.on_action("consumer.tuning", test_action_sink, 0x42 as *mut c_void).unwrap()
+            client
+                .on_action("consumer.tuning", test_action_sink, 0x42 as *mut c_void)
+                .unwrap()
         };
         assert!(sub > 0);
 
@@ -146,7 +173,11 @@ mod tests {
             value: Some(serde_json::Value::from(144)),
         });
 
-        let msg = ACTION_RECEIVED.lock().unwrap().take().expect("action event dispatched");
+        let msg = ACTION_RECEIVED
+            .lock()
+            .unwrap()
+            .take()
+            .expect("action event dispatched");
         assert!(msg.contains("\"key\":\"fps\""));
         assert!(msg.contains("\"value\":144"));
 
@@ -156,6 +187,12 @@ mod tests {
 
         // Unregister section
         assert!(client.unregister_section("consumer.tuning").is_ok());
-        assert_eq!(client.unregister_section("consumer.tuning").unwrap_err().code(), ERR_NOT_FOUND);
+        assert_eq!(
+            client
+                .unregister_section("consumer.tuning")
+                .unwrap_err()
+                .code(),
+            ERR_NOT_FOUND
+        );
     }
 }

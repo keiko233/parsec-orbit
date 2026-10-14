@@ -14,6 +14,13 @@ Provider: `com.parsec-orbit.ui` (official plugin).
 Interface name: `parsec-orbit.ui`.
 Version: 1.0 (`(1 << 16) | 0`).
 
+The companion window belongs to the instance the user started. Parsec runs its
+client twice - once as the service (`LocalSystem`, session 0) and once as the
+logged-in user - and a session-0 window is invisible, so the service instance
+registers the service table without creating a window and answers the three
+visibility calls from the requested state alone. Everything else in this spec
+behaves the same in both instances.
+
 ```c
 typedef struct ParsecOrbitUiV1 {
     ParsecOrbitInterfaceHeader header;
@@ -38,14 +45,27 @@ UI thread.
 
 | Function | Behaviour |
 | --- | --- |
-| `show()` | Shows and brings the companion window to the foreground. If the window has not yet been initialized, starts the window and event loop. Returns `0`. |
+| `show()` | Shows and brings the companion window to the foreground, and makes later `is_visible()` calls answer `1`. The window exists from plugin start-up, so the call never waits on creating one. Returns `0`. |
 | `hide()` | Hides the companion window without terminating the background event loop. Returns `0`. |
-| `is_visible()` | Returns `1` if the companion window is currently visible, `0` if hidden. |
+| `is_visible()` | Returns `1` if the companion window should be visible, `0` if hidden. Answers from any thread. |
 | `register_section(schema, len)` | Registers a declarative section schema. Returns `0`, `-1` for invalid JSON schema, `-2` if section ID is already registered. |
 | `unregister_section(id, len)` | Removes a registered section and unmounts its controls. Returns `0`, or `-3` if not found. |
 | `update_state(id, id_len, state, len)` | Pushes updated control values to the rendered UI. `state` is a JSON object mapping control keys to values. Returns `0`, `-1` invalid JSON, `-3` section not found. |
 | `on_action(id, id_len, cb, user)` | Subscribes to user interactions (switch toggles, input edits, button clicks) within the specified section. Returns a subscription id `> 0` or negative error code. |
 | `off_action(subscription)` | Cancels an action subscription. Returns `0` or `-3` if not found. |
+
+## Activation
+
+The window starts hidden and three ways bring it up:
+
+* The global hotkeys `Ctrl+Alt+O` and `Ctrl+F12`. Whichever another program has
+  not already claimed still works.
+* `show()`, `hide()` or the plugin's toggle, called by a plugin running in the
+  client instance.
+* `scripts/orbit-manager.ps1 ui` from outside Parsec. The script posts the
+  registered message `PARSEC_ORBIT_UI_TOGGLE` to the hidden activation window of
+  class `ParsecOrbitUiActivation`, which runs the same toggle as the hotkeys.
+  The class name and the message name are part of this contract.
 
 ## Declarative UI schema
 
@@ -102,10 +122,12 @@ panel or tab:
 | `toggle` | Boolean switch checkbox. | `boolean` |
 | `text_input` | Single-line text input with optional `placeholder`. | `string` |
 | `number_input` | Numeric input with optional `min`, `max`, `step`. | `number` |
+| `slider` | Range slider with optional `min`, `max`, `step`. | `number` |
 | `select` | Dropdown selector with `options: [{ label, value }]`. | `string` or `number` |
 | `button` | Action button triggering a click event. | `null` |
 | `json_editor` | Multiline JSON editor for complex configuration. | `object` or `array` |
 | `readonly_text` | Read-only status value display. | `string` |
+| `text` | The same as `readonly_text`, and what an unrecognized type falls back to. | `string` |
 
 ## Action events
 
@@ -189,7 +211,7 @@ export default definePlugin({
 ## Open questions
 
 1. **System tray icon placement**: Should the UI service create a system tray
-   icon by default, or remain hotkey-only (`Ctrl+Shift+O`) until configured?
+   icon by default, or remain hotkey-only (`Ctrl+Alt+O`) until configured?
 2. **IPC for out-of-process companion**: When Orbit runs as an external tool
    rather than an injected DLL, should the UI communicate via named pipes
    with the same JSON action protocol?

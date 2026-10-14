@@ -135,7 +135,7 @@ The UI architecture is divided into three cleanly decoupled pillars:
  ┌───────────────┼────────────────────────────────────────┼───────────────┐
  │               ▼                                        ▼               │
  │   Pillar 3: Framework-Specific Activation                              │
- │   • Global Hotkey (Ctrl+Shift+O)          • host.ui.show()             │
+ │   • Global Hotkey (Ctrl+Alt+O / Ctrl+F12) • host.ui.show()             │
  │   • System Tray Icon                      • WebView injected trigger   │
  │   • Programmatic ui.show()                • CLI: orbit-manager.ps1 ui  │
  └───────────────────────────────┬────────────────────────────────────────┘
@@ -161,13 +161,23 @@ the `parsec-orbit.ui` service table ([spec/ui-service.md](../spec/ui-service.md)
     loader stays completely free of `winio` or GUI code.
   * The UI plugin spawns a dedicated worker thread during `init` and hosts the
     `winio` single-threaded async event loop.
-  * The window is created hidden on start-up (or lazily upon first `show()`) to
-    ensure zero startup impact on Parsec client launching.
+  * The window is created hidden on start-up, so Parsec's launch never waits on
+    it and the first `show()` has nothing left to build.
+  * Only the user's instance draws. Parsec starts its client twice - the service
+    copy in session 0 and the user's copy on the desktop - and the window and
+    the hotkeys belong to the second; the first registers the `parsec-orbit.ui`
+    service and nothing else. The check is the same token query the debug
+    console uses.
+  * Cross-thread messages are posted to the window thread and followed by a
+    `WM_NULL`. `winio`'s loop sits in `MsgWaitForMultipleObjectsEx` when idle
+    and the queue's own waker only counts during a poll, so that empty message
+    is what ends the wait and lets the loop drain the queue.
 * **Styling**:
   * Styled with a dark theme consistent with Parsec (background `#18181b`,
     surface `#27272a`, border `#3f3f46`, text `#f4f4f5`, accent `#8b5cf6` or
     Parsec crimson `#e01e5a`).
-* **Built-in Tabs**:
+  * **Built-in Tabs** (the first implementation ships the Overview tab; the
+    rest are planned):
   1. **Overview**: Displays loader version, ABI level, Parsec version, loaded
      plugins count, and active UI mode.
   2. **Plugins**: Lists all discovered plugins, enabled/disabled toggle switches,
@@ -213,7 +223,7 @@ Each framework environment provides an intuitive way to open and toggle the UI:
 
 1. **Rust Native Plugins**:
    * Call `ui.show()`, `ui.hide()`, or `ui.toggle()` directly from `Context`.
-   * The UI plugin registers a global Windows hotkey (default: `Ctrl+Shift+O`).
+   * The UI plugin registers a global Windows hotkey (default: `Ctrl+Alt+O` / `Ctrl+F12`).
    * Optional system tray icon integration (left-click opens UI, right-click
      context menu).
    * If `parsec-orbit.hooks` is active, plugins can optionally hook client input
@@ -222,13 +232,15 @@ Each framework environment provides an intuitive way to open and toggle the UI:
    * Direct programmatic access: `host.ui.show()` / `host.ui.toggle()`.
    * **WebView Bridge Integration**: When `com.parsec-orbit.webview-bridge` is
      present, a lightweight JS helper injects an "Orbit" button into Parsec's
-     Settings navigation bar or binds `Ctrl+Shift+O` inside the WebView2 DOM.
+     Settings navigation bar or binds a shortcut inside the WebView2 DOM.
      Clicking the button calls `orbit.emit("orbit:ui:show")`, which the plugin
      realm receives and translates to `host.ui.show()`.
 3. **External CLI & Orchestration**:
    * The `orbit-manager.ps1` script provides `orbit-manager.ps1 ui` (or
-     `orbit-manager ui`) to launch or bring the companion window to the front
-     from outside Parsec.
+       `orbit-manager ui`) to bring the companion window up from outside Parsec.
+       It posts the activation message instead of pressing keys, so the
+       window's own visible/hidden state stays correct; focusing an existing
+       window and synthesizing the hotkey are the fallbacks.
 
 ## 5. Architectural Integrity & Size Policy
 

@@ -42,7 +42,7 @@ macOS (AppKit), and Linux (GTK).
    data-driven schema passed as UTF-8 JSON over the typed `parsec-orbit.ui`
    service vtable ([ADR 0001](0001-typed-service-vtables.md)).
 3. **Framework-specific activation mechanisms**:
-   * **Rust plugins**: Programmatic `ui.show()`, global hotkey (`Ctrl+Shift+O`),
+   * **Rust plugins**: Programmatic `ui.show()`, global hotkey (`Ctrl+Alt+O` / `Ctrl+F12`),
      or system tray interaction.
    * **JavaScript plugins**: `host.ui.show()`, plus an optional webview trigger
      button or shortcut injected into Parsec's web UI when the bridge is active.
