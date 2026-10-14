@@ -737,6 +737,14 @@ impl<'a> Transaction<'a> {
             let staged = digest::tree(&self.install.staged())?;
             let differences = digest::staged_copy_differences(&self.pristine_tree, &staged);
             if !differences.is_empty() {
+                self.note(
+                    "copy-metadata-refused",
+                    serde_json::json!({
+                        "expected_root": self.pristine_tree.get(""),
+                        "actual_root": staged.get(""),
+                        "differences": differences,
+                    }),
+                )?;
                 return Err(format!(
                     "the prepared copy differs from pristine: {}",
                     differences.join("; ")

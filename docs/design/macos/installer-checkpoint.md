@@ -387,3 +387,25 @@ previous managed plugin folders are kept in `plugin-backups/install-macos.TSjNah
 The actual application is intentionally left installed, not automatically
 restored. The wrapper did not launch it; no new account/session or
 quarantined-delivery evidence is inferred from installation success.
+
+
+## Reinstallation refusal and successful retry (2026-10-15)
+
+After uninstall, the maintainer's next apply failed during sudo copy
+preparation with only the bundle-root difference (`: differs`). It refused
+before the original backup rename; rollback returned `Pristine/RolledBack`,
+strict vendor signature verification passed, and the shell wrapper restored
+prior plugin folders. Fresh ordinary-user copies, including a `staged` copy
+under the private Orbit directory, matched the existing comparison and did
+not alter the source. These did not reproduce the sudo-context refusal.
+
+Copy-preparation refusal now appends `copy-metadata-refused` to the private
+transaction journal with expected/actual root entries and difference paths
+before rollback removes the failed staging tree. The comparison policy is
+unchanged. The maintainer retried the diagnostic build at 03:27 JST and it
+installed successfully, retaining existing isolated state. Controller checks
+confirmed `Installed/Applied`, no recorded tree differences, the same applied
+stub `3059fd1c...13a8` and strict signature validity. This is a successful retry,
+not evidence of a diagnosed or fixed metadata cause. The earlier difference
+was not captured and remains unresolved; a recurrence now retains the fields
+needed to identify it. Do not widen xattr comparisons based on this symptom.
