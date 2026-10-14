@@ -5,6 +5,7 @@
 | [`spec/`](spec/) | Normative specifications: ABI, manifest, loading rules, host services, SDK APIs. A change in behaviour changes the spec in the same commit. | Plugin authors, SDK and loader implementers |
 | [`design/`](design/) | Why things are the way they are: architecture, decision records, roadmap. Not normative. | Contributors |
 | [`guides/`](guides/) | Task-oriented how-tos (write a Rust plugin, write a TypeScript plugin, ship a plugin). Written together with the SDKs they describe. | Plugin authors |
+| [`development/`](development/) | How we work: workflow, commits, testing and Rust style, and the rules coding agents must follow. | Contributors and coding agents |
 
 ## Specifications
 
