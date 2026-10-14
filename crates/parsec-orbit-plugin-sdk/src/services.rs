@@ -472,13 +472,19 @@ impl UiClient {
 
     /// Registers a declarative section schema (JSON text).
     pub fn register_section(&self, schema_json: &str) -> Result {
-        let register = self.table.register_section.ok_or(Error::new(ERR_NOT_READY))?;
+        let register = self
+            .table
+            .register_section
+            .ok_or(Error::new(ERR_NOT_READY))?;
         code(unsafe { register(schema_json.as_ptr(), schema_json.len()) })
     }
 
     /// Unregisters a section by its ID.
     pub fn unregister_section(&self, section_id: &str) -> Result {
-        let unregister = self.table.unregister_section.ok_or(Error::new(ERR_NOT_READY))?;
+        let unregister = self
+            .table
+            .unregister_section
+            .ok_or(Error::new(ERR_NOT_READY))?;
         code(unsafe { unregister(section_id.as_ptr(), section_id.len()) })
     }
 

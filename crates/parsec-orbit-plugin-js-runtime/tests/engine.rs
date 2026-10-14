@@ -376,7 +376,10 @@ fn capabilities_are_absent_without_their_permission() {
         &[],
     );
     result.unwrap();
-    assert!(said(&plugin.lines, "webview: undefined config: undefined ui: undefined"));
+    assert!(said(
+        &plugin.lines,
+        "webview: undefined config: undefined ui: undefined"
+    ));
 
     let (plugin, result) = load(
         r#"
@@ -389,7 +392,10 @@ fn capabilities_are_absent_without_their_permission() {
         &["webview", "config", "ui"],
     );
     result.unwrap();
-    assert!(said(&plugin.lines, "webview: object config: object ui: object"));
+    assert!(said(
+        &plugin.lines,
+        "webview: object config: object ui: object"
+    ));
 }
 
 #[test]
@@ -959,7 +965,10 @@ unsafe extern "system" fn test_ui_is_visible() -> i32 {
 
 unsafe extern "system" fn test_ui_register_section(schema: *const u8, len: usize) -> i32 {
     let slice = unsafe { core::slice::from_raw_parts(schema, len) };
-    TEST_UI_SECTIONS.lock().unwrap().push(String::from_utf8_lossy(slice).into_owned());
+    TEST_UI_SECTIONS
+        .lock()
+        .unwrap()
+        .push(String::from_utf8_lossy(slice).into_owned());
     0
 }
 
@@ -967,25 +976,31 @@ unsafe extern "system" fn test_ui_unregister_section(_: *const u8, _: usize) -> 
     0
 }
 
-unsafe extern "system" fn test_ui_update_state(_: *const u8, _: usize, _: *const u8, _: usize) -> i32 {
+unsafe extern "system" fn test_ui_update_state(
+    _: *const u8,
+    _: usize,
+    _: *const u8,
+    _: usize,
+) -> i32 {
     0
 }
 
-static TEST_UI_SERVICE: parsec_orbit_plugin_sdk_std::ParsecOrbitUiV1 = parsec_orbit_plugin_sdk_std::ParsecOrbitUiV1 {
-    header: parsec_orbit_plugin_sdk_std::ParsecOrbitInterfaceHeader::new(
-        std::mem::size_of::<parsec_orbit_plugin_sdk_std::ParsecOrbitUiV1>(),
-        1,
-        0,
-    ),
-    show: Some(test_ui_show),
-    hide: Some(test_ui_hide),
-    is_visible: Some(test_ui_is_visible),
-    register_section: Some(test_ui_register_section),
-    unregister_section: Some(test_ui_unregister_section),
-    update_state: Some(test_ui_update_state),
-    on_action: None,
-    off_action: None,
-};
+static TEST_UI_SERVICE: parsec_orbit_plugin_sdk_std::ParsecOrbitUiV1 =
+    parsec_orbit_plugin_sdk_std::ParsecOrbitUiV1 {
+        header: parsec_orbit_plugin_sdk_std::ParsecOrbitInterfaceHeader::new(
+            std::mem::size_of::<parsec_orbit_plugin_sdk_std::ParsecOrbitUiV1>(),
+            1,
+            0,
+        ),
+        show: Some(test_ui_show),
+        hide: Some(test_ui_hide),
+        is_visible: Some(test_ui_is_visible),
+        register_section: Some(test_ui_register_section),
+        unregister_section: Some(test_ui_unregister_section),
+        update_state: Some(test_ui_update_state),
+        on_action: None,
+        off_action: None,
+    };
 
 #[test]
 fn host_ui_uses_the_ui_service_when_it_is_there() {
@@ -1013,5 +1028,9 @@ fn host_ui_uses_the_ui_service_when_it_is_there() {
     assert!(said(&lines, "visible: true"));
     assert!(*TEST_UI_SHOW.lock().unwrap());
     assert!(*TEST_UI_HIDE.lock().unwrap());
-    assert!(TEST_UI_SECTIONS.lock().unwrap().iter().any(|s| s.contains("my-section")));
+    assert!(TEST_UI_SECTIONS
+        .lock()
+        .unwrap()
+        .iter()
+        .any(|s| s.contains("my-section")));
 }

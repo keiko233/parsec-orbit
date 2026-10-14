@@ -428,7 +428,10 @@ fn run(spec: Spec, tx: Sender<Command>, inbox: Receiver<Command>) {
             Ok(Command::Message { channel, payload }) => {
                 crate::host::deliver(&mut context, &channel, &payload);
             }
-            Ok(Command::UiAction { section_id, action_json }) => {
+            Ok(Command::UiAction {
+                section_id,
+                action_json,
+            }) => {
                 crate::host::deliver_ui_action(&mut context, &section_id, &action_json);
             }
             Err(RecvTimeoutError::Timeout) => {}

@@ -433,7 +433,10 @@ unsafe extern "system" fn getaddrinfo_detour(
         if let Ok(name) = name.to_str() {
             let probing = PROBING.with(Cell::get);
             let name = name.trim_end_matches('.');
-            if !probing && UI_ENABLED.load(Ordering::Acquire) && name.eq_ignore_ascii_case(PARSEC_STUN_V4) {
+            if !probing
+                && UI_ENABLED.load(Ordering::Acquire)
+                && name.eq_ignore_ascii_case(PARSEC_STUN_V4)
+            {
                 if let Some(replacement) = selected().read().ok().and_then(|guard| guard.clone()) {
                     if let Ok(replacement) = CString::new(replacement) {
                         if let Some(cx) = CONTEXT.get() {
@@ -456,7 +459,6 @@ unsafe extern "system" fn getaddrinfo_detour(
 
     unsafe { original(node, service, hints, result) }
 }
-
 
 const STUN_UI_SCHEMA: &str = r#"{
     "id": "com.keiko233.stun-swap",
@@ -563,7 +565,9 @@ impl Plugin for StunSwap {
 
         if let Some(ui) = UiClient::new(cx) {
             let _ = ui.register_section(STUN_UI_SCHEMA);
-            let _ = unsafe { ui.on_action("com.keiko233.stun-swap", on_ui_action, std::ptr::null_mut()) };
+            let _ = unsafe {
+                ui.on_action("com.keiko233.stun-swap", on_ui_action, std::ptr::null_mut())
+            };
         }
 
         let (tx, rx) = mpsc::sync_channel(1);
@@ -825,7 +829,8 @@ mod tests {
     #[test]
     fn stun_swap_registers_ui_and_handles_actions() {
         static REG_SCHEMA: Mutex<Option<String>> = Mutex::new(None);
-        static ACTION_CB: Mutex<Option<parsec_orbit_plugin_sdk_std::MessageCallback>> = Mutex::new(None);
+        static ACTION_CB: Mutex<Option<parsec_orbit_plugin_sdk_std::MessageCallback>> =
+            Mutex::new(None);
 
         unsafe extern "system" fn test_reg(schema: *const u8, len: usize) -> i32 {
             let s = String::from_utf8_lossy(core::slice::from_raw_parts(schema, len)).into_owned();
@@ -842,21 +847,22 @@ mod tests {
             42
         }
 
-        static MOCK_UI: parsec_orbit_plugin_sdk_std::ParsecOrbitUiV1 = parsec_orbit_plugin_sdk_std::ParsecOrbitUiV1 {
-            header: parsec_orbit_plugin_sdk_std::ParsecOrbitInterfaceHeader::new(
-                std::mem::size_of::<parsec_orbit_plugin_sdk_std::ParsecOrbitUiV1>(),
-                1,
-                0,
-            ),
-            show: None,
-            hide: None,
-            is_visible: None,
-            register_section: Some(test_reg),
-            unregister_section: None,
-            update_state: None,
-            on_action: Some(test_on_action),
-            off_action: None,
-        };
+        static MOCK_UI: parsec_orbit_plugin_sdk_std::ParsecOrbitUiV1 =
+            parsec_orbit_plugin_sdk_std::ParsecOrbitUiV1 {
+                header: parsec_orbit_plugin_sdk_std::ParsecOrbitInterfaceHeader::new(
+                    std::mem::size_of::<parsec_orbit_plugin_sdk_std::ParsecOrbitUiV1>(),
+                    1,
+                    0,
+                ),
+                show: None,
+                hide: None,
+                is_visible: None,
+                register_section: Some(test_reg),
+                unregister_section: None,
+                update_state: None,
+                on_action: Some(test_on_action),
+                off_action: None,
+            };
 
         let host = MockHost::new("com.keiko233.stun-swap");
         host.provide("parsec-orbit.ui", &MOCK_UI.header);
@@ -872,17 +878,35 @@ mod tests {
 
         // Action callback for enabled toggle
         let action_json = r#"{"key":"enabled","type":"change","value":false}"#;
-        unsafe { on_ui_action(std::ptr::null_mut(), action_json.as_ptr(), action_json.len()) };
+        unsafe {
+            on_ui_action(
+                std::ptr::null_mut(),
+                action_json.as_ptr(),
+                action_json.len(),
+            )
+        };
         assert!(!UI_ENABLED.load(Ordering::Acquire));
 
         // Action callback for interval slider
         let action_json2 = r#"{"key":"interval","type":"change","value":60.0}"#;
-        unsafe { on_ui_action(std::ptr::null_mut(), action_json2.as_ptr(), action_json2.len()) };
+        unsafe {
+            on_ui_action(
+                std::ptr::null_mut(),
+                action_json2.as_ptr(),
+                action_json2.len(),
+            )
+        };
         assert_eq!(PROBE_INTERVAL_OVERRIDE.load(Ordering::Acquire), 60);
 
         // Action callback for probe_now button
         let action_json3 = r#"{"key":"probe_now","type":"click"}"#;
-        unsafe { on_ui_action(std::ptr::null_mut(), action_json3.as_ptr(), action_json3.len()) };
+        unsafe {
+            on_ui_action(
+                std::ptr::null_mut(),
+                action_json3.as_ptr(),
+                action_json3.len(),
+            )
+        };
 
         // Reset back
         UI_ENABLED.store(true, Ordering::Release);

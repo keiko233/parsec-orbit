@@ -829,7 +829,11 @@ fn ui_is_visible(_: &JsValue, _: &[JsValue], context: &mut JsContext) -> JsResul
     }
 }
 
-fn ui_register_section(_: &JsValue, args: &[JsValue], context: &mut JsContext) -> JsResult<JsValue> {
+fn ui_register_section(
+    _: &JsValue,
+    args: &[JsValue],
+    context: &mut JsContext,
+) -> JsResult<JsValue> {
     let Some(ui) = ui_client() else {
         return rejected(NO_UI, context);
     };
@@ -840,11 +844,18 @@ fn ui_register_section(_: &JsValue, args: &[JsValue], context: &mut JsContext) -
     };
     match ui.register_section(&schema_json) {
         Ok(()) => resolved(JsValue::undefined(), context),
-        Err(error) => rejected(format!("registerSection failed (code {})", error.code()), context),
+        Err(error) => rejected(
+            format!("registerSection failed (code {})", error.code()),
+            context,
+        ),
     }
 }
 
-fn ui_unregister_section(_: &JsValue, args: &[JsValue], context: &mut JsContext) -> JsResult<JsValue> {
+fn ui_unregister_section(
+    _: &JsValue,
+    args: &[JsValue],
+    context: &mut JsContext,
+) -> JsResult<JsValue> {
     let Some(ui) = ui_client() else {
         return rejected(NO_UI, context);
     };
@@ -854,7 +865,10 @@ fn ui_unregister_section(_: &JsValue, args: &[JsValue], context: &mut JsContext)
     let section_id = section_id.to_std_string_escaped();
     match ui.unregister_section(&section_id) {
         Ok(()) => resolved(JsValue::undefined(), context),
-        Err(error) => rejected(format!("unregisterSection failed (code {})", error.code()), context),
+        Err(error) => rejected(
+            format!("unregisterSection failed (code {})", error.code()),
+            context,
+        ),
     }
 }
 
@@ -873,7 +887,10 @@ fn ui_update_state(_: &JsValue, args: &[JsValue], context: &mut JsContext) -> Js
     };
     match ui.update_state(&section_id, &state_json) {
         Ok(()) => resolved(JsValue::undefined(), context),
-        Err(error) => rejected(format!("updateState failed (code {})", error.code()), context),
+        Err(error) => rejected(
+            format!("updateState failed (code {})", error.code()),
+            context,
+        ),
     }
 }
 
@@ -923,11 +940,15 @@ fn ui_on_action(_: &JsValue, args: &[JsValue], context: &mut JsContext) -> JsRes
             tx,
             section_id: section_id.clone(),
         })) as *mut c_void;
-        let subscription_id = match unsafe { ui.on_action(&section_id, on_ui_action_message, user) } {
+        let subscription_id = match unsafe { ui.on_action(&section_id, on_ui_action_message, user) }
+        {
             Ok(sub_id) => sub_id,
             Err(error) => {
                 drop(unsafe { Box::from_raw(user as *mut UiSubscriber) });
-                return Err(type_error(&format!("on_action failed (code {})", error.code())));
+                return Err(type_error(&format!(
+                    "on_action failed (code {})",
+                    error.code()
+                )));
             }
         };
         with_state(|state| {
@@ -1006,9 +1027,14 @@ pub fn deliver_ui_action(context: &mut JsContext, section_id: &str, action_json:
         .and_then(|value| JsValue::from_json(&value, context).ok())
         .unwrap_or_default();
     for handler in handlers {
-        if let Err(error) = handler.call(&JsValue::undefined(), std::slice::from_ref(&value), context) {
+        if let Err(error) =
+            handler.call(&JsValue::undefined(), std::slice::from_ref(&value), context)
+        {
             let text = describe(&error, context);
-            log(Level::Error, &format!("a UI action handler for \"{section_id}\" threw: {text}"));
+            log(
+                Level::Error,
+                &format!("a UI action handler for \"{section_id}\" threw: {text}"),
+            );
         }
     }
 }
@@ -1036,8 +1062,16 @@ fn ui_object(context: &mut JsContext) -> JsObject {
         .function(function(ui_show), js_string!("show"), 0)
         .function(function(ui_hide), js_string!("hide"), 0)
         .function(function(ui_is_visible), js_string!("isVisible"), 0)
-        .function(function(ui_register_section), js_string!("registerSection"), 1)
-        .function(function(ui_unregister_section), js_string!("unregisterSection"), 1)
+        .function(
+            function(ui_register_section),
+            js_string!("registerSection"),
+            1,
+        )
+        .function(
+            function(ui_unregister_section),
+            js_string!("unregisterSection"),
+            1,
+        )
         .function(function(ui_update_state), js_string!("updateState"), 2)
         .function(function(ui_on_action), js_string!("onAction"), 2)
         .build()

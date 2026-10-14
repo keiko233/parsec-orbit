@@ -5,9 +5,7 @@ use std::ffi::c_void;
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::RwLock;
 
-use parsec_orbit_plugin_sdk_std::{
-    MessageCallback, ERR_EXISTS, ERR_INVALID, ERR_NOT_FOUND, OK,
-};
+use parsec_orbit_plugin_sdk_std::{MessageCallback, ERR_EXISTS, ERR_INVALID, ERR_NOT_FOUND, OK};
 use serde_json::Value;
 
 use crate::schema::{UiAction, UiSection};
