@@ -55,6 +55,7 @@ Budget: 360 KiB = 368,640 bytes, so phase 2 left 512 bytes. The growth is the re
 | `js-runtime` | 4,226,048 | Boa without `temporal`/`intl`; a separate download on purpose |
 | `config` | 297,984 | `std`, `serde_json` |
 | `hooks` | 385,536 | `std`, `retour` |
+| `ui` | 529,408 | `std`, `winio` (Win32 backend); the companion window |
 | `parsec-orbit-market.exe` | 1,847,296 | TLS (`rustls`), zip, ed25519 |
 | loader `bcrypt.dll` | 374,272 | 5,632 bytes over the 360 KiB budget, see below |
 | loader `bcrypt.dll` with the debug console | 381,952 | +7,680 (+2.1 %) over the row above |
@@ -84,3 +85,18 @@ host tables and the extra host revision entries. The documented lever is the
 `toml` parser below the `plugin.toml` reader (about 36 KiB of `.text`); until
 it is pulled, the "stays under 360 KiB" line in
 [architecture.md](architecture.md) is not met.
+
+## The Orbit UI (release, bytes)
+
+`ui` is the only plugin that links a GUI stack, and the largest one on this
+branch outside the JavaScript runtime. Like `js-runtime` it is a separate
+download: a client that does not install it pays none of those bytes, and the
+loader does not link `winio` at all.
+
+Wiring an existing plugin into that window costs a JSON parser, not a toolkit.
+`high-bitrate-native` went 235,008 B -> 257,536 B (+22,528, +9.6 %) for its
+`parsec-orbit.ui` section: `serde_json` to read the action events the window
+sends back, the section schema, and the two live switches (`AtomicBool` and
+`AtomicUsize`) the section writes. The window itself is drawn by the `ui`
+plugin, which finds every row from the declarative schema, so a plugin that
+registers a section without handling actions pays for the schema literal alone.
