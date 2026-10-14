@@ -15,7 +15,8 @@ covers that scope and nothing beyond it.
 - `crates/parsec-orbit-installer-macos/` (lib `parsec_orbit_installer`, binary
   `parsec-orbit-installer-macos`) owns the mutation side: classification,
   backup, staging, the Mach-O patch, signing, verification, swap, preseed,
-  uninstall and the transaction journal. It never escalates privileges, never
+  uninstall and the transaction journal. Ordinary mode never escalates; the
+  explicit sudo mode below scopes elevated operations. It never
   touches a path the caller did not select, and refuses a running app.
 - `crates/parsec-orbit-macos-state/` hosts the M1a seed transaction that used
   to live in the loader crate. The loader re-exports `seed`/`SeedReport`
@@ -139,7 +140,7 @@ parsec-orbit-installer-macos status <app> [--orbit-root <folder>] [--json]
 ```
 
 The default Orbit root is
-`~/Library/Application Support/ParsecOrbit`. The tool never invokes `sudo`,
+`~/Library/Application Support/ParsecOrbit`. The Rust tool never invokes `sudo`; the local shell wrapper requests it. It
 never rewrites Dock/Spotlight/URL/login-item state and never runs a vendor
 preinstall.
 
@@ -300,5 +301,89 @@ remained pristine. The separately authorized administrator experiment then
 used a fully verified candidate prepared with the real patch/sign/metadata
 primitives and privileged renames only. It launched as the ordinary user and
 restored the exact original. This measures original-path activation, not a
-privileged production CLI workflow. End-user privilege handling remains
-explicitly deferred.
+privileged production CLI workflow. This experiment did not test a formal sudo CLI. The requested persistent
+workflow is implemented in the subsequent wrapper section below.
+
+
+## Protected original-path installation wrapper (2026-10-15)
+
+The maintainer subsequently requested persistent installation directly into
+`/Applications/Parsec.app`. `scripts/install-macos.sh` now builds/stages the
+loader and three supported official plugins and invokes the formal Rust
+transaction through sudo with explicit `--sudo-user <caller UID>` and the
+ordinary user's `--orbit-root`. `--uninstall` restores the same original
+bundle and retains Orbit data. This replaces the temporary rename experiment
+as the installation entry point; it does not claim downloaded distribution.
+
+Sudo mode selects the user's effective UID and supplementary groups before
+transaction work. Tool children permanently discard root IDs before exec.
+Only protected bundle renames between the selected app and its private
+transaction and selected-app lock creation may briefly regain root. Bundle
+renames use atomic `RENAME_EXCL` and refuse occupied destinations. Root apply
+without an explicit user/root selection refuses rather than binding the
+client to UID 0. The pristine backup retains exact original ownership; the
+staged app/record/private state belong to the ordinary user.
+
+The wrapper is ordinary-user only, checks arm64 artifacts, signs/verifies
+staged plugin dylibs, serializes wrapper operations, retains replaced plugin
+folders and rolls plugin swaps back on ordinary apply failure. It never
+launches/stops Parsec or copies credentials. Plugin swaps have no crash journal;
+recovery folders and a stale wrapper lock can survive forced termination.
+See the [local installation guide](../../guides/macos-install.md).
+
+Normal-user installer unit/scratch tests, no-clobber and invalid sudo-context
+regressions, targeted Clippy, Windows compile checks and mocked wrapper
+install/rollback/uninstall/architecture/lock refusals pass. The administrator
+regression uses an owned official copy with a root-owned non-writable parent;
+it exercises lock creation, root-owned backup/apply, UID-bound state, reapply
+and exact restore without modifying the actual installed app.
+
+
+Administrator regression initially found a root-only metadata failure:
+macOS added `com.apple.provenance` on the root-owned pristine root during
+the elevated workflow; its exact attachment point was not established. Moving signature assessment before the snapshot alone
+did not resolve it. Sudo mode now prepares and validates the copy while the
+original remains at its selected application path, journals that preparation,
+rechecks the original, then renames the original to pristine. The Stage step
+revalidates that prepared copy; it never passes the protected backup to ditto.
+No provenance or quarantine attributes are removed. Assessment reordering
+and preparing the copy before rename did not prevent the OS-added marker.
+
+Review also added pinned app/state/transaction directory descriptors with
+no-follow traversal and relative `renameatx_np(RENAME_EXCL)`, plus permanent
+ordinary-user real/effective/saved group IDs. A symlink replacement regression
+proves the rename stays in the pinned directory. Uninstall verifies pristine
+before moving the applied app or consuming the backup, and a missing backup
+is successful only when the current app is an exact restore. A changed-backup
+regression preserves both the applied app and altered backup. Reapply reports
+the recorded installation ID rather than deriving a new ID from the patched
+stub. Restore comparison now permits only the addition of `com.apple.provenance`
+on a root-owned bundle root when the original snapshot had no such attribute.
+The original snapshot is retained. All original attributes, including
+quarantine, plus contents, modes, UID/GID, timestamps and ACL remain checked.
+Existing provenance changes/removal, other additions and markers on payload
+files are rejected. Uninstall/rollback reports the retained OS marker instead
+of claiming raw metadata equality. This is a documented metadata exception,
+not removal of a system marker or silent weakening of all xattr checks.
+Local verification now includes 27 unit tests and 15 scratch tests.
+
+
+Final administrator regression passed at
+`/private/tmp/orbit-sudo-regression.ZsbuOx`: protected-parent lock creation,
+UID 501 record/state/preseed/tool output, root-owned pristine backup,
+idempotent reapply and uninstall ending in `Uninstalled`. The OS provenance
+addition is retained/reported under the narrow rule above. Earlier failed
+regressions (`gCmj3i`, `GxL6dK`, `eJQGNL`) are retained as evidence; they never
+changed the actual `/Applications` installation.
+
+The maintainer then executed the ordinary-user wrapper with `--no-build` and
+installed persistently at `/Applications/Parsec.app`. Controller rechecks
+confirmed `Installed (Applied)`, strict bundle and all three plugin signatures,
+UID 501 installation binding and private Orbit home, with applied stub
+`3059fd1cbb2ce7873d64e6a75e78c3b599d6fbb374d85ce411cc92be251513a8`.
+The original backup is under
+`~/Library/Application Support/ParsecOrbit/installs/tv.parsec.www@785f985d7f0c/pristine`;
+previous managed plugin folders are kept in `plugin-backups/install-macos.TSjNah`.
+The actual application is intentionally left installed, not automatically
+restored. The wrapper did not launch it; no new account/session or
+quarantined-delivery evidence is inferred from installation success.

@@ -25,13 +25,14 @@ Usage: parsec-orbit-installer-macos <command> [options]
 Options
   --loader <dylib>      Orbit-owned loader dylib (required for apply)
   --orbit-root <folder> state root, default ~/Library/Application Support/ParsecOrbit
+  --sudo-user <uid>     explicit sudo mode: bind data/record/tools to caller UID
   --purge-data          with uninstall: remove home/plugins/data/market/log too
   --json                machine-readable output
   --help                this text
 
-The installer never escalates privileges: run it with the permission the
-selected bundle needs. It refuses a running app, an unsupported stub and any
-bundle whose tree no longer matches its recorded applied snapshot.
+Use scripts/install-macos.sh for protected installation. Explicit sudo mode
+retains root only for selected bundle renames and lock creation. It refuses
+a running app, an unsupported stub and any bundle whose tree no longer matches its recorded applied snapshot.
 ";
 
 #[derive(Debug, Default)]
@@ -41,6 +42,7 @@ struct Options {
     orbit_root: Option<PathBuf>,
     purge_data: bool,
     json: bool,
+    sudo_user: Option<u32>,
 }
 
 fn parse(args: &[String]) -> Result<Options, String> {
@@ -54,6 +56,11 @@ fn parse(args: &[String]) -> Result<Options, String> {
         };
         match argument.as_str() {
             "--loader" => options.loader = Some(value("--loader")?),
+            "--sudo-user" => {
+                let uid = args.next().ok_or("--sudo-user needs a UID")?;
+                options.sudo_user =
+                    Some(uid.parse().map_err(|_| "--sudo-user needs a numeric UID")?);
+            }
             "--orbit-root" => options.orbit_root = Some(value("--orbit-root")?),
             "--purge-data" => options.purge_data = true,
             "--json" => options.json = true,
@@ -102,6 +109,24 @@ pub fn run(args: &[String], out: &mut dyn Write) -> Result<(), String> {
         out.write_all(USAGE.as_bytes())
             .map_err(|error| error.to_string())?;
         return Ok(());
+    }
+
+    if let Some(uid) = options.sudo_user {
+        if !matches!(command.as_str(), "apply" | "uninstall") {
+            return Err("--sudo-user is accepted only for apply/uninstall".into());
+        }
+        // Resolve paths before dropping privilege. The wrapper always supplies
+        // the invoking user's explicit state root rather than root's HOME.
+        let selected_root = options
+            .orbit_root
+            .as_ref()
+            .ok_or("--sudo-user requires an explicit --orbit-root")?;
+        crate::privilege::enter(uid, app_argument(&options)?, selected_root)?;
+    } else if cfg!(target_os = "macos")
+        && platform::effective_uid() == 0
+        && matches!(command.as_str(), "apply" | "uninstall")
+    {
+        return Err("root apply/uninstall needs --sudo-user <caller UID> and --orbit-root; use scripts/install-macos.sh".into());
     }
 
     match command.as_str() {
@@ -310,4 +335,53 @@ fn write_json<T: serde::Serialize>(out: &mut dyn Write, value: &T) -> Result<(),
     let text = serde_json::to_string_pretty(value)
         .map_err(|error| format!("cannot serialize the report: {error}"))?;
     writeln!(out, "{text}").map_err(|error| error.to_string())
+}
+
+#[cfg(test)]
+mod sudo_tests {
+    use super::*;
+
+    #[test]
+    fn sudo_identity_is_refused_for_read_only_commands_before_path_access() {
+        let mut output = Vec::new();
+        let args = [
+            "status",
+            "/path/that/must/not/be/accessed",
+            "--sudo-user",
+            "501",
+        ]
+        .map(str::to_string);
+        assert!(run(&args, &mut output)
+            .unwrap_err()
+            .contains("only for apply/uninstall"));
+        assert!(output.is_empty());
+    }
+
+    #[test]
+    fn sudo_identity_requires_an_explicit_user_state_root() {
+        let args = [
+            "apply",
+            "/path/that/must/not/be/accessed",
+            "--sudo-user",
+            "501",
+        ]
+        .map(str::to_string);
+        assert!(run(&args, &mut Vec::new())
+            .unwrap_err()
+            .contains("explicit --orbit-root"));
+    }
+
+    #[test]
+    fn sudo_mode_cannot_select_root_as_the_client_user() {
+        let args = [
+            "apply",
+            "/path/that/must/not/be/accessed",
+            "--sudo-user",
+            "0",
+            "--orbit-root",
+            "/path/that/must/not/be/created",
+        ]
+        .map(str::to_string);
+        assert!(run(&args, &mut Vec::new()).is_err());
+    }
 }

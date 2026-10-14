@@ -348,6 +348,7 @@ fn apply_reapply_and_uninstall_round_trip() {
     // Re-apply is a verified no-op.
     let again = apply(&toy.app, &toy.loader, &options).expect("re-apply");
     assert_eq!(again.outcome, ApplyOutcome::AlreadyApplied);
+    assert_eq!(again.installation_id, report.installation_id);
     assert_eq!(
         digest::sha256_file(&toy.app.join(STUB_RELATIVE)).unwrap(),
         applied_stub_sha256
@@ -764,4 +765,18 @@ fn an_uninstall_failure_restores_the_pristine_bundle() {
     assert!(failure.restored, "{failure}");
     assert_eq!(digest::tree(&toy.app).unwrap(), toy.tree);
     assert!(toy.install_dir().root().join("applied-removed").is_dir());
+}
+
+#[test]
+fn uninstall_refuses_a_changed_pristine_backup_before_moving_the_applied_app() {
+    let toy = build_toy("installer-stale-pristine", true);
+    apply(&toy.app, &toy.loader, &toy.options()).unwrap();
+    let applied = digest::tree(&toy.app).unwrap();
+    let backup = toy.install_dir().pristine();
+    fs::write(backup.join(STUB_RELATIVE), b"externally changed backup").unwrap();
+    let altered = digest::tree(&backup).unwrap();
+    let failure = uninstall(&toy.app, &UninstallOptions::new(&toy.orbit)).unwrap_err();
+    assert!(!failure.restored);
+    assert_eq!(digest::tree(&toy.app).unwrap(), applied);
+    assert_eq!(digest::tree(&backup).unwrap(), altered);
 }

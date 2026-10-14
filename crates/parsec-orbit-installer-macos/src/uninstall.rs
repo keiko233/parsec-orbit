@@ -338,6 +338,7 @@ impl Transaction<'_> {
 
     fn remove_applied(&mut self) -> Result<(), String> {
         self.check_applied()?;
+        self.verify_pristine()?;
         self.removed = self.move_aside()?;
         self.journal().append(
             "applied-removed",
@@ -346,9 +347,28 @@ impl Transaction<'_> {
         Ok(())
     }
 
-    fn restore(&mut self) -> Result<(), String> {
+    fn verify_pristine(&self) -> Result<(), String> {
+        let record = self
+            .manifest
+            .as_ref()
+            .ok_or("missing installation record")?;
         let pristine = self.install.pristine();
-        fs::rename(&pristine, &self.app).map_err(|error| {
+        platform::codesign_verify(&pristine)?;
+        let actual = digest::tree(&pristine)?;
+        let changes = digest::restore_differences(&record.pristine_tree, &actual);
+        if !changes.is_empty() {
+            return Err(format!(
+                "the pristine backup changed; refusing to consume it: {}",
+                changes.join("; ")
+            ));
+        }
+        Ok(())
+    }
+
+    fn restore(&mut self) -> Result<(), String> {
+        self.verify_pristine()?;
+        let pristine = self.install.pristine();
+        crate::privilege::rename(&pristine, &self.app).map_err(|error| {
             format!(
                 "cannot restore {} from {}: {error}",
                 self.app.display(),
@@ -364,12 +384,15 @@ impl Transaction<'_> {
     fn verify_restored(&mut self) -> Result<(), String> {
         let manifest = self.manifest.as_ref().expect("recorded by find-record");
         let actual = digest::tree(&self.app)?;
-        let differences = digest::differences(&manifest.pristine_tree, &actual);
+        let differences = digest::restore_differences(&manifest.pristine_tree, &actual);
         if !differences.is_empty() {
             return Err(format!(
                 "the restored bundle differs from the recorded pristine snapshot: {}",
                 differences.join("; ")
             ));
+        }
+        if !digest::differences(&manifest.pristine_tree, &actual).is_empty() {
+            self.warnings.push("macOS-added root provenance retained; all original attributes/content/ownership/timestamps/ACL match".into());
         }
         if let Err(error) = platform::codesign_verify(&self.app) {
             self.warnings.push(format!(
@@ -432,9 +455,20 @@ impl Transaction<'_> {
         let mut warnings = Vec::new();
         let pristine = self.install.pristine();
         if !pristine.exists() {
-            // Either nothing was removed yet, or the restore already ran.
+            // Missing backup is successful only when an exact restored app
+            // is present. A failed verification must never become restored=true.
+            let record = self
+                .manifest
+                .as_ref()
+                .ok_or("missing installation record")?;
+            let actual = digest::tree(&self.app)?;
+            if !digest::restore_differences(&record.pristine_tree, &actual).is_empty() {
+                return Err("pristine backup is absent and the app is not an exact restore".into());
+            }
+            platform::codesign_verify(&self.app)?;
             return Ok(warnings);
         }
+        self.verify_pristine()?;
         if fs::symlink_metadata(&self.app).is_ok() {
             let actual = digest::tree(&self.app)?;
             let expected = self
@@ -451,7 +485,7 @@ impl Transaction<'_> {
             let journal = self.journal();
             let _ = journal.append("moved-aside", Some(serde_json::json!({"path": moved})));
         }
-        fs::rename(&pristine, &self.app).map_err(|error| {
+        crate::privilege::rename(&pristine, &self.app).map_err(|error| {
             format!(
                 "cannot restore {} from {}: {error}",
                 self.app.display(),
@@ -463,7 +497,7 @@ impl Transaction<'_> {
         }
         if let Some(manifest) = self.manifest.as_ref() {
             let actual = digest::tree(&self.app)?;
-            let differences = digest::differences(&manifest.pristine_tree, &actual);
+            let differences = digest::restore_differences(&manifest.pristine_tree, &actual);
             if !differences.is_empty() {
                 return Err(format!(
                     "the restored bundle differs from the recorded pristine \
@@ -497,7 +531,7 @@ impl Transaction<'_> {
             if destination.exists() {
                 continue;
             }
-            fs::rename(&self.app, &destination).map_err(|error| {
+            crate::privilege::rename(&self.app, &destination).map_err(|error| {
                 format!(
                     "cannot move {} to {}: {error}",
                     self.app.display(),

@@ -2,12 +2,12 @@
 
 An unofficial, local-only proof of concept for loading plugins in the Parsec
 client. On Windows it uses a `bcrypt.dll` proxy and does not modify Parsec
-files; on macOS arm64 it loads Orbit into a copy of `Parsec.app` through a
-patched bundle (see [docs/spec/macos-host.md](docs/spec/macos-host.md)). The
-macOS installation path is not usable yet: the guarded loader bootstrap (M1a)
-and the transactional patcher (M1b) are implemented and measured on
-disposable copies, while the signing/original-path gates (M1c) are still
-open and no real vendor bundle has been applied.
+files; on macOS arm64 it loads Orbit through a locally patched, ad-hoc-signed
+`Parsec.app` (see [macOS host](docs/spec/macos-host.md)). The local installer
+supports the selected original application path with a version-bound pristine
+backup and restore. Account/session, quarantined delivery and internals-dependent
+native bitrate/WebView support remain unverified; see the
+[phase evidence](docs/design/macos-phases.md).
 
 ## Layout
 
@@ -40,7 +40,7 @@ open and no real vendor bundle has been applied.
   [README](crates/parsec-orbit-plugin-webview-bridge/README.md).
 * `crates/parsec-orbit-plugin-config/` and `crates/parsec-orbit-plugin-hooks/` -
   official plugins that provide `parsec-orbit.config` (settings that survive
-  restarts) and `parsec-orbit.hooks` (inline function hooks).
+  restarts) and `parsec-orbit.hooks` (Windows inline detours; bounded imported-pointer hooks on macOS).
 * `crates/parsec-orbit-market/` - the `parsec-orbit-market` tool: plugin index,
   sha256 and ed25519 checks, safe installation; see
   [Marketplace](docs/spec/marketplace.md). `crates/parsec-orbit-devtools/` is
@@ -85,6 +85,42 @@ hand, copy `bcrypt.dll` next to `parsecd.exe` (typically
 The client loads the proxy at start-up. It appends to the first writable path
 of `PARSEC_ORBIT_LOG`, `%APPDATA%\ParsecOrbit\parsec-orbit.log`, the client
 directory and `%TEMP%`, and mirrors every line to the debugger output.
+
+### macOS arm64 local installation
+
+Quit Parsec, then run the wrapper as your ordinary signed-in user:
+
+```bash
+/bin/bash scripts/install-macos.sh
+```
+
+It builds the macOS installer, loader, Config, Hooks and JS runtime; signs
+staged plugins ad hoc; and installs persistently into `/Applications/Parsec.app`.
+It prompts through sudo only for the Rust transaction. Records, state and
+external signing/copy tools use your UID. Retained administrator identity is
+used only for protected bundle renames and lock creation. No client is started
+or stopped automatically; reopen Parsec normally after success.
+
+Data/logs are in `~/Library/Application Support/ParsecOrbit`; the loader uses
+independent client state and does not migrate your existing Parsec credentials.
+Native bitrate and WebView plugins are not included on macOS. Supported stubs
+are whitelisted; unknown or running clients and stale installs refuse.
+
+```bash
+# Restore the original bundle and retain Orbit data/plugins/backups.
+/bin/bash scripts/install-macos.sh --uninstall
+
+# Reuse already built release artifacts.
+/bin/bash scripts/install-macos.sh --no-build
+```
+
+`--app /absolute/path/Parsec.app` and `--orbit-root /absolute/private/folder`
+select a test installation; use the same values to uninstall. Replaced official
+plugin folders are retained under `plugin-backups/`; unrelated plugins remain.
+Use the wrapper as the ordinary user, not `sudo bash scripts/install-macos.sh`.
+The script handles sudo itself. Restore reports any OS-added root provenance
+marker while preserving every original attribute. See the
+[installation guide](docs/guides/macos-install.md) for checks and recovery.
 
 ## Tests
 

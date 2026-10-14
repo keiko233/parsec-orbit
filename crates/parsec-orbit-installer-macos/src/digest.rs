@@ -172,6 +172,17 @@ pub fn differences(expected: &Tree, actual: &Tree) -> Vec<String> {
     ))
 }
 
+/// Restore comparison preserves every original field. On macOS only a new
+/// OS provenance attribute on the root-owned bundle root is retained; callers
+/// report this raw-metadata difference rather than removing the OS marker.
+pub fn restore_differences(expected: &Tree, actual: &Tree) -> Vec<String> {
+    format_changes(changed_paths_impl(
+        expected,
+        actual,
+        MetadataComparison::Restore,
+    ))
+}
+
 /// Differences between a pristine tree and its macOS `ditto` staging copy.
 /// `ditto` resets symlink modification times on macOS, so this comparison
 /// permits that copy transformation and transfer to the effective user's
@@ -262,6 +273,7 @@ fn entries_match(
 #[derive(Clone, Copy)]
 enum MetadataComparison<'a> {
     Exact,
+    Restore,
     DittoCopy,
     Signing(&'a [&'a str]),
     Legacy,
@@ -284,7 +296,9 @@ fn metadata_matches(
         return false;
     };
     let ignore_mtime = match comparison {
-        MetadataComparison::Exact | MetadataComparison::Legacy => false,
+        MetadataComparison::Exact | MetadataComparison::Restore | MetadataComparison::Legacy => {
+            false
+        }
         MetadataComparison::DittoCopy => expected.kind == EntryKind::Symlink,
         MetadataComparison::Signing(directory_exceptions) => {
             expected.kind == EntryKind::Symlink
@@ -300,8 +314,18 @@ fn metadata_matches(
             || actual_metadata.gid == Some(unsafe { libc::getegid() }));
     #[cfg(not(unix))]
     let copied_to_current_user = false;
+    let attributes = if matches!(comparison, MetadataComparison::Restore)
+        && !(cfg!(target_os = "macos")
+            && path.is_empty()
+            && expected.kind == EntryKind::Dir
+            && expected_metadata.uid == Some(0))
+    {
+        MetadataComparison::Exact
+    } else {
+        comparison
+    };
     (same_owner || copied_to_current_user)
-        && xattrs_match(expected_metadata, actual_metadata, comparison)
+        && xattrs_match(expected_metadata, actual_metadata, attributes)
         && expected_metadata.acl == actual_metadata.acl
         && (ignore_mtime || expected_metadata.mtime == actual_metadata.mtime)
 }
@@ -315,9 +339,13 @@ fn xattrs_match(
         return true;
     }
     // macOS attaches provenance to new copies of installed apps. Preserve
-    // it rather than deleting it. Only its addition is a copy exception;
+    // it rather than deleting it. Its addition is a copy exception, and a
+    // narrowly scoped root-owned restore exception selected above;
     // changing/removing an existing attribute or any other xattr refuses.
-    if !matches!(comparison, MetadataComparison::DittoCopy) {
+    if !matches!(
+        comparison,
+        MetadataComparison::DittoCopy | MetadataComparison::Restore
+    ) {
         return false;
     }
     let (Some(expected), Some(actual)) = (&expected.xattrs, &actual.xattrs) else {
@@ -432,6 +460,99 @@ mod tests {
             .unwrap()
             .value = vec![4];
         assert!(!staged_copy_differences(&copy, &changed).is_empty());
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn root_restore_keeps_os_provenance_but_rejects_every_other_metadata_change() {
+        let scratch = TempDir::new("installer-root-provenance");
+        fs::write(scratch.path().join("payload"), b"pristine").unwrap();
+        let mut original = tree(scratch.path()).unwrap();
+        let root = original.get_mut("").unwrap().metadata.as_mut().unwrap();
+        root.uid = Some(0);
+        root.xattrs
+            .as_mut()
+            .unwrap()
+            .retain(|a| a.name != b"com.apple.provenance");
+        let mut restored = original.clone();
+        restored
+            .get_mut("")
+            .unwrap()
+            .metadata
+            .as_mut()
+            .unwrap()
+            .xattrs
+            .as_mut()
+            .unwrap()
+            .push(ExtendedAttribute {
+                name: b"com.apple.provenance".to_vec(),
+                value: vec![1, 2, 3],
+            });
+        assert!(!differences(&original, &restored).is_empty());
+        assert!(restore_differences(&original, &restored).is_empty());
+        for name in [b"com.apple.quarantine".to_vec(), b"unrelated".to_vec()] {
+            let mut altered = restored.clone();
+            altered
+                .get_mut("")
+                .unwrap()
+                .metadata
+                .as_mut()
+                .unwrap()
+                .xattrs
+                .as_mut()
+                .unwrap()
+                .push(ExtendedAttribute {
+                    name,
+                    value: vec![1],
+                });
+            assert!(!restore_differences(&original, &altered).is_empty());
+        }
+        let mut changed = restored.clone();
+        changed.get_mut("").unwrap().metadata.as_mut().unwrap().uid = Some(501);
+        assert!(!restore_differences(&original, &changed).is_empty());
+        let mut changed = restored.clone();
+        changed
+            .get_mut("")
+            .unwrap()
+            .metadata
+            .as_mut()
+            .unwrap()
+            .mtime = None;
+        assert!(!restore_differences(&original, &changed).is_empty());
+        let mut changed = restored.clone();
+        changed.get_mut("payload").unwrap().sha256 = Some("changed".into());
+        assert!(!restore_differences(&original, &changed).is_empty());
+        let mut changed = restored.clone();
+        changed
+            .get_mut("payload")
+            .unwrap()
+            .metadata
+            .as_mut()
+            .unwrap()
+            .xattrs
+            .as_mut()
+            .unwrap()
+            .push(ExtendedAttribute {
+                name: b"com.apple.provenance".to_vec(),
+                value: vec![1],
+            });
+        assert!(!restore_differences(&original, &changed).is_empty());
+        // An existing OS marker is never exempted from change/removal.
+        let mut changed = restored.clone();
+        changed
+            .get_mut("")
+            .unwrap()
+            .metadata
+            .as_mut()
+            .unwrap()
+            .xattrs
+            .as_mut()
+            .unwrap()
+            .iter_mut()
+            .find(|a| a.name == b"com.apple.provenance")
+            .unwrap()
+            .value = vec![9];
+        assert!(!restore_differences(&restored, &changed).is_empty());
     }
 
     #[test]

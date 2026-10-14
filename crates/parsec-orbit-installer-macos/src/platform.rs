@@ -77,6 +77,9 @@ pub fn require_private_dir(path: &Path, label: &str) -> Result<(), String> {
             return Err(format!("{label} {} must have mode 0700", path.display()));
         }
     }
+    #[cfg(target_os = "macos")]
+    crate::privilege::pin_root(path)
+        .map_err(|error| format!("cannot pin private state: {error}"))?;
     Ok(())
 }
 
@@ -219,8 +222,10 @@ pub fn directory_writable(directory: &Path) -> Result<bool, String> {
 
 #[cfg(target_os = "macos")]
 fn tool(program: &str, arguments: &[&OsStr]) -> Result<String, String> {
-    let output = Command::new(program)
-        .args(arguments)
+    let mut command = Command::new(format!("/usr/bin/{program}"));
+    command.args(arguments);
+    crate::privilege::child(&mut command);
+    let output = command
         .output()
         .map_err(|error| format!("cannot run {program}: {error}"))?;
     if !output.status.success() {

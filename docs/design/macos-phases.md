@@ -67,7 +67,8 @@ external-replacement refusals and 14 scratch scenarios. Formal apply, first
 launch, re-apply and exact uninstall passed on the disposable official bundle.
 The normal-user `/Applications` attempt was denied at backup rename and rolled
 back; a separate administrator-assisted original-path candidate roundtrip
-passed, as recorded in M1c. It is not a privileged production CLI workflow.
+passed, as recorded in M1c. The subsequent formal sudo wrapper regression
+and persistent actual-path installation also passed; see the installer checkpoint.
 Market platform filtering, arm64 preflight and staged ad-hoc signing are
 implemented separately in `37dc0c7`, with a real signed-index HTTP integration.
 
@@ -85,7 +86,7 @@ implemented separately in `37dc0c7`, with a real signed-index HTTP integration.
 **Independent local route and explicit original-path activation measured
 (`70da8d3`, `06f5ead`).** The maintainer selected ad-hoc for development and
 user installation; Developer ID/notarization is not a missing credential gate.
-End-user installation scripts are deferred. Strict codesign passes separately
+The requested local wrapper now handles persistent original-path installation; packaged distribution remains unverified. Strict codesign passes separately
 from the measured ad-hoc spctl rejection (exit 3). Assessment preserves
 quarantine; a synthetic attribute test does not establish downloaded delivery.
 The [signing checkpoint](macos/signing-checkpoint.md) records one authorized
@@ -148,7 +149,7 @@ Suggested commits: **M2a** client/session harness and measured surfaces; **M2b**
 | --- | --- | --- |
 | M0 | Workspace/platform/SDK/owned fixtures implemented and locally tested | Windows runtime CI remains separate evidence |
 | M1a | Guarded copy first launch, re-exec and negative gates measured | Full syscall/IPC and credential audit is not claimed |
-| M1b | Formal toy/official-copy apply/re-apply/exact restore, metadata and injected replacement refusals | Privileged production workflow, real full-app concurrency/disk-full scenarios |
+| M1b | Formal toy/official-copy apply/re-apply/exact restore, metadata and injected replacement refusals | Root-owned restore permits/reports only OS-added root provenance; real full-app concurrency/disk-full scenarios |
 | M1c | Local ad-hoc route, separate strict codesign/spctl, original-path explicit LS launch/exact restore | Quarantined delivery, existing Dock/Spotlight/URI and TCC/credentials |
 | M2 independent | Shared client SDK, bounded owned import hooks, config/Boa/JS kind, market, 105c update, bounded diagnostics | Generic/chained/lazy coverage is outside the shipped hooks boundary |
 | M2 account/session | Unverified; no supplied dedicated account/endpoint | Login/connect/reconnect/input/audio and coexistence |
@@ -159,10 +160,11 @@ formatting, targeted no-deps Clippy, Python and pnpm suites. See the client
 checkpoint for the pre-existing transitive/test lint warnings and local
 Windows C-toolchain limitations. Size measurements are recorded in
 [size-report.md](size-report.md), not hidden behind an unmeasured budget claim.
-The actual `/Applications/Parsec.app` and disposable test copy are restored;
-Orbit evidence is retained. No push, PR or release was performed.
+The earlier original-entry trial and disposable test copy were restored.
+The subsequently requested formal local wrapper is now persistently installed
+at `/Applications/Parsec.app`; its recorded original backup and Orbit evidence
+are retained. No push, PR or release was performed.
 
-Hosting, x86_64 execution and out-of-process plugins remain excluded. Future
-end-user ad-hoc installation scripts are deferred by the maintainer; no
+Hosting, x86_64 execution and out-of-process plugins remain excluded. The requested local ad-hoc wrapper is implemented; packaged delivery remains unverified; no
 Developer ID credential request is pending. Complete the remaining measured
 behavior gates before claiming all phases or release readiness.

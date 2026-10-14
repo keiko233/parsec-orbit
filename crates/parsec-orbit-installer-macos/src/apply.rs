@@ -8,7 +8,8 @@
 //! renames that pristine bundle back before the error is reported. A
 //! re-applied, already-installed bundle is a verified no-op.
 //!
-//! Nothing here escalates privileges and nothing touches a running app: the
+//! Ordinary mode never escalates; explicit CLI sudo mode scopes protected
+//! renames to this transaction. Nothing touches a running app: the
 //! process check binds the selected executable path, and the caller decides
 //! where the Orbit state root is (the CLI defaults to
 //! `~/Library/Application Support/ParsecOrbit`).
@@ -512,6 +513,11 @@ impl<'a> Transaction<'a> {
         macho::verify_loader(&loader)
             .map_err(|error| format!("the loader input is not a valid arm64 dylib: {error}"))?;
 
+        // macOS can attach provenance during its first signature assessment.
+        // Capture the pristine metadata only after that read-only preflight.
+        if self.options.whitelist.permits(&self.stub_sha256) {
+            platform::codesign_verify(&self.app)?;
+        }
         self.pristine_tree = digest::tree(&self.app)?;
         Ok(())
     }
@@ -618,7 +624,11 @@ impl<'a> Transaction<'a> {
     fn report_without_patch(&self, outcome: ApplyOutcome) -> ApplyReport {
         ApplyReport {
             outcome,
-            installation_id: self.installation_id(),
+            installation_id: self
+                .manifest
+                .as_ref()
+                .map(|record| record.installation_id.clone())
+                .unwrap_or_else(|| self.installation_id()),
             install_dir: self.install.root().to_path_buf(),
             journal: self.journal.path().to_path_buf(),
             app: self.app.clone(),
@@ -718,10 +728,36 @@ impl<'a> Transaction<'a> {
             }),
         )?;
 
-        fs::rename(&self.app, self.install.pristine()).map_err(|error| {
+        if crate::privilege::enabled() {
+            // Copy tools can attach OS provenance to a root-owned app when
+            // its source is inside user state. Prepare the copy while the
+            // original still occupies its installed path. Never pass the
+            // renamed pristine backup to ditto in sudo mode.
+            platform::ditto(&self.app, &self.install.staged())?;
+            let staged = digest::tree(&self.install.staged())?;
+            let differences = digest::staged_copy_differences(&self.pristine_tree, &staged);
+            if !differences.is_empty() {
+                return Err(format!(
+                    "the prepared copy differs from pristine: {}",
+                    differences.join("; ")
+                ));
+            }
+            if !digest::differences(&self.pristine_tree, &digest::tree(&self.app)?).is_empty() {
+                return Err(
+                    "the original changed while its copy was prepared; refusing backup".into(),
+                );
+            }
+            self.staged_pristine_tree = Some(staged);
+            self.note(
+                "sudo-copy-prepared",
+                serde_json::json!({"source":self.app,"staged":self.install.staged()}),
+            )?;
+        }
+
+        crate::privilege::rename(&self.app, &self.install.pristine()).map_err(|error| {
             format!(
-                "cannot move {} to {}: {error}; the installer never escalates, \
-                 so run it with the required permission on the selected bundle",
+                "cannot move {} to {}: {error}; use the explicit sudo wrapper \
+                 if the selected bundle requires administrator permission",
                 self.app.display(),
                 self.install.pristine().display()
             )
@@ -743,7 +779,13 @@ impl<'a> Transaction<'a> {
     }
 
     fn stage(&mut self) -> Result<(), String> {
-        platform::ditto(&self.install.pristine(), &self.install.staged())?;
+        if let Some(prepared) = self.staged_pristine_tree.as_ref() {
+            if !digest::differences(prepared, &digest::tree(&self.install.staged())?).is_empty() {
+                return Err("the prepared staged copy changed before patching".into());
+            }
+        } else {
+            platform::ditto(&self.install.pristine(), &self.install.staged())?;
+        }
         let staged = digest::tree(&self.install.staged())?;
         let differences = digest::staged_copy_differences(&self.pristine_tree, &staged);
         if !differences.is_empty() {
@@ -925,7 +967,7 @@ impl<'a> Transaction<'a> {
                 self.app.display()
             ));
         }
-        fs::rename(self.install.staged(), &self.app).map_err(|error| {
+        crate::privilege::rename(&self.install.staged(), &self.app).map_err(|error| {
             format!(
                 "cannot move the staged bundle into {}: {error}",
                 self.app.display()
@@ -1065,7 +1107,7 @@ impl<'a> Transaction<'a> {
                 let moved = self.move_aside()?;
                 let _ = self.note("moved-aside", serde_json::json!({"path": moved}));
             }
-            fs::rename(&pristine, &self.app).map_err(|error| {
+            crate::privilege::rename(&pristine, &self.app).map_err(|error| {
                 format!(
                     "cannot restore {} from {}: {error}",
                     self.app.display(),
@@ -1076,13 +1118,19 @@ impl<'a> Transaction<'a> {
                 platform::fsync_dir(parent)?;
             }
             let restored = digest::tree(&self.app)?;
-            let differences = digest::differences(&manifest.pristine_tree, &restored);
+            let differences = digest::restore_differences(&manifest.pristine_tree, &restored);
             if !differences.is_empty() {
                 return Err(format!(
                     "the restored bundle differs from the recorded pristine \
                      snapshot: {}",
                     differences.join("; ")
                 ));
+            }
+            if !digest::differences(&manifest.pristine_tree, &restored).is_empty() {
+                warnings.push(
+                    "macOS-added root provenance retained; original metadata otherwise matches"
+                        .into(),
+                );
             }
             if let Err(error) = platform::codesign_verify(&self.app) {
                 warnings.push(format!(
@@ -1091,7 +1139,7 @@ impl<'a> Transaction<'a> {
             }
         } else if app_present {
             let actual = digest::tree(&self.app)?;
-            let differences = digest::differences(&manifest.pristine_tree, &actual);
+            let differences = digest::restore_differences(&manifest.pristine_tree, &actual);
             if !differences.is_empty() {
                 return Err(format!(
                     "there is no pristine backup in {} and {} no longer matches \
@@ -1100,6 +1148,12 @@ impl<'a> Transaction<'a> {
                     self.app.display(),
                     differences.join("; ")
                 ));
+            }
+            if !digest::differences(&manifest.pristine_tree, &actual).is_empty() {
+                warnings.push(
+                    "macOS-added root provenance retained; original metadata otherwise matches"
+                        .into(),
+                );
             }
         } else {
             return Err(format!(
@@ -1140,7 +1194,7 @@ impl<'a> Transaction<'a> {
             if destination.exists() {
                 continue;
             }
-            fs::rename(&self.app, &destination).map_err(|error| {
+            crate::privilege::rename(&self.app, &destination).map_err(|error| {
                 format!(
                     "cannot move {} to {}: {error}",
                     self.app.display(),

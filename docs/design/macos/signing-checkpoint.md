@@ -8,7 +8,8 @@ or real credential access was performed.
 
 The maintainer selected ad-hoc signing for both development and end-user
 local installation. Developer ID/notarization is not a required delivery
-route. End-user installation scripts are explicitly deferred. The existing
+route. A local workspace installation wrapper was subsequently requested
+and implemented; downloaded/release packaging remains unverified. The existing
 transactional Rust installer signs the Orbit loader first and the modified
 outer bundle last, retaining Hardened Runtime and only
 `com.apple.security.cs.disable-library-validation`; it does not re-sign the
@@ -78,8 +79,8 @@ ad-hoc policy removes the external signing-credential dependency, not those
 behavioral tests. No release-ready or all-M1-gates claim is made.
 
 The selected launch/restore tool is documented in the
-[installer checkpoint](installer-checkpoint.md). End-user scripts and
-packaging remain deferred rather than being created implicitly.
+[installer checkpoint](installer-checkpoint.md). The subsequently requested local wrapper is described in the
+[installation guide](../../guides/macos-install.md); release packaging remains unverified.
 
 
 ## Original-path activation and exact restore (2026-10-15)
@@ -90,7 +91,7 @@ A full candidate was prepared and verified before requesting execution;
 original content/metadata and both universal slices' file-backed sections
 were checked. The temporary helper privileged only the fixed-path renames.
 The user-owned verifier, launch controller and client all ran as UID 501.
-It is a one-run development artifact, not the deferred end-user installer.
+It is a one-run development artifact, not the subsequent persistent local installer wrapper.
 
 Launch Services `open -n /Applications/Parsec.app` selected exactly one
 process at `/Applications/Parsec.app/Contents/MacOS/parsecd`: PID 11169,
@@ -115,3 +116,17 @@ This closes explicit original-path Launch Services activation and restore.
 It does not measure a Dock click, Spotlight/URI routing, TCC or credential
 behavior, quarantined delivery, or a privileged formal-installer invocation.
 Those distinctions remain in the phase matrix.
+
+
+## Subsequent persistent local installation
+
+The maintainer subsequently requested and executed the formal local wrapper.
+The protected-parent administrator regression ended `Uninstalled`, then
+`scripts/install-macos.sh --no-build` installed persistently at
+`/Applications/Parsec.app`. Controller checks confirmed `Installed (Applied)`,
+UID 501 binding/private state and strict signatures for the bundle plus
+Config/Hooks/JS runtime. The app is intentionally left installed. This replaces
+the temporary helper as the local installation route; no client launch/login
+or downloaded-distribution result is inferred. Restore keeps all original
+metadata and reports the one measured OS-added root provenance exception;
+see the [installer checkpoint](installer-checkpoint.md).

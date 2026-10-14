@@ -40,8 +40,15 @@ impl AppLock {
             .create(true)
             .truncate(false)
             .mode(0o600)
-            .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
+            .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC | libc::O_NONBLOCK)
             .open(&path)
+            .or_else(|error| {
+                #[cfg(target_os = "macos")]
+                if error.kind() == std::io::ErrorKind::PermissionDenied {
+                    return crate::privilege::create_lock(&path);
+                }
+                Err(error)
+            })
             .map_err(|error| format!("cannot lock {}: {error}", app.display()))?;
         let metadata = file.metadata().map_err(|error| error.to_string())?;
         if !metadata.is_file()

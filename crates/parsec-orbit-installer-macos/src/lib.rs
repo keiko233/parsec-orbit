@@ -10,7 +10,8 @@
 //! everywhere.
 //!
 //! M1b is scratch-first: nothing here touches `/Applications` unless the
-//! caller passes that path explicitly, and the binary never escalates.
+//! caller passes that path explicitly. Sudo mode must name the ordinary
+//! user and state root; only protected renames/lock creation regain root.
 
 pub mod apply;
 pub mod assessment;
@@ -20,6 +21,7 @@ pub mod journal;
 pub mod lock;
 pub mod macho;
 pub mod platform;
+mod privilege;
 pub mod state;
 pub mod uninstall;
 pub mod whitelist;
