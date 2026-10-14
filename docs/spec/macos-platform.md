@@ -77,6 +77,7 @@ Per-service macOS behaviour. A service that a platform does not provide is absen
 | `high-bitrate-webview` | **blocked** until the WebView URL and DOM are known, M2 | below |
 | `parsec-orbit.hooks` (`hooks`) | **implemented and measured** for bounded, already-bound classic imports, M2 | below |
 | `high-bitrate-native` | **unavailable**; static candidates only, M2 | below |
+| `parsec-orbit.ui` (`ui` plugin) | **implemented**; window measured in an owned AppKit host, client-session evidence open, M2 | below |
 | hosting-related behaviour | out of scope | [ADR 0011](../design/decisions/0011-macos-scope.md) |
 
 ### `parsec-orbit.client`
@@ -140,6 +141,43 @@ vendor table mutation or execution of modified signed code. See the
 ### `high-bitrate-webview`
 
 Needs the macOS WebView target URL and the DOM of the bandwidth control, both `[unverified]`. Until they are known the plugin is not offered for macOS. Its injected script is page-realm code and unchanged in nature.
+
+### `parsec-orbit.ui` and the UI plugin
+
+The service keeps its name, header and every function of
+[services.md](services.md#parsec-orbitui-draft-provided-by-the-ui-service-plugin-version-10);
+only the window backend changes. [ADR 0017](../design/decisions/0017-macos-ui-appkit-main-thread.md)
+records why: `winio`'s AppKit backend requires the process main thread and drives
+the main run loop itself, and inside the client that thread belongs to the
+vendor. The macOS window is therefore drawn with AppKit
+(`objc2`/`objc2-app-kit`) and every operation is posted to the main queue, where
+the host's own run loop executes it. Nothing in the plugin pumps events. Both
+backends use native OS controls; neither draws its widgets by hand.
+
+* The window is built hidden in a main-queue block during `init`, so the first
+  `show()` never waits on AppKit. `show()`, `hide()` and `is_visible()` answer
+  from any thread.
+* A host whose activation policy is `Prohibited` (the client's stub starts as
+  `LSBackgroundOnly`) gets `Accessory` so the window can be ordered front; every
+  other policy is left to the vendor and no second Dock icon is added.
+* Hotkeys are Carbon `RegisterEventHotKey` (`Control+Option+O`, `Control+F12`),
+  which needs no Accessibility or Input Monitoring approval. The external
+  activation channel is the distributed notification
+  `com.parsec-orbit.ui.toggle`, the counterpart of the Windows hidden activation
+  window and its `PARSEC_ORBIT_UI_TOGGLE` message.
+* `[measured]` in an owned AppKit host (`cargo run -p parsec-orbit-plugin-ui
+  --example macos-ui-host`) the loader harness loads the plugin with `0` init
+  failures and registers `parsec-orbit.ui` 1.0; `CGWindowListCopyWindowInfo`
+  reports no on-screen window until the notification is posted, then
+  `Window "Parsec Orbit" bounds=(295, 90, 880, 612)`, and a second and third
+  post hide and show it again. Whether the patched client shows the window under
+  its own run loop is an M2 gate, like the other client-session surfaces.
+* **Not shipped yet.** The plugin is not part of the macOS release bundle:
+  `scripts/package-macos.py`, `scripts/orbit-manager-macos.py` and
+  `scripts/install-macos.sh` still deploy the three plugins (`config`, `hooks`,
+  `js-runtime`), so there is no installed route to it and the manager has no
+  `ui` subcommand. Adding a fourth file changes the release layout the manager
+  validates byte-for-byte, so it is a separate decision.
 
 ## 7. Differences in manifest and loading behaviour
 

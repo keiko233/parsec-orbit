@@ -3,7 +3,8 @@
 This document records the evaluation of adding an "Orbit" management UI to
 Parsec Orbit, the reverse engineering of the Parsec client's UI subsystems, the
 architectural tradeoffs between in-app injection and an external native window,
-and the implementation blueprint using `compio-rs/winio`.
+and the implementation blueprint: `compio-rs/winio` on Windows and AppKit on
+macOS ([ADR 0017](decisions/0017-macos-ui-appkit-main-thread.md)).
 
 ## 1. Background & Problem Statement
 
@@ -100,8 +101,12 @@ Linux, and kqueue on macOS).
 2. **Async Integration**: It integrates seamlessly with asynchronous tasks,
    timers, and channel-based message passing, matching Orbit's actor-like
    threading model.
-3. **Cross-Platform Future**: As Orbit expands beyond Windows to macOS and
-   Linux loaders, the same UI code runs across platforms without rewriting.
+3. **Cross-Platform Future**: The declarative ABI and the SDK bindings are
+   platform-neutral, so a plugin that registers a section works on every
+   platform the service exists on. The *renderer* is not portable, though:
+   `winio`'s AppKit backend owns the process main thread, which a plugin inside
+   the client cannot give it. macOS therefore draws the same window with AppKit
+   directly - see 3.3.
 
 ### 3.2 Why `winio` Must Be an External Window
 
@@ -115,6 +120,40 @@ Parsec's libmatoya render surface causes severe issues:
 
 Therefore, the architectural conclusion is definitive:
 **`winio` renders a standalone, external companion management window.**
+
+### 3.3 macOS: the same window, drawn with AppKit on the host's main thread
+
+[ADR 0017](decisions/0017-macos-ui-appkit-main-thread.md) records the measurement
+behind this section. `winio` does have a macOS backend (`winio-ui-app-kit`, a
+non-optional dependency of `winio` 0.12 on macOS), but it cannot be used inside
+the client:
+
+* `winio-ui-app-kit`'s `App::new()` starts with
+  `MainThreadMarker::new().ok_or(Error::NotMainThread)?`, so a plugin building
+  an `App` from its own thread gets `NotMainThread`. The process main thread is
+  the only thread AppKit accepts, and inside the client that thread belongs to
+  the vendor's run loop.
+* `App::block_on` runs `CFRunLoop::run_in_mode` and pumps
+  `NSApplication.nextEventMatchingMask...sendEvent`, so `winio` wants to own the
+  main run loop; `App::new()` also forces `setActivationPolicy(Regular)`, which
+  would add a Dock icon next to the client's.
+* On Windows the same `App::new()` has no thread requirement and its loop is
+  per-thread, which is exactly why the Windows plugin can own a thread and
+  macOS cannot.
+
+So the macOS backend posts every window operation to the main queue
+(`dispatch_async` to the main queue) and lets the host's own run loop execute
+it. It draws the same declarative items with native AppKit controls
+(`NSButton`, `NSSlider`, `NSPopUpButton`, `NSTextField`, `NSTextView`,
+`NSTabView`, `NSScrollView`) and never pumps events itself. Neither backend
+draws its widgets by hand.
+
+The activation channel changes for the same reason: macOS has no HWNDs and no
+system-wide broadcast window message, so the hidden activation window is
+replaced by the distributed notification `com.parsec-orbit.ui.toggle`, and the
+global hotkeys use Carbon `RegisterEventHotKey` instead of Win32
+`RegisterHotKey`. Carbon was chosen because `NSEvent` global monitors and
+`CGEventTap` need Accessibility or Input Monitoring approval.
 
 ## 4. The Three-Pillar Realization Logic
 
@@ -158,16 +197,20 @@ the `parsec-orbit.ui` service table ([spec/ui-service.md](../spec/ui-service.md)
 
 * **Lifecycle & Concurrency**:
   * In accordance with [ADR 0004](decisions/0004-loader-stays-light.md), the
-    loader stays completely free of `winio` or GUI code.
+    loader stays completely free of `winio`, AppKit or GUI code.
   * The UI plugin spawns a dedicated worker thread during `init` and hosts the
-    `winio` single-threaded async event loop.
+    `winio` single-threaded async event loop. On macOS there is no such thread:
+    the plugin owns no event loop at all and posts each AppKit operation to the
+    main queue, where the host's run loop executes it (3.3).
   * The window is created hidden on start-up, so Parsec's launch never waits on
-    it and the first `show()` has nothing left to build.
+    it and the first `show()` has nothing left to build. The macOS window is
+    built in a main-queue block during `init` for the same reason.
   * Only the user's instance draws. Parsec starts its client twice - the service
     copy in session 0 and the user's copy on the desktop - and the window and
     the hotkeys belong to the second; the first registers the `parsec-orbit.ui`
     service and nothing else. The check is the same token query the debug
-    console uses.
+    console uses. macOS runs the client once, so there is no instance check
+    there.
   * Cross-thread messages are posted to the window thread and followed by a
     `WM_NULL`. `winio`'s loop sits in `MsgWaitForMultipleObjectsEx` when idle
     and the queue's own waker only counts during a poll, so that empty message
@@ -243,18 +286,28 @@ Each framework environment provides an intuitive way to open and toggle the UI:
        It posts the activation message instead of pressing keys, so the
        window's own visible/hidden state stays correct; focusing an existing
        window and synthesizing the hotkey are the fallbacks.
+   * On macOS the equivalent request is the distributed notification
+       `com.parsec-orbit.ui.toggle`. `orbit-manager-macos.py` has no `ui`
+       subcommand yet, so today the notification has to be posted by another
+       tool.
 
 ## 5. Architectural Integrity & Size Policy
 
 * **Loader Remains Unaffected**: The `bcrypt.dll` loader proxy and
   `parsec-orbit-core` link no GUI crates, no `compio`, and no `winio`. The size
-  baseline (~340 KB) is completely protected ([ADR 0004](decisions/0004-loader-stays-light.md)).
+  baseline (~340 KB) is completely protected
+  ([ADR 0004](decisions/0004-loader-stays-light.md)). On macOS the same holds
+  for AppKit: only the UI plugin links `objc2`/`objc2-app-kit`, and the AppKit
+  frameworks themselves are system libraries, so the plugin stays in the same
+  size class as its Windows build.
 * **Plugin Overhead**: Plugins pay zero binary size cost for GUI dependencies. A
   `no_std` Rust plugin registering a settings section only emits a static JSON
   string through `extern "system"` service calls.
 * **Isolated Failure Domain**: Any unexpected issue or panic inside the `winio`
-  event loop is confined to the UI thread and can be safely caught without
-  crashing Parsec's streaming session.
+  event loop is confined to the UI thread. On macOS the plugin owns no thread
+  and no run loop, so the failure domain is the plugin's own calls rather than
+  a loop it drives; a panic there still unwinds inside the plugin's main-queue
+  block, not the client's run loop.
 
 ## 6. Planned: settings the window should grow into
 

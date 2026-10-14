@@ -1,7 +1,9 @@
 //! Orbit UI Service - official Parsec Orbit plugin.
 //!
-//! Provides `parsec-orbit.ui`: an external companion window powered by `compio-rs/winio`
-//! driven by unified declarative schemas across Rust and JavaScript.
+//! Provides `parsec-orbit.ui`: an external companion window driven by unified
+//! declarative schemas across Rust and JavaScript. The window is `compio-rs/winio`
+//! on Windows and AppKit on the host's main thread on macOS; see
+//! `docs/spec/ui-service.md`.
 
 pub mod registry;
 pub mod schema;
@@ -13,6 +15,8 @@ pub mod hotkey;
 pub mod instance;
 #[cfg(windows)]
 pub mod window;
+#[cfg(target_os = "macos")]
+pub mod window_macos;
 
 use parsec_orbit_plugin_sdk_std::prelude::*;
 use parsec_orbit_plugin_sdk_std::services::Ui;
@@ -44,6 +48,15 @@ impl Plugin for OrbitUiPlugin {
             let cx = *cx;
             window::ensure_started(cx);
             cx.spawn("hotkey", || hotkey::run(service::toggle))?;
+        }
+
+        #[cfg(target_os = "macos")]
+        {
+            // The client runs once, and AppKit only accepts windows on the
+            // process main thread, so the window is built there instead of on
+            // a thread of its own.
+            let cx = *cx;
+            window_macos::ensure_started(cx);
         }
 
         Ok(())

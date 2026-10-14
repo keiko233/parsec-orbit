@@ -9,6 +9,11 @@ use parsec_orbit_plugin_sdk_std::{
 
 use crate::registry::Registry;
 
+#[cfg(windows)]
+use crate::window as platform_window;
+#[cfg(target_os = "macos")]
+use crate::window_macos as platform_window;
+
 static REGISTRY: OnceLock<Registry> = OnceLock::new();
 
 pub fn registry() -> &'static Registry {
@@ -23,51 +28,51 @@ unsafe fn utf8<'a>(pointer: *const u8, len: usize) -> Option<&'a str> {
 }
 
 pub fn toggle() {
-    #[cfg(windows)]
-    crate::window::toggle();
+    #[cfg(any(windows, target_os = "macos"))]
+    platform_window::toggle();
 }
 
 /// Tells the window that the set of registered sections changed. The window
 /// rebuilds its tabs from the registry, so a plugin that registers a section
 /// after start-up is picked up without a restart.
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 fn sections_changed() {
-    crate::window::notify_sections_changed();
+    platform_window::notify_sections_changed();
 }
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos")))]
 fn sections_changed() {}
 
 /// Tells the window that a section's values changed, so a plugin can push new
 /// state (a probe result, a patch report) and see it on screen.
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 fn state_updated(section: &str) {
-    crate::window::notify_state_updated(section);
+    platform_window::notify_state_updated(section);
 }
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos")))]
 fn state_updated(_section: &str) {}
 
 unsafe extern "system" fn svc_show() -> i32 {
-    #[cfg(windows)]
-    crate::window::show();
+    #[cfg(any(windows, target_os = "macos"))]
+    platform_window::show();
     0
 }
 
 unsafe extern "system" fn svc_hide() -> i32 {
-    #[cfg(windows)]
-    crate::window::hide();
+    #[cfg(any(windows, target_os = "macos"))]
+    platform_window::hide();
     0
 }
 
 unsafe extern "system" fn svc_is_visible() -> i32 {
-    #[cfg(windows)]
-    if crate::window::is_visible() {
+    #[cfg(any(windows, target_os = "macos"))]
+    if platform_window::is_visible() {
         1
     } else {
         0
     }
-    #[cfg(not(windows))]
+    #[cfg(not(any(windows, target_os = "macos")))]
     0
 }
 

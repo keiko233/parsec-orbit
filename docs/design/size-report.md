@@ -175,3 +175,23 @@ universal parsing, full metadata, recovery/locking and assessment. Hooks are
 a separate optional plugin, not added to the injected loader. The historical
 360 KiB reference is still exceeded by the 571,472 B loader; no final macOS
 budget or size optimization is claimed here.
+
+### M2 UI plugin checkpoint (2026-10-15)
+
+The macOS UI companion window links AppKit (`objc2`/`objc2-app-kit`) and the
+dispatch main queue instead of `winio`, and owns no event loop
+([ADR 0017](decisions/0017-macos-ui-appkit-main-thread.md)). It is smaller than
+its Windows build even though both draw native controls: the AppKit frameworks
+are system libraries resolved at load time, and `compio` is not linked at all.
+The loader, `parsec-orbit-core` and the SDKs stay free of both GUI stacks, so
+the injected loader budget is untouched.
+
+| Artifact | Bytes | SHA-256 |
+| --- | ---: | --- |
+| ui `libparsec_orbit_plugin_ui.dylib` | 471,648 | `6c85c3331bdc444162e7f76f8c11f435a203bf447b3582af7beb6fcdef9f0620` |
+| ui `libparsec_orbit_plugin_ui.dylib` (Windows reference) | 529,408 | not comparable byte-for-byte: different platform and CRT |
+
+The plugin's macOS dependency tree is `objc2`, `objc2-app-kit`,
+`objc2-foundation`, `dispatch2` and the workspace's `serde`/`serde_json`; there
+is no `winio` in it. The plugin is not part of the macOS release bundle yet
+([macos-platform.md](../spec/macos-platform.md#parsec-orbit-ui-and-the-ui-plugin)).

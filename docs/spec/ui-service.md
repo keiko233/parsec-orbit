@@ -1,12 +1,35 @@
 # UI service (`parsec-orbit.ui`)
 
-Status: Draft (version 1.0). Implements [ADR 0016](../design/decisions/0016-orbit-ui-winio.md);
+Status: Draft (version 1.0). Implements [ADR 0016](../design/decisions/0016-orbit-ui-winio.md)
+and, for macOS, [ADR 0017](../design/decisions/0017-macos-ui-appkit-main-thread.md);
 architectural walkthrough in [design/orbit-ui.md](../design/orbit-ui.md).
 
 The `parsec-orbit.ui` service provides a native, external management window
-powered by `compio-rs/winio`. Plugins do not embed UI runtimes; they register
-declarative JSON schemas defining configuration sections and controls, and
-listen for user action events.
+driven by unified declarative schemas. Plugins do not embed UI runtimes; they
+register declarative JSON schemas defining configuration sections and controls,
+and listen for user action events.
+
+## Platform backends
+
+The service table, the schema and the action payload are the same on every
+platform; only the window behind them differs.
+
+| Platform | Window |
+| --- | --- |
+| Windows | `compio-rs/winio` (Win32 backend) on a thread the plugin owns, with its own event loop. |
+| macOS | AppKit (`objc2`/`objc2-app-kit`) on the **host's main thread**: the plugin posts each window operation to the main queue and the host's own run loop runs it. Nothing in the plugin pumps events. |
+| Other | No window. The service and the registry stay available, so a plugin can still register a section and a consumer can still call `show()`/`hide()`. |
+
+macOS notes that follow from the main-thread rule:
+
+* The window is built hidden on the main thread during plugin start-up; the
+  first `show()` never waits on AppKit.
+* `show()`, `hide()` and `is_visible()` stay callable from any thread. Only the
+  window calls themselves run on the main thread.
+* A host whose activation policy is `Prohibited` (the client's stub starts as
+  `LSBackgroundOnly`) cannot order a window front. The plugin promotes the
+  policy to `Accessory` while it is `Prohibited` and leaves every other policy
+  to the vendor; it never adds a Dock icon.
 
 ## Service header and table
 
@@ -14,12 +37,13 @@ Provider: `com.parsec-orbit.ui` (official plugin).
 Interface name: `parsec-orbit.ui`.
 Version: 1.0 (`(1 << 16) | 0`).
 
-The companion window belongs to the instance the user started. Parsec runs its
-client twice - once as the service (`LocalSystem`, session 0) and once as the
-logged-in user - and a session-0 window is invisible, so the service instance
-registers the service table without creating a window and answers the three
-visibility calls from the requested state alone. Everything else in this spec
-behaves the same in both instances.
+On Windows the companion window belongs to the instance the user started.
+Parsec runs its client twice - once as the service (`LocalSystem`, session 0)
+and once as the logged-in user - and a session-0 window is invisible, so the
+service instance registers the service table without creating a window and
+answers the three visibility calls from the requested state alone. Everything
+else in this spec behaves the same in both instances. macOS runs the client
+once, so there is no such split and no instance check.
 
 ```c
 typedef struct ParsecOrbitUiV1 {
@@ -58,14 +82,22 @@ UI thread.
 
 The window starts hidden and three ways bring it up:
 
-* The global hotkeys `Ctrl+Alt+O` and `Ctrl+F12`. Whichever another program has
-  not already claimed still works.
+* The global hotkeys: `Ctrl+Alt+O` and `Ctrl+F12` on Windows,
+  `Control+Option+O` and `Control+F12` on macOS. Whichever another program has
+  not already claimed still works. On macOS they are registered with Carbon
+  `RegisterEventHotKey`, which needs no Accessibility or Input Monitoring
+  approval.
 * `show()`, `hide()` or the plugin's toggle, called by a plugin running in the
   client instance.
-* `scripts/orbit-manager.ps1 ui` from outside Parsec. The script posts the
-  registered message `PARSEC_ORBIT_UI_TOGGLE` to the hidden activation window of
-  class `ParsecOrbitUiActivation`, which runs the same toggle as the hotkeys.
-  The class name and the message name are part of this contract.
+* A request from outside Parsec, which runs the same toggle as the hotkeys:
+  * Windows: `scripts/orbit-manager.ps1 ui` posts the registered message
+    `PARSEC_ORBIT_UI_TOGGLE` to the hidden activation window of class
+    `ParsecOrbitUiActivation`. The class name and the message name are part of
+    this contract.
+  * macOS: any process posts the distributed notification
+    `com.parsec-orbit.ui.toggle` (`CFNotificationCenterGetDistributedCenter`),
+    which the plugin observes. The notification name is part of this contract;
+    the manager script has no `ui` subcommand yet.
 
 ## Declarative UI schema
 

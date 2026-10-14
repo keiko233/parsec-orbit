@@ -101,9 +101,11 @@ Reports the client build the host is running and whether it is a verified one. S
 
 ### `parsec-orbit.ui` (draft, provided by the UI service plugin), version 1.0
 
-A native external management window powered by `compio-rs/winio`. Plugins
-register declarative JSON schemas for configuration sections and listen for
-action callbacks without bundling GUI runtimes. Specified in detail in
+A native external management window driven by declarative JSON schemas.
+Plugins register configuration sections and listen for action callbacks
+without bundling GUI runtimes. The window is `compio-rs/winio` on Windows and
+AppKit on the host's main thread on macOS; the service table, the schema and
+the action payload are the same on both. Specified in detail in
 [ui-service.md](ui-service.md).
 
 | Function | Behaviour |

@@ -16,8 +16,11 @@ parsec-orbit-plugin-sdk-std = { path = "../../crates/parsec-orbit-plugin-sdk-std
 serde_json = "1"
 serde = { version = "1", features = ["derive"] }
 
-# The window is the `winio` Win32 backend. Other targets keep the service and
-# the registry, so a plugin can still register a section there, and they do not
+# The window is the `winio` Win32 backend. macOS draws the same window with
+# AppKit on the host's main thread instead: `winio`'s AppKit backend refuses any
+# thread that is not the process main thread, and inside the client that thread
+# belongs to the vendor run loop. Other targets keep the service and the
+# registry, so a plugin can still register a section there, and they do not
 # build a GUI stack at all.
 [target.'cfg(windows)'.dependencies]
 winio = { version = "0.12.0", default-features = false, features = ["win32", "windows-dark-mode"] }
@@ -30,3 +33,24 @@ windows-sys = { version = "0.61.2", features = [
     "Win32_UI_Input_KeyboardAndMouse",
     "Win32_Graphics_Gdi",
 ] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", features = [
+    "std",
+    "NSApplication",
+    "NSControl",
+    "NSButton",
+    "NSButtonCell",
+    "NSText",
+    "NSTextField",
+    "NSTextView",
+    "NSSlider",
+    "NSPopUpButton",
+    "NSTabView",
+    "NSTabViewItem",
+    "NSScrollView",
+    "NSFont",
+] }
+objc2-foundation = { version = "0.3", features = ["std", "NSString", "NSNotification"] }
+dispatch2 = "0.3"
