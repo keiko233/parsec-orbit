@@ -25,7 +25,7 @@ libraries), `libs/` (service providers such as `config`, `hooks`, `js-runtime`,
   `Platform` over `dlopen`/`dlsym`/`dlerror`, an append-only logger and the
   same plugin scan/host logic. It is a plain dylib for now; M1 loads it from a
   patched `Parsec.app`.
-* `crates/parsec-orbit-installer-macos/` - the transactional patcher:
+* `tools/parsec-orbit-installer-macos/` - the transactional patcher:
   inspect/apply/uninstall/status, a version-bound pristine backup plus
   append-only journal, a whitelisted header-space `LC_LOAD_DYLIB` patch,
   inside-out ad-hoc signing, verification, rollback and the preseed; see the
@@ -180,7 +180,7 @@ the script injected into the WebView UI; without it that one test is skipped
   the DevTools client and the bridge session against a fake endpoint;
   `plugins/parsec-orbit-plugin-high-bitrate-webview/tests/` runs
   `assets/bandwidth.js` in a fake browser under Node.
-  `crates/parsec-orbit-installer-macos/tests/scratch_apply.rs` builds
+  `tools/parsec-orbit-installer-macos/tests/scratch_apply.rs` builds
   disposable arm64 toy bundles with `clang` and runs the real installer
   against them (round trip, dyld dependency, interruptions, refusals).
 * **End-to-end tests** in `tests/parsec-orbit-e2e/` build the loader and the
