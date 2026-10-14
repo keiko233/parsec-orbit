@@ -3,7 +3,7 @@
 use std::ffi::c_void;
 use std::sync::OnceLock;
 
-use parsec_orbit_plugin_sdk_std::{
+use parsec_orbit_plugin_sdk::{
     MessageCallback, ParsecOrbitInterfaceHeader, ParsecOrbitWebViewV1, ERR_INVALID, ERR_NOT_READY,
     OK,
 };

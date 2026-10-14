@@ -50,7 +50,7 @@ parsec_orbit_plugin_sdk::declare_plugin! {
 mod tests {
     use super::*;
     use parsec_orbit_plugin_sdk::{LOG_DEBUG, LOG_INFO, LOG_WARN};
-    use parsec_orbit_plugin_sdk_std::testing::MockHost;
+    use parsec_orbit_plugin_sdk_testing::MockHost;
     use std::path::Path;
 
     #[test]

@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard};
 
-use parsec_orbit_plugin_sdk_std::{ERR_INVALID, ERR_NOT_READY};
+use parsec_orbit_plugin_sdk::{ERR_INVALID, ERR_NOT_READY};
 use serde_json::{Map, Value};
 
 /// Longest key, in bytes.

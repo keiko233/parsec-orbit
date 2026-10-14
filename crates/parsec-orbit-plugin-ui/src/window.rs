@@ -19,7 +19,7 @@ use serde_json::Value;
 use winio::handle::AsWindow;
 use winio::prelude::*;
 
-use parsec_orbit_plugin_sdk_std::prelude::*;
+use parsec_orbit_plugin_sdk::prelude::*;
 
 use crate::schema::{UiAction, UiItem};
 
@@ -581,21 +581,23 @@ pub fn is_visible() -> bool {
 
 /// Starts the window thread once. Called from the plugin's `init`, so the
 /// loader's worker thread is never blocked by a window.
-pub fn ensure_started(cx: parsec_orbit_plugin_sdk_std::Context) {
+pub fn ensure_started(cx: parsec_orbit_plugin_sdk::Context) {
     STARTED.get_or_init(|| {
-        let result = cx.spawn("window", move || {
-            let result = App::builder()
-                .name("Parsec Orbit")
-                .build()
-                .and_then(|app| app.block_on(OrbitUi::run_until_event(())));
-            UI_HWND.store(0, Ordering::SeqCst);
-            *UI_SENDER.lock().unwrap() = None;
-            IS_VISIBLE.store(false, Ordering::SeqCst);
-            match result {
-                Ok(()) => info!(cx, "orbit ui: window thread finished"),
-                Err(error) => error!(cx, "orbit ui: window thread failed: {error}"),
-            }
-        });
+        let result = std::thread::Builder::new()
+            .name(format!("{}:window", cx.plugin_id()))
+            .spawn(move || {
+                let result = App::builder()
+                    .name("Parsec Orbit")
+                    .build()
+                    .and_then(|app| app.block_on(OrbitUi::run_until_event(())));
+                UI_HWND.store(0, Ordering::SeqCst);
+                *UI_SENDER.lock().unwrap() = None;
+                IS_VISIBLE.store(false, Ordering::SeqCst);
+                match result {
+                    Ok(()) => info!(cx, "orbit ui: window thread finished"),
+                    Err(error) => error!(cx, "orbit ui: window thread failed: {error}"),
+                }
+            });
         if let Err(error) = result {
             error!(cx, "orbit ui: could not start the window thread: {error}");
         }

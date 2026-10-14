@@ -8,11 +8,11 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use parsec_orbit_plugin_js_runtime::engine::{spawn, Handle, PluginInfo, Spec};
-use parsec_orbit_plugin_sdk_std::services::WebViewClient;
-use parsec_orbit_plugin_sdk_std::testing::MockHost;
-use parsec_orbit_plugin_sdk_std::{
+use parsec_orbit_plugin_sdk::services::WebViewClient;
+use parsec_orbit_plugin_sdk::{
     Level, MessageCallback, ParsecOrbitInterfaceHeader, ParsecOrbitWebViewV1, ERR_EXCEPTION,
 };
+use parsec_orbit_plugin_sdk_testing::MockHost;
 
 // ---- helpers ----------------------------------------------------------------------
 
@@ -525,7 +525,7 @@ unsafe extern "system" fn bridge_evaluate(
     let expression = text(expression, len);
     note(format!("evaluate {expression}"));
     if expression == "fail" {
-        return parsec_orbit_plugin_sdk_std::ERR_NOT_READY;
+        return parsec_orbit_plugin_sdk::ERR_NOT_READY;
     }
     let reply = format!(
         "{{\"echo\":{}}}",
@@ -873,7 +873,7 @@ unsafe extern "system" fn svc_get(
             unsafe { out.unwrap()(user, json.as_ptr(), json.len()) };
             0
         }
-        None => parsec_orbit_plugin_sdk_std::ERR_NOT_FOUND,
+        None => parsec_orbit_plugin_sdk::ERR_NOT_FOUND,
     }
 }
 
@@ -909,14 +909,14 @@ unsafe extern "system" fn svc_remove(
     if store.len() < before {
         0
     } else {
-        parsec_orbit_plugin_sdk_std::ERR_NOT_FOUND
+        parsec_orbit_plugin_sdk::ERR_NOT_FOUND
     }
 }
 
-static CONFIG_SERVICE: parsec_orbit_plugin_sdk_std::ParsecOrbitConfigV1 =
-    parsec_orbit_plugin_sdk_std::ParsecOrbitConfigV1 {
+static CONFIG_SERVICE: parsec_orbit_plugin_sdk::ParsecOrbitConfigV1 =
+    parsec_orbit_plugin_sdk::ParsecOrbitConfigV1 {
         header: ParsecOrbitInterfaceHeader::new(
-            std::mem::size_of::<parsec_orbit_plugin_sdk_std::ParsecOrbitConfigV1>(),
+            std::mem::size_of::<parsec_orbit_plugin_sdk::ParsecOrbitConfigV1>(),
             1,
             0,
         ),
@@ -928,7 +928,7 @@ static CONFIG_SERVICE: parsec_orbit_plugin_sdk_std::ParsecOrbitConfigV1 =
 
 #[test]
 fn host_config_uses_the_config_service_when_it_is_there() {
-    use parsec_orbit_plugin_sdk_std::services::ConfigClient;
+    use parsec_orbit_plugin_sdk::services::ConfigClient;
     let host = MockHost::new("com.parsec-orbit.js-runtime");
     host.provide("parsec-orbit.config", &CONFIG_SERVICE.header);
     let client = ConfigClient::new(&host.context())
@@ -1001,10 +1001,10 @@ unsafe extern "system" fn test_ui_update_state(
     0
 }
 
-static TEST_UI_SERVICE: parsec_orbit_plugin_sdk_std::ParsecOrbitUiV1 =
-    parsec_orbit_plugin_sdk_std::ParsecOrbitUiV1 {
-        header: parsec_orbit_plugin_sdk_std::ParsecOrbitInterfaceHeader::new(
-            std::mem::size_of::<parsec_orbit_plugin_sdk_std::ParsecOrbitUiV1>(),
+static TEST_UI_SERVICE: parsec_orbit_plugin_sdk::ParsecOrbitUiV1 =
+    parsec_orbit_plugin_sdk::ParsecOrbitUiV1 {
+        header: parsec_orbit_plugin_sdk::ParsecOrbitInterfaceHeader::new(
+            std::mem::size_of::<parsec_orbit_plugin_sdk::ParsecOrbitUiV1>(),
             1,
             0,
         ),
@@ -1020,7 +1020,7 @@ static TEST_UI_SERVICE: parsec_orbit_plugin_sdk_std::ParsecOrbitUiV1 =
 
 #[test]
 fn host_ui_uses_the_ui_service_when_it_is_there() {
-    use parsec_orbit_plugin_sdk_std::services::UiClient;
+    use parsec_orbit_plugin_sdk::services::UiClient;
     let host = MockHost::new("com.parsec-orbit.js-runtime");
     host.provide("parsec-orbit.ui", &TEST_UI_SERVICE.header);
     let client = UiClient::new(&host.context()).unwrap();

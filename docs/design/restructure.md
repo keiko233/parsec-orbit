@@ -954,14 +954,15 @@ script re-bootstrap with `get-orbit`; the release notes say so.
 
 | ADR | Title | Supersedes |
 | --- | --- | --- |
-| 0017 | Crate roles and directory layout (`lib`, `plugin`, `tool`, dependency law) | none |
-| 0018 | OS ports, `layout` crate and per-plugin backends | none |
-| 0019 | The market is a plugin over the `registry` library | marketplace spec sections on the CLI |
-| 0020 | The installer and release tooling are Rust | 0006; `AGENTS.md` §8 |
-| 0021 | The official registry is `manifest/` on `main`, signed by CI | marketplace spec "Publishing" |
-| 0022 | Pending-update promotion in `core` | none |
-| 0023 | One SDK package, no features; `sdk-std` dissolved into `sdk` + `sdk-testing`; `no_std` plugins by measurement; crate-split criteria | amends 0002 |
-| 0024 | File formats: TOML for edited files, JSON for exchanged ones, one source per fact | none |
+| 0017 | One SDK package, no features; `sdk-std` dissolved into `sdk` + `sdk-testing`; crate-split criteria. **Written, accepted.** | amends 0002 |
+| 0018 | Crate roles and directory layout (`lib`, `plugin`, `tool`, dependency law) | none |
+| 0019 | OS ports, `layout` crate and per-plugin backends | none |
+| 0020 | The market is a plugin over the `registry` library | marketplace spec sections on the CLI |
+| 0021 | The installer and release tooling are Rust | 0006; `AGENTS.md` §8 |
+| 0022 | The official registry is `manifest/` on `main`, signed by CI | marketplace spec "Publishing" |
+| 0023 | Pending-update promotion in `core` | none |
+| 0024 | `no_std` policy: plugins by measurement, no SDK feature switch, loader spike gate | none |
+| 0025 | File formats: TOML for edited files, JSON for exchanged ones, one source per fact | none |
 
 Documents touched when each lands:
 

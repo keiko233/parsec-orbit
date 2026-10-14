@@ -24,8 +24,8 @@ use boa_engine::context::{ContextBuilder, HostHooks};
 use boa_engine::object::builtins::{JsFunction, JsPromise};
 use boa_engine::object::JsObject;
 use boa_engine::{Context as JsContext, JsError, JsResult, JsValue, Module, Source};
-use parsec_orbit_plugin_sdk_std::services::{ConfigClient, UiClient, WebViewClient};
-use parsec_orbit_plugin_sdk_std::{Level, ERR_EXCEPTION, ERR_TIMEOUT};
+use parsec_orbit_plugin_sdk::services::{ConfigClient, UiClient, WebViewClient};
+use parsec_orbit_plugin_sdk::{Level, ERR_EXCEPTION, ERR_TIMEOUT};
 
 /// Where a context reports what happens in it.
 pub type Logger = Arc<dyn Fn(Level, &str) + Send + Sync>;

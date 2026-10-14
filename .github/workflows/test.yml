@@ -62,7 +62,7 @@ jobs:
       # The crates that go to crates.io must package and build from their own
       # tarballs. Nothing is published here.
       - name: Package the SDK crates
-        run: cargo package -p parsec-orbit-plugin-abi -p parsec-orbit-plugin-sdk -p parsec-orbit-plugin-sdk-std --locked
+        run: cargo package -p parsec-orbit-plugin-abi -p parsec-orbit-plugin-sdk -p parsec-orbit-plugin-sdk-testing --locked
 
   test-macos:
     runs-on: macos-26

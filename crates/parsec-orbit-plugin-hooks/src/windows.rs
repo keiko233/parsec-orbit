@@ -16,9 +16,9 @@ use std::collections::HashMap;
 use std::ffi::c_void;
 use std::sync::{Mutex, MutexGuard, OnceLock};
 
-use parsec_orbit_plugin_sdk_std::prelude::*;
-use parsec_orbit_plugin_sdk_std::services::Hooks;
-use parsec_orbit_plugin_sdk_std::{
+use parsec_orbit_plugin_sdk::prelude::*;
+use parsec_orbit_plugin_sdk::services::Hooks;
+use parsec_orbit_plugin_sdk::{
     ParsecOrbitHooksV1, ParsecOrbitInterfaceHeader, ERR_EXCEPTION, ERR_EXISTS, ERR_INVALID,
     ERR_NOT_FOUND, OK,
 };
@@ -201,7 +201,7 @@ impl Plugin for HooksPlugin {
     }
 }
 
-parsec_orbit_plugin_sdk_std::declare_plugin! {
+parsec_orbit_plugin_sdk::declare_plugin! {
     id = "com.parsec-orbit.hooks",
     name = "Hooks",
     version = "0.1.1",
@@ -214,8 +214,8 @@ parsec_orbit_plugin_sdk_std::declare_plugin! {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use parsec_orbit_plugin_sdk_std::services::HooksClient;
-    use parsec_orbit_plugin_sdk_std::testing::MockHost;
+    use parsec_orbit_plugin_sdk::services::HooksClient;
+    use parsec_orbit_plugin_sdk_testing::MockHost;
     use std::sync::atomic::{AtomicI32, Ordering};
 
     // Targets the optimiser must neither inline nor merge: each has its own
@@ -408,7 +408,7 @@ mod tests {
                 .unwrap()
                 .to_string()
         };
-        let desc = unsafe { &*ParsecOrbitPluginQuery(parsec_orbit_plugin_sdk_std::ABI_VERSION) };
+        let desc = unsafe { &*ParsecOrbitPluginQuery(parsec_orbit_plugin_sdk::ABI_VERSION) };
         assert_eq!(text(desc.id), manifest_value("id"));
         assert_eq!(text(desc.name), manifest_value("name"));
         assert_eq!(text(desc.version), manifest_value("version"));

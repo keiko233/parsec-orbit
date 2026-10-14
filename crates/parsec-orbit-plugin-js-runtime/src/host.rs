@@ -21,8 +21,8 @@ use boa_engine::{
     js_string, Context as JsContext, JsArgs, JsError, JsNativeError, JsResult, JsString, JsValue,
     NativeFunction,
 };
-use parsec_orbit_plugin_sdk_std::services::{UiClient, WebViewClient};
-use parsec_orbit_plugin_sdk_std::Level;
+use parsec_orbit_plugin_sdk::services::{UiClient, WebViewClient};
+use parsec_orbit_plugin_sdk::Level;
 use serde_json::Value;
 
 use crate::engine::{describe, log, with_state, Channel, Command, PluginInfo, Timer};
@@ -407,13 +407,13 @@ fn webview_evaluate(_: &JsValue, args: &[JsValue], context: &mut JsContext) -> J
             .evaluate(&expression, |result| json = result.to_string())
             .map(|()| json)
             .map_err(|error| match error.code() {
-                code if code == parsec_orbit_plugin_sdk_std::ERR_NOT_READY => {
+                code if code == parsec_orbit_plugin_sdk::ERR_NOT_READY => {
                     "the page is not ready".to_string()
                 }
-                code if code == parsec_orbit_plugin_sdk_std::ERR_TIMEOUT => {
+                code if code == parsec_orbit_plugin_sdk::ERR_TIMEOUT => {
                     "the page did not answer in time".to_string()
                 }
-                code if code == parsec_orbit_plugin_sdk_std::ERR_EXCEPTION => {
+                code if code == parsec_orbit_plugin_sdk::ERR_EXCEPTION => {
                     "the script threw in the page".to_string()
                 }
                 code => format!("evaluate failed (code {code})"),
@@ -439,7 +439,7 @@ fn webview_post(_: &JsValue, args: &[JsValue], context: &mut JsContext) -> JsRes
             .post(&channel, &payload)
             .map(|()| String::new())
             .map_err(|error| match error.code() {
-                code if code == parsec_orbit_plugin_sdk_std::ERR_NOT_READY => {
+                code if code == parsec_orbit_plugin_sdk::ERR_NOT_READY => {
                     "the page is not ready".to_string()
                 }
                 code => format!("post failed (code {code})"),
@@ -461,7 +461,7 @@ pub(crate) struct Subscriber {
 fn unsubscribed(webview: &WebViewClient, id: i64) -> bool {
     match webview.unsubscribe(id) {
         Ok(()) => true,
-        Err(error) => error.code() == parsec_orbit_plugin_sdk_std::ERR_NOT_FOUND,
+        Err(error) => error.code() == parsec_orbit_plugin_sdk::ERR_NOT_FOUND,
     }
 }
 
@@ -912,7 +912,7 @@ unsafe extern "system" fn on_ui_action_message(user: *mut c_void, message: *cons
 fn ui_unsubscribed(ui: &UiClient, subscription_id: i64) -> bool {
     match ui.off_action(subscription_id) {
         Ok(()) => true,
-        Err(error) => error.code() == parsec_orbit_plugin_sdk_std::ERR_NOT_FOUND,
+        Err(error) => error.code() == parsec_orbit_plugin_sdk::ERR_NOT_FOUND,
     }
 }
 

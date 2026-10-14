@@ -3,9 +3,9 @@
 use std::ffi::c_void;
 use std::sync::Mutex;
 
-use parsec_orbit_plugin_sdk_std::services::{ClientClient, Js, JsClient, WebView, WebViewClient};
-use parsec_orbit_plugin_sdk_std::testing::MockHost;
-use parsec_orbit_plugin_sdk_std::*;
+use parsec_orbit_plugin_sdk::services::{ClientClient, Js, JsClient, WebView, WebViewClient};
+use parsec_orbit_plugin_sdk::*;
+use parsec_orbit_plugin_sdk_testing::MockHost;
 
 static CALLS: Mutex<Vec<String>> = Mutex::new(Vec::new());
 

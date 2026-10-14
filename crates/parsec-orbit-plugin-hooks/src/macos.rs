@@ -11,9 +11,9 @@ use std::mem::size_of;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Mutex, MutexGuard, Once, OnceLock};
 
-use parsec_orbit_plugin_sdk_std::prelude::*;
-use parsec_orbit_plugin_sdk_std::services::Hooks;
-use parsec_orbit_plugin_sdk_std::{
+use parsec_orbit_plugin_sdk::prelude::*;
+use parsec_orbit_plugin_sdk::services::Hooks;
+use parsec_orbit_plugin_sdk::{
     ParsecOrbitHooksV1, ParsecOrbitInterfaceHeader, ERR_EXCEPTION, ERR_EXISTS, ERR_INVALID,
     ERR_NOT_FOUND, ERR_NOT_READY, OK,
 };
@@ -1259,7 +1259,7 @@ impl Plugin for HooksPlugin {
     }
 }
 
-parsec_orbit_plugin_sdk_std::declare_plugin! {
+parsec_orbit_plugin_sdk::declare_plugin! {
     id = "com.parsec-orbit.hooks",
     name = "Hooks",
     version = "0.1.1",

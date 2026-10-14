@@ -1,0 +1,21 @@
+[package]
+name = "parsec-orbit-plugin-sdk-testing"
+description = "Test double for Parsec Orbit plugins: MockHost runs a plugin's init in a unit test"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+keywords = ["parsec", "plugin", "sdk", "testing", "windows"]
+categories = ["development-tools::testing", "os::windows-apis"]
+rust-version = "1.81"
+
+[dependencies]
+parsec-orbit-plugin-sdk.workspace = true
+
+[lib]
+name = "parsec_orbit_plugin_sdk_testing"
+path = "src/lib.rs"
+
+[package.metadata.docs.rs]
+default-target = "x86_64-pc-windows-msvc"
+targets = ["x86_64-pc-windows-msvc"]

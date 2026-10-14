@@ -8,8 +8,8 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 
-use parsec_orbit_plugin_sdk_std::services::{ConfigClient, UiClient, WebViewClient};
-use parsec_orbit_plugin_sdk_std::{Context, Level};
+use parsec_orbit_plugin_sdk::services::{ConfigClient, UiClient, WebViewClient};
+use parsec_orbit_plugin_sdk::{Context, Level};
 
 use crate::engine::{self, Handle, PluginInfo, Spec};
 
@@ -192,10 +192,10 @@ pub fn load_plugin(request: LoadRequest) -> Result<(), String> {
 
 /// Creates a context for a native plugin.
 pub fn create_context(name: &str) -> Result<i64, i32> {
-    let runtime = runtime().ok_or(parsec_orbit_plugin_sdk_std::ERR_NOT_READY)?;
+    let runtime = runtime().ok_or(parsec_orbit_plugin_sdk::ERR_NOT_READY)?;
     let mut natives = locked(&runtime.natives);
     if natives.values().any(|(existing, _)| existing == name) {
-        return Err(parsec_orbit_plugin_sdk_std::ERR_EXISTS);
+        return Err(parsec_orbit_plugin_sdk::ERR_EXISTS);
     }
     let spec = Spec {
         name: format!("js-context:{name}"),
@@ -205,7 +205,7 @@ pub fn create_context(name: &str) -> Result<i64, i32> {
         config: None,
         ui: None,
     };
-    let handle = engine::spawn(spec).map_err(|_| parsec_orbit_plugin_sdk_std::ERR_NOT_READY)?;
+    let handle = engine::spawn(spec).map_err(|_| parsec_orbit_plugin_sdk::ERR_NOT_READY)?;
     let id = runtime.next_native.fetch_add(1, Ordering::SeqCst) + 1;
     natives.insert(id, (name.to_string(), handle));
     Ok(id)

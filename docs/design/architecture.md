@@ -67,7 +67,7 @@ parsec-orbit-plugin-abi      no_std, zero deps. repr(C) types, constants, servic
         ^
         |-- parsec-orbit-plugin-sdk   safe Rust API + freestanding runtime; no_std, never std. [crates.io]
         |       ^
-        |       +-- parsec-orbit-plugin-sdk-std   threads, panic hook, tracing bridge, MockHost   [crates.io]
+        |       +-- parsec-orbit-plugin-sdk-testing   MockHost (std, dev-dependency only)         [crates.io]
         |-- parsec-orbit-core         loader logic (std; toml parse-only)
         |-- parsec-orbit-devtools     HTTP + WebSocket + DevTools protocol client (std)
         |-- parsec-orbit-market       index, sha256/ed25519, safe installation, the market tool
@@ -75,10 +75,10 @@ parsec-orbit-plugin-abi      no_std, zero deps. repr(C) types, constants, servic
                 +-- parsec-orbit-loader   cdylib named `bcrypt`
 
 crates/     every Rust crate: the loader and SDK above, the official plugins and
-            the verification tools; high-bitrate-native and high-bitrate-webview -> sdk-std
+            the verification tools; high-bitrate-native and high-bitrate-webview -> sdk
             (official), webview-bridge (-> devtools), js-runtime (Boa), config,
-            hooks (retour), ui (winio)                                              -> sdk-std + heavy deps
-examples/   parsec-orbit-plugin-hello (-> sdk-std), parsec-orbit-plugin-hello-nostd (-> sdk)
+            hooks (retour), ui (winio)                                              -> sdk + heavy deps
+examples/   parsec-orbit-plugin-hello (-> sdk), parsec-orbit-plugin-hello-nostd (-> sdk)
 javascript-sdk/  @parsec-orbit/sdk (TypeScript: types, definePlugin, ui helper, mock host)  [npm]
 tests/      parsec-orbit-e2e;  crates/parsec-orbit-verify-*  verification tools
 ```
@@ -101,9 +101,8 @@ How the SDK keeps plugins small is specified in [spec/rust-sdk.md](../spec/rust-
 
 * The loader has one worker thread and runs plugin `init` on it sequentially in
   dependency order. Plugins that need to run long must spawn their own thread
-  (`ContextExt::spawn` from `parsec-orbit-plugin-sdk-std`) and return from
-  `init`.
-* **Logging**: the loader owns the log file. Plugins log through the host (`log_ex`, with the plugin id as target). The SDK's own macros need no dependencies; the `tracing` feature adds a `tracing::Subscriber` that forwards to the host so ecosystem crates' events end up in the same file. The loader itself adopts `tracing-core` only if the size budget allows ([ADR 0004](decisions/0004-loader-stays-light.md)).
+  (`std::thread::Builder`, named after the plugin) and return from `init`.
+* **Logging**: the loader owns the log file. Plugins log through the host (`log_ex`, with the plugin id as target). The SDK's own macros need no dependencies. The loader itself adopts `tracing-core` only if the size budget allows ([ADR 0004](decisions/0004-loader-stays-light.md)).
 * **Debug console**: `PARSEC_ORBIT_CONSOLE=1` makes the loader open a console window at start-up and mirror every line of that log into it, plus Parsec's own log, which `parsec-orbit-core` follows (the window and its Win32 calls stay in the loader). `client` and `host` open it in one of the client's two instances instead of both, because a console belongs to a process and the service's instance is a second one. It is opt-in because the client is a GUI process that normally has no console at all, and best effort because a debug aid must never change the load.
 * **Actors, without a runtime**: the heavy plugins are one thread that owns a resource plus a command channel - an actor in shape only, no `ractor` and no async runtime ([ADR 0004](decisions/0004-loader-stays-light.md#amendment-phase-4)). The JS runtime gives each Boa context (which is not `Send`) a thread of its own; the webview bridge gives the DevTools session one thread that reconnects and replays the scripts, and runs subscriber callbacks on a second thread so a callback can call back in.
 

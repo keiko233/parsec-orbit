@@ -18,9 +18,9 @@ use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU64, AtomicUsize, Ordering}
 use std::sync::{mpsc, Mutex, OnceLock, RwLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use parsec_orbit_plugin_sdk_std::prelude::*;
-use parsec_orbit_plugin_sdk_std::services::{HooksClient, UiClient};
-use parsec_orbit_plugin_sdk_std::{ERR_NOT_FOUND, ERR_NOT_READY};
+use parsec_orbit_plugin_sdk::prelude::*;
+use parsec_orbit_plugin_sdk::services::{HooksClient, UiClient};
+use parsec_orbit_plugin_sdk::{ERR_NOT_FOUND, ERR_NOT_READY};
 use windows_sys::Win32::System::LibraryLoader::LoadLibraryW;
 
 const PARSEC_STUN_V4: &str = "stun.parsec.app";
@@ -530,7 +530,14 @@ struct StunSwap;
 
 impl Plugin for StunSwap {
     fn init(&mut self, cx: &Context) -> Result {
-        cx.install_panic_hook();
+        // Panics go to the loader log, tagged with the plugin id, instead of
+        // the standard error stream the client does not have.
+        let panic_cx = *cx;
+        let previous = std::panic::take_hook();
+        std::panic::set_hook(Box::new(move |info| {
+            panic_cx.log(Level::Error, format_args!("panic: {info}"));
+            previous(info);
+        }));
 
         if !enabled() {
             info!(cx, "stun swap: disabled by PARSEC_ORBIT_STUN_SWAP");
@@ -577,7 +584,10 @@ impl Plugin for StunSwap {
         let _ = PROBE_WAKER.set(tx);
 
         let cx = *cx;
-        if let Err(error) = cx.spawn("probe", move || probe_loop(cx, rx)) {
+        if let Err(error) = std::thread::Builder::new()
+            .name(format!("{}:probe", cx.plugin_id()))
+            .spawn(move || probe_loop(cx, rx))
+        {
             error!(cx, "stun swap: could not start probe thread: {error}");
             let _ = hooks.disable(hook);
             let _ = hooks.remove(hook);
@@ -590,7 +600,7 @@ impl Plugin for StunSwap {
     }
 }
 
-parsec_orbit_plugin_sdk_std::declare_plugin! {
+parsec_orbit_plugin_sdk::declare_plugin! {
     id = "com.keiko233.stun-swap",
     name = "CN STUN Swap",
     version = "0.1.1",
@@ -603,7 +613,7 @@ parsec_orbit_plugin_sdk_std::declare_plugin! {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use parsec_orbit_plugin_sdk_std::testing::MockHost;
+    use parsec_orbit_plugin_sdk_testing::MockHost;
 
     #[test]
     fn parses_host_port_candidates() {
@@ -789,7 +799,7 @@ mod tests {
 
     #[test]
     fn descriptor_and_manifest_agree() {
-        use parsec_orbit_plugin_sdk_std::ABI_VERSION;
+        use parsec_orbit_plugin_sdk::ABI_VERSION;
         use std::ffi::CStr;
 
         let manifest = include_str!("../plugin.toml");
@@ -823,7 +833,7 @@ mod tests {
     fn init_refuses_a_missing_host_table() {
         assert_eq!(
             unsafe { super::ParsecOrbitPluginInit(std::ptr::null()) },
-            parsec_orbit_plugin_sdk_std::ERR_INVALID
+            parsec_orbit_plugin_sdk::ERR_INVALID
         );
         let host = MockHost::new("com.keiko233.stun-swap");
         assert!(host.logs().is_empty());
@@ -832,7 +842,7 @@ mod tests {
     #[test]
     fn stun_swap_registers_ui_and_handles_actions() {
         static REG_SCHEMA: Mutex<Option<String>> = Mutex::new(None);
-        static ACTION_CB: Mutex<Option<parsec_orbit_plugin_sdk_std::MessageCallback>> =
+        static ACTION_CB: Mutex<Option<parsec_orbit_plugin_sdk::MessageCallback>> =
             Mutex::new(None);
 
         unsafe extern "system" fn test_reg(schema: *const u8, len: usize) -> i32 {
@@ -843,17 +853,17 @@ mod tests {
         unsafe extern "system" fn test_on_action(
             _id: *const u8,
             _len: usize,
-            cb: Option<parsec_orbit_plugin_sdk_std::MessageCallback>,
+            cb: Option<parsec_orbit_plugin_sdk::MessageCallback>,
             _user: *mut c_void,
         ) -> i64 {
             *ACTION_CB.lock().unwrap() = cb;
             42
         }
 
-        static MOCK_UI: parsec_orbit_plugin_sdk_std::ParsecOrbitUiV1 =
-            parsec_orbit_plugin_sdk_std::ParsecOrbitUiV1 {
-                header: parsec_orbit_plugin_sdk_std::ParsecOrbitInterfaceHeader::new(
-                    std::mem::size_of::<parsec_orbit_plugin_sdk_std::ParsecOrbitUiV1>(),
+        static MOCK_UI: parsec_orbit_plugin_sdk::ParsecOrbitUiV1 =
+            parsec_orbit_plugin_sdk::ParsecOrbitUiV1 {
+                header: parsec_orbit_plugin_sdk::ParsecOrbitInterfaceHeader::new(
+                    std::mem::size_of::<parsec_orbit_plugin_sdk::ParsecOrbitUiV1>(),
                     1,
                     0,
                 ),

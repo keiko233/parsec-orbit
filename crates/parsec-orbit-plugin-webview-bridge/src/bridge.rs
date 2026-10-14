@@ -16,7 +16,7 @@ use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock};
 use std::time::{Duration, Instant};
 
-use parsec_orbit_plugin_sdk_std::{
+use parsec_orbit_plugin_sdk::{
     Level, MessageCallback, ERR_EXCEPTION, ERR_INVALID, ERR_NOT_FOUND, ERR_NOT_READY, ERR_TIMEOUT,
 };
 use serde_json::Value;

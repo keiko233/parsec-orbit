@@ -3,9 +3,9 @@
 use std::ffi::c_void;
 use std::mem::size_of;
 
-use parsec_orbit_plugin_sdk_std::prelude::*;
-use parsec_orbit_plugin_sdk_std::services::Hooks;
-use parsec_orbit_plugin_sdk_std::{ParsecOrbitHooksV1, ParsecOrbitInterfaceHeader, ERR_NOT_READY};
+use parsec_orbit_plugin_sdk::prelude::*;
+use parsec_orbit_plugin_sdk::services::Hooks;
+use parsec_orbit_plugin_sdk::{ParsecOrbitHooksV1, ParsecOrbitInterfaceHeader, ERR_NOT_READY};
 
 unsafe extern "system" fn resolve(
     _module: *const u8,
@@ -49,7 +49,7 @@ impl Plugin for HooksPlugin {
     }
 }
 
-parsec_orbit_plugin_sdk_std::declare_plugin! {
+parsec_orbit_plugin_sdk::declare_plugin! {
     id = "com.parsec-orbit.hooks",
     name = "Hooks",
     version = "0.1.1",

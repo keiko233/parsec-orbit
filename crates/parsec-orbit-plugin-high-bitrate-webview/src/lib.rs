@@ -11,8 +11,8 @@
 //! in every new one - and widens the dropdown to `..500 Mbps`. Without the
 //! bridge, or without a DevTools endpoint, the web UI is left untouched.
 
-use parsec_orbit_plugin_sdk_std::prelude::*;
-use parsec_orbit_plugin_sdk_std::services::WebViewClient;
+use parsec_orbit_plugin_sdk::prelude::*;
+use parsec_orbit_plugin_sdk::services::WebViewClient;
 
 /// Injected into the web UI; see `assets/bandwidth.js`.
 pub const BITRATE_SCRIPT: &str = include_str!("../assets/bandwidth.js");
@@ -87,7 +87,7 @@ impl Plugin for Webview {
     }
 }
 
-parsec_orbit_plugin_sdk_std::declare_plugin! {
+parsec_orbit_plugin_sdk::declare_plugin! {
     id = "com.parsec-orbit.webview",
     name = "WebView UI Patches",
     version = "0.1.1",
@@ -100,11 +100,11 @@ parsec_orbit_plugin_sdk_std::declare_plugin! {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use parsec_orbit_plugin_sdk_std::testing::MockHost;
-    use parsec_orbit_plugin_sdk_std::{
+    use parsec_orbit_plugin_sdk::{
         ParsecOrbitHost, ParsecOrbitInterfaceHeader, ParsecOrbitWebViewV1, ERR_INVALID, LOG_INFO,
         LOG_WARN,
     };
+    use parsec_orbit_plugin_sdk_testing::MockHost;
     use std::collections::HashMap;
     use std::ffi::CStr;
     use std::sync::Mutex;
@@ -241,8 +241,8 @@ mod tests {
     /// descriptor, so the two have to describe the same plugin.
     #[test]
     fn descriptor_and_manifest_agree() {
-        let desc = unsafe { &*ParsecOrbitPluginQuery(parsec_orbit_plugin_sdk_std::ABI_VERSION) };
-        assert_eq!(desc.abi_version, parsec_orbit_plugin_sdk_std::ABI_VERSION);
+        let desc = unsafe { &*ParsecOrbitPluginQuery(parsec_orbit_plugin_sdk::ABI_VERSION) };
+        assert_eq!(desc.abi_version, parsec_orbit_plugin_sdk::ABI_VERSION);
         assert_eq!(text(desc.id), manifest_value("id"));
         assert_eq!(text(desc.name), manifest_value("name"));
         assert_eq!(text(desc.version), manifest_value("version"));

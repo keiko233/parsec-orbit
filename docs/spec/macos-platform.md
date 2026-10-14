@@ -51,7 +51,7 @@ The platform-native kinds are defined in [plugin-manifest.md](plugin-manifest.md
 
 ## 5. Rust SDK on macOS
 
-`parsec-orbit-plugin-abi` and `-sdk-std` build unchanged. `parsec-orbit-plugin-sdk`'s `freestanding!` has a macOS flavour since M0, so a `no_std` plugin builds for `aarch64-apple-darwin`:
+`parsec-orbit-plugin-abi` and `-sdk-testing` build unchanged. `parsec-orbit-plugin-sdk`'s `freestanding!` has a macOS flavour since M0, so a `no_std` plugin builds for `aarch64-apple-darwin`:
 
 * the `#[global_allocator]` is over `libSystem` (`malloc`, `calloc`, `free`, `realloc`, and `posix_memalign` for over-aligned blocks), declared with `extern "C"` in a `#[link(name = "System")]` block (`no_std` builds pass `-nodefaultlibs`, so the link name is explicit);
 * the `#[panic_handler]` logs through the host and then terminates the process with a trap (`brk`/`udf`), the macOS equivalent of the Windows fast-fail;

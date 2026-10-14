@@ -16,4 +16,4 @@ parsec-orbit-plugin-sdk = { path = "../../crates/parsec-orbit-plugin-sdk" }
 
 [dev-dependencies]
 # `testing::MockHost` for the unit tests; the plugin itself never links `std`.
-parsec-orbit-plugin-sdk-std = { path = "../../crates/parsec-orbit-plugin-sdk-std" }
+parsec-orbit-plugin-sdk-testing = { path = "../../crates/parsec-orbit-plugin-sdk-testing" }

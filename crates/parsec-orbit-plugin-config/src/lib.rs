@@ -13,9 +13,9 @@ use std::ffi::c_void;
 use std::path::PathBuf;
 use std::sync::OnceLock;
 
-use parsec_orbit_plugin_sdk_std::prelude::*;
-use parsec_orbit_plugin_sdk_std::services::Config;
-use parsec_orbit_plugin_sdk_std::{
+use parsec_orbit_plugin_sdk::prelude::*;
+use parsec_orbit_plugin_sdk::services::Config;
+use parsec_orbit_plugin_sdk::{
     MessageCallback, ParsecOrbitConfigV1, ParsecOrbitInterfaceHeader, ERR_INVALID, ERR_NOT_FOUND,
     OK,
 };
@@ -147,7 +147,7 @@ impl Plugin for ConfigStore {
     }
 }
 
-parsec_orbit_plugin_sdk_std::declare_plugin! {
+parsec_orbit_plugin_sdk::declare_plugin! {
     id = "com.parsec-orbit.config",
     name = "Config Store",
     version = "0.1.1",
@@ -160,8 +160,8 @@ parsec_orbit_plugin_sdk_std::declare_plugin! {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use parsec_orbit_plugin_sdk_std::services::ConfigClient;
-    use parsec_orbit_plugin_sdk_std::testing::MockHost;
+    use parsec_orbit_plugin_sdk::services::ConfigClient;
+    use parsec_orbit_plugin_sdk_testing::MockHost;
 
     fn manifest_value(key: &str) -> String {
         include_str!("../plugin.toml")
@@ -182,7 +182,7 @@ mod tests {
 
     #[test]
     fn descriptor_and_manifest_agree() {
-        let desc = unsafe { &*ParsecOrbitPluginQuery(parsec_orbit_plugin_sdk_std::ABI_VERSION) };
+        let desc = unsafe { &*ParsecOrbitPluginQuery(parsec_orbit_plugin_sdk::ABI_VERSION) };
         assert_eq!(text(desc.id), manifest_value("id"));
         assert_eq!(text(desc.name), manifest_value("name"));
         assert_eq!(text(desc.version), manifest_value("version"));

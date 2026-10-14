@@ -14,8 +14,8 @@ pub mod instance;
 #[cfg(windows)]
 pub mod window;
 
-use parsec_orbit_plugin_sdk_std::prelude::*;
-use parsec_orbit_plugin_sdk_std::services::Ui;
+use parsec_orbit_plugin_sdk::prelude::*;
+use parsec_orbit_plugin_sdk::services::Ui;
 
 #[derive(Default)]
 pub struct OrbitUiPlugin;
@@ -43,14 +43,16 @@ impl Plugin for OrbitUiPlugin {
             }
             let cx = *cx;
             window::ensure_started(cx);
-            cx.spawn("hotkey", || hotkey::run(service::toggle))?;
+            std::thread::Builder::new()
+                .name(format!("{}:hotkey", cx.plugin_id()))
+                .spawn(|| hotkey::run(service::toggle))?;
         }
 
         Ok(())
     }
 }
 
-parsec_orbit_plugin_sdk_std::declare_plugin! {
+parsec_orbit_plugin_sdk::declare_plugin! {
     id = "com.parsec-orbit.ui",
     name = "Orbit UI Service",
     version = "0.1.1",
@@ -63,9 +65,9 @@ parsec_orbit_plugin_sdk_std::declare_plugin! {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use parsec_orbit_plugin_sdk_std::services::UiClient;
-    use parsec_orbit_plugin_sdk_std::testing::MockHost;
-    use parsec_orbit_plugin_sdk_std::{ERR_EXISTS, ERR_INVALID, ERR_NOT_FOUND};
+    use parsec_orbit_plugin_sdk::services::UiClient;
+    use parsec_orbit_plugin_sdk::{ERR_EXISTS, ERR_INVALID, ERR_NOT_FOUND};
+    use parsec_orbit_plugin_sdk_testing::MockHost;
     use std::ffi::c_void;
     use std::sync::Mutex;
 
@@ -80,7 +82,7 @@ mod tests {
     #[test]
     fn descriptor_and_manifest_agree() {
         let manifest = include_str!("../plugin.toml");
-        let desc = unsafe { &*ParsecOrbitPluginQuery(parsec_orbit_plugin_sdk_std::ABI_VERSION) };
+        let desc = unsafe { &*ParsecOrbitPluginQuery(parsec_orbit_plugin_sdk::ABI_VERSION) };
 
         let manifest_value = |key: &str| -> String {
             manifest

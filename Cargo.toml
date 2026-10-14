@@ -7,7 +7,7 @@ members = [
     "crates/parsec-orbit-macos-state",
     "crates/parsec-orbit-plugin-abi",
     "crates/parsec-orbit-plugin-sdk",
-    "crates/parsec-orbit-plugin-sdk-std",
+    "crates/parsec-orbit-plugin-sdk-testing",
     "crates/parsec-orbit-core",
     "crates/parsec-orbit-market",
     "crates/parsec-orbit-devtools",
@@ -40,6 +40,7 @@ repository = "https://github.com/keiko233/parsec-orbit"
 [workspace.dependencies]
 parsec-orbit-plugin-abi = { path = "crates/parsec-orbit-plugin-abi", version = "0.1.1" }
 parsec-orbit-plugin-sdk = { path = "crates/parsec-orbit-plugin-sdk", version = "0.1.1" }
+parsec-orbit-plugin-sdk-testing = { path = "crates/parsec-orbit-plugin-sdk-testing", version = "0.1.1" }
 
 # A `no_std` plugin cannot unwind, so it needs `panic = "abort"` in every
 # profile it is built with, not only in release.

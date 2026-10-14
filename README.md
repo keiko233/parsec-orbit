@@ -26,9 +26,9 @@ native bitrate/WebView support remain unverified; see the
 * `crates/parsec-orbit-macos-state/` - the atomic isolated-state seed shared
   by the installer (as an rlib) and the macOS loader (which re-exports it).
 * `crates/parsec-orbit-plugin-abi/`, `crates/parsec-orbit-plugin-sdk/`,
-  `crates/parsec-orbit-plugin-sdk-std/` - the plugin ABI, the Rust SDK
-  (`Plugin`, `Context`, a `no_std` runtime for 10 KB plugins) and its `std`
-  companions; see the [plugin ABI reference](docs/spec/plugin-abi.md) and
+  `crates/parsec-orbit-plugin-sdk-testing/` - the plugin ABI, the Rust SDK
+  (`Plugin`, `Context`, a `no_std` runtime for 10 KB plugins; one package for
+  `std` and `no_std` plugins) and the `MockHost` test double; see the [plugin ABI reference](docs/spec/plugin-abi.md) and
   [Write a Rust plugin](docs/guides/rust-plugin.md).
 * `crates/parsec-orbit-core/` - the loader's Win32-free logic: manifests,
   discovery, dependency ordering, the service registry, per-plugin host tables.

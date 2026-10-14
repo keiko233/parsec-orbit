@@ -123,9 +123,13 @@ Non-negotiable rules, restated because they are the most common violations:
   no async runtime, no `serde`, no `tracing` unless it is measured to fit. Its
   decisions are written against small traits (`Platform`, `Logger`,
   `console::Console`) so they are unit-tested without mapping a DLL.
-- Plugins do not pay for what they do not use. The SDK is `no_std` by default and
-  `std` is a separate crate (`parsec-orbit-plugin-sdk-std`), not a feature
-  ([ADR 0002](docs/design/decisions/0002-sdk-is-no-std-by-default.md)).
+- Plugins do not pay for what they do not use. The SDK is one `no_std` package
+  without features, used by `std` and `no_std` plugins alike; never add a `std`
+  feature to it (Cargo unifies features and one `std` plugin would break every
+  `no_std` plugin in the workspace). The `std`-only test double is the
+  dev-dependency `parsec-orbit-plugin-sdk-testing`
+  ([ADR 0002](docs/design/decisions/0002-sdk-is-no-std-by-default.md),
+  [restructure design](docs/design/restructure.md#67-the-sdk-as-one-package-adr-0002-re-evaluated)).
 - Construct dependencies explicitly and pass them in; do not add process-global
   mutable state. The loader owns one worker thread and one log file, and a plugin
   that needs more spawns its own thread and returns from `init`.

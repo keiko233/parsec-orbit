@@ -4,9 +4,9 @@
 use core::mem::size_of;
 use std::ffi::CStr as StdCStr;
 
-use parsec_orbit_plugin_sdk_std::prelude::*;
-use parsec_orbit_plugin_sdk_std::testing::MockHost;
-use parsec_orbit_plugin_sdk_std::*;
+use parsec_orbit_plugin_sdk::prelude::*;
+use parsec_orbit_plugin_sdk::*;
+use parsec_orbit_plugin_sdk_testing::MockHost;
 
 #[test]
 fn a_context_describes_its_plugin() {
@@ -371,21 +371,6 @@ fn mock_state_is_per_test_thread() {
 }
 
 // ---- std support ----
-
-#[test]
-fn spawned_threads_are_named_after_the_plugin() {
-    let host = MockHost::new("com.example.spawner");
-    let handle = host
-        .context()
-        .spawn("worker", || {
-            assert_eq!(
-                std::thread::current().name(),
-                Some("com.example.spawner:worker")
-            );
-        })
-        .unwrap();
-    handle.join().unwrap();
-}
 
 fn fails_with_an_io_error() -> Result {
     std::fs::read_to_string("C:/definitely/not/here/parsec-orbit.txt")?;

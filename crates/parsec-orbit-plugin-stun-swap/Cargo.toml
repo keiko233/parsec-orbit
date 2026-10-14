@@ -12,9 +12,12 @@ name = "parsec_orbit_plugin_stun_swap"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-parsec-orbit-plugin-sdk-std = { path = "../../crates/parsec-orbit-plugin-sdk-std" }
+parsec-orbit-plugin-sdk = { path = "../../crates/parsec-orbit-plugin-sdk" }
 
 # Windows-only: on other targets the crate compiles to an empty library.
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_LibraryLoader"] }
 serde_json = "1"
+
+[dev-dependencies]
+parsec-orbit-plugin-sdk-testing = { path = "../../crates/parsec-orbit-plugin-sdk-testing" }

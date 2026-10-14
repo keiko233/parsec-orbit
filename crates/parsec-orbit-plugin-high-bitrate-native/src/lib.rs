@@ -18,8 +18,8 @@ pub mod legacy;
 use std::ffi::c_void;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
-use parsec_orbit_plugin_sdk_std::prelude::*;
-use parsec_orbit_plugin_sdk_std::services::UiClient;
+use parsec_orbit_plugin_sdk::prelude::*;
+use parsec_orbit_plugin_sdk::services::UiClient;
 
 /// Bandwidth options appended after the built-in `3..50 mbps` ladder.
 ///
@@ -168,22 +168,24 @@ impl Plugin for Native {
         }
 
         let cx = *cx;
-        cx.spawn("patch", move || {
-            if !PATCH_ENABLED.load(Ordering::Acquire) {
-                report(
-                    &cx,
-                    "switched off in the Orbit UI, the bandwidth ladder is unchanged",
-                );
-                return;
-            }
-            legacy::extend_bandwidth_with(selected_extras, |message| report(&cx, message));
-        })?;
+        std::thread::Builder::new()
+            .name(format!("{}:patch", cx.plugin_id()))
+            .spawn(move || {
+                if !PATCH_ENABLED.load(Ordering::Acquire) {
+                    report(
+                        &cx,
+                        "switched off in the Orbit UI, the bandwidth ladder is unchanged",
+                    );
+                    return;
+                }
+                legacy::extend_bandwidth_with(selected_extras, |message| report(&cx, message));
+            })?;
 
         Ok(())
     }
 }
 
-parsec_orbit_plugin_sdk_std::declare_plugin! {
+parsec_orbit_plugin_sdk::declare_plugin! {
     id = "com.parsec-orbit.native",
     name = "Native UI Patches",
     version = "0.1.1",
@@ -196,8 +198,8 @@ parsec_orbit_plugin_sdk_std::declare_plugin! {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use parsec_orbit_plugin_sdk_std::testing::MockHost;
-    use parsec_orbit_plugin_sdk_std::{ParsecOrbitHost, ABI_VERSION, LOG_INFO};
+    use parsec_orbit_plugin_sdk::{ParsecOrbitHost, ABI_VERSION, LOG_INFO};
+    use parsec_orbit_plugin_sdk_testing::MockHost;
     use std::ffi::CStr;
 
     #[test]
@@ -264,13 +266,13 @@ mod tests {
     fn init_refuses_a_missing_or_too_small_host_table() {
         assert_eq!(
             unsafe { ParsecOrbitPluginInit(std::ptr::null()) },
-            parsec_orbit_plugin_sdk_std::ERR_INVALID
+            parsec_orbit_plugin_sdk::ERR_INVALID
         );
         let mut tiny = ParsecOrbitHost::blank();
         tiny.struct_size = 8;
         assert_eq!(
             unsafe { ParsecOrbitPluginInit(&tiny) },
-            parsec_orbit_plugin_sdk_std::ERR_INVALID
+            parsec_orbit_plugin_sdk::ERR_INVALID
         );
     }
 
@@ -351,10 +353,10 @@ mod tests {
             0
         }
 
-        static MOCK_UI: parsec_orbit_plugin_sdk_std::ParsecOrbitUiV1 =
-            parsec_orbit_plugin_sdk_std::ParsecOrbitUiV1 {
-                header: parsec_orbit_plugin_sdk_std::ParsecOrbitInterfaceHeader::new(
-                    std::mem::size_of::<parsec_orbit_plugin_sdk_std::ParsecOrbitUiV1>(),
+        static MOCK_UI: parsec_orbit_plugin_sdk::ParsecOrbitUiV1 =
+            parsec_orbit_plugin_sdk::ParsecOrbitUiV1 {
+                header: parsec_orbit_plugin_sdk::ParsecOrbitInterfaceHeader::new(
+                    std::mem::size_of::<parsec_orbit_plugin_sdk::ParsecOrbitUiV1>(),
                     1,
                     0,
                 ),
@@ -368,7 +370,7 @@ mod tests {
                 off_action: None,
             };
 
-        let host = parsec_orbit_plugin_sdk_std::testing::MockHost::new("com.parsec-orbit.native");
+        let host = parsec_orbit_plugin_sdk_testing::MockHost::new("com.parsec-orbit.native");
         host.provide("parsec-orbit.ui", &MOCK_UI.header);
 
         let ui = UiClient::new(&host.context()).expect("ui client");

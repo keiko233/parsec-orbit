@@ -22,10 +22,10 @@ After the GitHub release, from a clean checkout of the tag, in this order (each 
 ```powershell
 cargo publish -p parsec-orbit-plugin-abi
 cargo publish -p parsec-orbit-plugin-sdk
-cargo publish -p parsec-orbit-plugin-sdk-std
+cargo publish -p parsec-orbit-plugin-sdk-testing
 ```
 
-Before the first publish: `cargo package -p parsec-orbit-plugin-abi -p parsec-orbit-plugin-sdk -p parsec-orbit-plugin-sdk-std` (CI runs it on every push) and a read of each crate's README on the packaged tarball (`cargo package --list`). The names were free on 2026-10-12; check again before publishing.
+Before the first publish: `cargo package -p parsec-orbit-plugin-abi -p parsec-orbit-plugin-sdk -p parsec-orbit-plugin-sdk-testing` (CI runs it on every push) and a read of each crate's README on the packaged tarball (`cargo package --list`). The names were free on 2026-10-12; check again before publishing.
 
 An ABI change that bumps `ABI_VERSION` is a major bump of all three crates and is recorded in the [roadmap](roadmap.md).
 

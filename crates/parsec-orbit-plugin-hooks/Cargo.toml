@@ -12,9 +12,12 @@ name = "parsec_orbit_plugin_hooks"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-parsec-orbit-plugin-sdk-std = { path = "../../crates/parsec-orbit-plugin-sdk-std" }
+parsec-orbit-plugin-sdk = { path = "../../crates/parsec-orbit-plugin-sdk" }
 
 # Inline detours are Windows-only; macOS uses its own import-pointer backend.
 [target.'cfg(windows)'.dependencies]
 retour = { version = "0.3", default-features = false }
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_LibraryLoader"] }
+
+[dev-dependencies]
+parsec-orbit-plugin-sdk-testing = { path = "../../crates/parsec-orbit-plugin-sdk-testing" }

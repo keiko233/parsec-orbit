@@ -20,7 +20,7 @@ pub mod host;
 pub mod loader;
 pub mod service;
 
-use parsec_orbit_plugin_sdk_std::prelude::*;
+use parsec_orbit_plugin_sdk::prelude::*;
 
 #[derive(Default)]
 struct JsRuntime;
@@ -34,12 +34,12 @@ impl Plugin for JsRuntime {
         );
         loader::configure(*cx);
         cx.register_kind_handler("js", &service::KIND_HANDLER)?;
-        cx.register::<parsec_orbit_plugin_sdk_std::services::Js>(&service::JS)?;
+        cx.register::<parsec_orbit_plugin_sdk::services::Js>(&service::JS)?;
         Ok(())
     }
 }
 
-parsec_orbit_plugin_sdk_std::declare_plugin! {
+parsec_orbit_plugin_sdk::declare_plugin! {
     id = "com.parsec-orbit.js-runtime",
     name = "JavaScript Runtime",
     version = "0.1.1",

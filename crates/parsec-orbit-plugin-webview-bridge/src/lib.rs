@@ -12,8 +12,8 @@
 pub mod bridge;
 pub mod service;
 
-use parsec_orbit_plugin_sdk_std::prelude::*;
-use parsec_orbit_plugin_sdk_std::services::WebView;
+use parsec_orbit_plugin_sdk::prelude::*;
+use parsec_orbit_plugin_sdk::services::WebView;
 
 pub use parsec_orbit_devtools::{inject_once, Injection};
 
@@ -89,7 +89,7 @@ impl Plugin for WebViewBridge {
     }
 }
 
-parsec_orbit_plugin_sdk_std::declare_plugin! {
+parsec_orbit_plugin_sdk::declare_plugin! {
     id = "com.parsec-orbit.webview-bridge",
     name = "WebView Bridge",
     version = "0.1.1",
@@ -102,7 +102,7 @@ parsec_orbit_plugin_sdk_std::declare_plugin! {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use parsec_orbit_plugin_sdk_std::ParsecOrbitWebViewV1;
+    use parsec_orbit_plugin_sdk::ParsecOrbitWebViewV1;
     use std::collections::HashMap;
 
     fn lookup(vars: &[(&str, &str)]) -> impl Fn(&str) -> Option<String> {
@@ -178,7 +178,7 @@ mod tests {
 
     #[test]
     fn descriptor_and_manifest_agree() {
-        let desc = unsafe { &*ParsecOrbitPluginQuery(parsec_orbit_plugin_sdk_std::ABI_VERSION) };
+        let desc = unsafe { &*ParsecOrbitPluginQuery(parsec_orbit_plugin_sdk::ABI_VERSION) };
         assert_eq!(text(desc.id), manifest_value("id"));
         assert_eq!(text(desc.name), manifest_value("name"));
         assert_eq!(text(desc.version), manifest_value("version"));

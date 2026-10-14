@@ -22,3 +22,4 @@ Format: Context, Decision, Consequences.
 | [0014](0014-macos-patched-bundle.md) | macOS loads Orbit through a patched official app bundle | Accepted direction; product gates open |
 | [0015](0015-macos-loader-as-host.md) | macOS runs the client from a host we control | Superseded by 0014 |
 | [0016](0016-orbit-ui-winio.md) | Orbit UI: External winio companion window with unified declarative ABI | Accepted |
+| [0017](0017-one-sdk-package-no-features.md) | One SDK package without features; `sdk-std` dissolved | Accepted |

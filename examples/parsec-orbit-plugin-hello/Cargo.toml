@@ -12,4 +12,7 @@ name = "parsec_orbit_plugin_hello"
 crate-type = ["cdylib"]
 
 [dependencies]
-parsec-orbit-plugin-sdk-std = { path = "../../crates/parsec-orbit-plugin-sdk-std" }
+parsec-orbit-plugin-sdk = { path = "../../crates/parsec-orbit-plugin-sdk" }
+
+[dev-dependencies]
+parsec-orbit-plugin-sdk-testing = { path = "../../crates/parsec-orbit-plugin-sdk-testing" }

@@ -4,7 +4,7 @@
 use std::ffi::{c_void, CStr};
 use std::path::PathBuf;
 
-use parsec_orbit_plugin_sdk_std::{
+use parsec_orbit_plugin_sdk::{
     services::kind_handler, MessageCallback, ParsecOrbitInterfaceHeader, ParsecOrbitJsV1,
     ParsecOrbitKindHandlerV1, ParsecOrbitPluginLoadInfo, ERR_EXISTS, ERR_INVALID, ERR_NOT_FOUND,
     OK,

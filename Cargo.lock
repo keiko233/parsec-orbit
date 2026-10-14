@@ -1813,7 +1813,7 @@ name = "parsec-orbit-fixture-nostd"
 version = "0.1.1"
 dependencies = [
  "parsec-orbit-plugin-sdk",
- "parsec-orbit-plugin-sdk-std",
+ "parsec-orbit-plugin-sdk-testing",
 ]
 
 [[package]]
@@ -1892,7 +1892,8 @@ version = "0.1.1"
 name = "parsec-orbit-plugin-config"
 version = "0.1.1"
 dependencies = [
- "parsec-orbit-plugin-sdk-std",
+ "parsec-orbit-plugin-sdk",
+ "parsec-orbit-plugin-sdk-testing",
  "serde_json",
 ]
 
@@ -1900,7 +1901,8 @@ dependencies = [
 name = "parsec-orbit-plugin-hello"
 version = "0.1.1"
 dependencies = [
- "parsec-orbit-plugin-sdk-std",
+ "parsec-orbit-plugin-sdk",
+ "parsec-orbit-plugin-sdk-testing",
 ]
 
 [[package]]
@@ -1908,14 +1910,15 @@ name = "parsec-orbit-plugin-hello-nostd"
 version = "0.1.1"
 dependencies = [
  "parsec-orbit-plugin-sdk",
- "parsec-orbit-plugin-sdk-std",
+ "parsec-orbit-plugin-sdk-testing",
 ]
 
 [[package]]
 name = "parsec-orbit-plugin-high-bitrate-native"
 version = "0.1.1"
 dependencies = [
- "parsec-orbit-plugin-sdk-std",
+ "parsec-orbit-plugin-sdk",
+ "parsec-orbit-plugin-sdk-testing",
  "serde_json",
  "windows-sys 0.61.2",
 ]
@@ -1924,7 +1927,8 @@ dependencies = [
 name = "parsec-orbit-plugin-high-bitrate-webview"
 version = "0.1.1"
 dependencies = [
- "parsec-orbit-plugin-sdk-std",
+ "parsec-orbit-plugin-sdk",
+ "parsec-orbit-plugin-sdk-testing",
  "serde_json",
 ]
 
@@ -1932,7 +1936,8 @@ dependencies = [
 name = "parsec-orbit-plugin-hooks"
 version = "0.1.1"
 dependencies = [
- "parsec-orbit-plugin-sdk-std",
+ "parsec-orbit-plugin-sdk",
+ "parsec-orbit-plugin-sdk-testing",
  "retour",
  "windows-sys 0.61.2",
 ]
@@ -1942,7 +1947,8 @@ name = "parsec-orbit-plugin-js-runtime"
 version = "0.1.1"
 dependencies = [
  "boa_engine",
- "parsec-orbit-plugin-sdk-std",
+ "parsec-orbit-plugin-sdk",
+ "parsec-orbit-plugin-sdk-testing",
  "serde_json",
  "toml",
 ]
@@ -1955,20 +1961,18 @@ dependencies = [
 ]
 
 [[package]]
-name = "parsec-orbit-plugin-sdk-std"
+name = "parsec-orbit-plugin-sdk-testing"
 version = "0.1.1"
 dependencies = [
  "parsec-orbit-plugin-sdk",
- "parsec-orbit-plugin-sdk-std",
- "tracing",
- "tracing-core",
 ]
 
 [[package]]
 name = "parsec-orbit-plugin-stun-swap"
 version = "0.1.1"
 dependencies = [
- "parsec-orbit-plugin-sdk-std",
+ "parsec-orbit-plugin-sdk",
+ "parsec-orbit-plugin-sdk-testing",
  "serde_json",
  "windows-sys 0.61.2",
 ]
@@ -1977,7 +1981,8 @@ dependencies = [
 name = "parsec-orbit-plugin-ui"
 version = "0.1.1"
 dependencies = [
- "parsec-orbit-plugin-sdk-std",
+ "parsec-orbit-plugin-sdk",
+ "parsec-orbit-plugin-sdk-testing",
  "serde",
  "serde_json",
  "windows-sys 0.61.2",
@@ -1989,7 +1994,7 @@ name = "parsec-orbit-plugin-webview-bridge"
 version = "0.1.1"
 dependencies = [
  "parsec-orbit-devtools",
- "parsec-orbit-plugin-sdk-std",
+ "parsec-orbit-plugin-sdk",
  "serde_json",
 ]
 

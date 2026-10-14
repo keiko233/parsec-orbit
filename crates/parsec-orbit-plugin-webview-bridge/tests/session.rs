@@ -12,7 +12,7 @@ use std::sync::{mpsc, Mutex};
 use std::time::{Duration, Instant};
 
 use common::*;
-use parsec_orbit_plugin_sdk_std::{ERR_EXCEPTION, ERR_NOT_FOUND, ERR_NOT_READY, ERR_TIMEOUT};
+use parsec_orbit_plugin_sdk::{ERR_EXCEPTION, ERR_NOT_FOUND, ERR_NOT_READY, ERR_TIMEOUT};
 use parsec_orbit_plugin_webview_bridge::bridge::{Bridge, ORBIT_SCRIPT};
 use serde_json::{json, Value};
 

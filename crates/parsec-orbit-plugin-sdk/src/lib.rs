@@ -36,13 +36,17 @@
 //! here, both as [`abi`] and at the crate root, so a plugin needs one
 //! dependency only.
 //!
-//! # No `std`, ever
+//! # One package, no `std`, no features
 //!
 //! This crate never links `std`, not even behind a feature: a `no_std`
 //! plugin installs its own panic handler ([`freestanding!`]), and that cannot
 //! coexist with `std` anywhere in the plugin's dependency graph - and Cargo
-//! unifies features across a build. What needs `std` (threads, the `tracing`
-//! bridge, `testing::MockHost`) is in `parsec-orbit-plugin-sdk-std`.
+//! unifies features across a build, so one `std` plugin would break every
+//! `no_std` plugin of a workspace. The same crate serves both kinds of plugin:
+//! a plugin that wants `std` simply links it itself and uses it next to this
+//! API (`std::thread`, `std::panic::set_hook`, ...). The one thing that needs
+//! `std` on the SDK's side, the unit-test double `MockHost`, is the separate
+//! dev-dependency `parsec-orbit-plugin-sdk-testing`.
 
 #![no_std]
 

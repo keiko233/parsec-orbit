@@ -8,7 +8,7 @@
 //!
 //! ```
 //! use parsec_orbit_plugin_sdk::prelude::*;
-//! use parsec_orbit_plugin_sdk_std::testing::MockHost;
+//! use parsec_orbit_plugin_sdk_testing::MockHost;
 //!
 //! #[derive(Default)]
 //! struct Hello;

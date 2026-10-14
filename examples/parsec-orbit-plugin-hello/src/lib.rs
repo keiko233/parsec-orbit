@@ -8,7 +8,7 @@
 
 use std::path::PathBuf;
 
-use parsec_orbit_plugin_sdk_std::prelude::*;
+use parsec_orbit_plugin_sdk::prelude::*;
 
 const BUILD: u32 = 0x0001;
 
@@ -56,7 +56,7 @@ impl Plugin for Hello {
     }
 }
 
-parsec_orbit_plugin_sdk_std::declare_plugin! {
+parsec_orbit_plugin_sdk::declare_plugin! {
     id = "com.example.hello",
     name = "Hello Plugin",
     version = "0.1.0",
@@ -69,8 +69,8 @@ parsec_orbit_plugin_sdk_std::declare_plugin! {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use parsec_orbit_plugin_sdk_std::testing::MockHost;
-    use parsec_orbit_plugin_sdk_std::{ABI_VERSION, LOG_ERROR};
+    use parsec_orbit_plugin_sdk::{ABI_VERSION, LOG_ERROR};
+    use parsec_orbit_plugin_sdk_testing::MockHost;
     use std::ffi::CStr;
 
     fn host() -> MockHost {
