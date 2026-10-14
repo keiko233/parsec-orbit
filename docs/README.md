@@ -38,6 +38,8 @@ open questions at the end.
 * [design/network-installer.md](design/network-installer.md) - signed release manifests and the install/upgrade/uninstall script
 * [design/decisions/](design/decisions/) - decision records (`NNNN-title.md`)
 * [design/macos/](design/macos/) - macOS support research: constraints, client internals, the loader-as-host design and its dynamic smoke test
+* [guides/macos-console.md](guides/macos-console.md) - independent terminal log viewer
+* [guides/macos-network-install.md](guides/macos-network-install.md) - verified release downloads and persistent macOS installation
 
 ## Related notes outside this repository
 

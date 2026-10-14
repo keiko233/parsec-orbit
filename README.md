@@ -110,6 +110,11 @@ of a session that ended that way.
 
 ### macOS arm64 local installation
 
+For release downloads without a Rust checkout, see the
+[macOS network installer](docs/guides/macos-network-install.md). To follow Orbit
+and the isolated client's logs in a terminal, see the
+[macOS debug console](docs/guides/macos-console.md).
+
 Quit Parsec, then run the wrapper as your ordinary signed-in user:
 
 ```bash

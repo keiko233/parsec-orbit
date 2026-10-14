@@ -11,6 +11,12 @@ run:
 /bin/bash scripts/console-macos.sh
 ```
 
+Release users can download `console-macos.py` from the same GitHub release as
+the network manager and run `python3 console-macos.py`. The optional
+`console-macos.sh` wrapper expects that Python file beside it. No checkout or
+Rust compiler is needed. The bootstrap scripts are trusted through the release
+HTTPS download; their digests are also listed in `SHA256SUMS-macos.txt`.
+
 The default Orbit root is
 `~/Library/Application Support/ParsecOrbit`. The viewer tags Orbit lines with
 `[orbit]` and Parsec lines with `[parsec]`. It follows new output from the

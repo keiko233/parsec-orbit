@@ -166,7 +166,35 @@ The fix is in M0 and applies to the test: the affected fixtures
 * Paths: plugins in `<Orbit root>/plugins/<id>`, keys in `<Orbit root>/market/trusted-keys.txt`.
 * A plugin that the running client holds mapped can be replaced on macOS (the old file is unlinked; the running process keeps its inode), but the new version loads at the next start; the tool does not refuse and says so.
 
-## 10. Open questions
+## 10. Release installation and terminal diagnostics
+
+The independent terminal viewer follows `parsec-orbit.log` and the isolated
+`home/.parsec/log.txt` under the selected Orbit root. It must not read the real
+user's Parsec state, launch/stop the client or insert a UI into it. Log reads
+must reject symlinks, foreign ownership, non-regular files and multiple links;
+backlog and per-poll reads are bounded. See the
+[console guide](../guides/macos-console.md).
+
+The macOS network manager consumes a separate `release-macos.json` with
+`format = 1`, `platform = "macos-arm64"`, the release `version` and two artifact
+descriptors: `verifier` and `bundle`. Each descriptor specifies `url`, lowercase
+SHA-256 and byte `size`. The detached signature uses the existing marketplace
+Ed25519 format. The default trust anchor matches the Windows manager's official
+public key; a selected `--keys` file replaces it. A missing or invalid signature
+must fail unless the user explicitly selects `--allow-unsigned`.
+
+The first verifier download is bootstrapped through HTTPS and the declared
+digest; this weaker initial trust boundary must be stated. A previously verified
+cached verifier checks later release manifests. All network downloads and zip
+extraction are bounded, remote artifact URLs cannot reference local files, and
+archive paths must not escape staging. Only verified staged artifacts may be
+passed to the existing ordinary-user installation wrapper. Protected bundle
+operations retain the installer privilege and restore rules; no network download
+runs as root. `uninstall` restores the original app and keeps Orbit user data.
+See [distribution design](../design/macos-distribution.md) and the
+[network guide](../guides/macos-network-install.md).
+
+## 11. Open questions
 
 * **E6**, generic import/chained-fixup coverage beyond the measured classic backend, the WebView questions (client creates a web view in client mode, URL, DOM, `MTY_NativeSendText` on macOS), the `high-bitrate-native` table layout, the size of the `freestanding!` macOS plugin and the loader dylib budget: see [the phase plan](../design/macos-phases.md#evidence-status-and-remaining-questions).
 * Whether `parsec-orbit.client` should be provided on Windows as well.

@@ -1,12 +1,12 @@
 # macOS support research
 
-Status: **M0 platform complete; M1a bootstrap accepted on disposable copies (2026-10-14); M1b transactional installer implemented and scratch-measured (2026-10-14); M1c not started**. This directory records evidence, not normative requirements. Current specifications: [macos-host.md](../../spec/macos-host.md), [macos-platform.md](../../spec/macos-platform.md). Current decision: [ADR 0014](../decisions/0014-macos-patched-bundle.md). Implementation gates: [macos-phases.md](../macos-phases.md).
+Status: **M0 and M1a/M1b implemented; M1c local ad-hoc/original-path activation measured; M2 independent local scenarios implemented (2026-10-15). Session, distribution and internals-dependent gates remain open.** This directory records evidence, not normative requirements. Current specifications: [macos-host.md](../../spec/macos-host.md), [macos-platform.md](../../spec/macos-platform.md). Current decision: [ADR 0014](../decisions/0014-macos-patched-bundle.md). Implementation gates: [macos-phases.md](../macos-phases.md).
 
 ## Current finding
 
 The untouched vendor bundle/signature has no established in-process Orbit entry. With local modification allowed, a dependency load command added to a supported arm64 bootstrap, re-signed with Hardened Runtime plus disable-library-validation, loaded Orbit on ordinary Finder/Launch Services launch in a copy. The official client updated/re-execed, the real core/SDK hello activated and a visible label appeared.
 
-This is evidence for the patched installed-app route, not proof of original `/Applications` path/id, existing Dock entries, credentials/TCC or supported distribution. Strict codesign verification passed, while spctl rejected the ad-hoc copy. Re-signing replaces the original vendor identity/seal; no system-wide protections were changed. Spicetify contributes the version-aware patch/apply/restore model, not a Parsec resource-JS entry.
+The later [installer checkpoint](installer-checkpoint.md) records original `/Applications` path activation, administrator restore regression and persistent installation. Existing Dock entries, credentials/TCC and published distribution remain unverified. Strict codesign verification passed, while spctl rejected the ad-hoc copy. Re-signing replaces the original vendor identity/seal; no system-wide protections were changed. Spicetify contributes the version-aware patch/apply/restore model, not a Parsec resource-JS entry.
 
 ## Reading order
 
@@ -33,10 +33,10 @@ Earlier research pages retain their dated conclusions. They do not override ADR 
 
 - Bootstrap: small `parsecd` launcher; client dylib: versioned implementation with `wx_main`.
 - Host: process running both, now targeted at the patched installed app. Historical runs used separate copies.
-- Orbit loader: native dependency providing core/Platform/Logger. M0 implemented the product Platform/Logger and non-Parsec core/SDK tests; production client bootstrap remains incomplete.
+- Orbit loader: native dependency providing core/Platform/Logger. M0 implemented the product Platform/Logger and non-Parsec core/SDK tests; guarded production bootstrap is implemented with the acceptance limits above.
 - Independent state: Orbit-owned `.parsec` plus a shared-persistent replacement. No credential migration is planned; separate sign-in remains required.
 
-Every experiment used a copy and scratch state, without modifying the installed app. The newer PoC discovered and initially read real shared `.parsec-persistent/devid.bin`; writes were denied, then later builds redirected observed APIs and denied original-path reads. Do not describe that first run or the partial mapper as complete read isolation.
+The historical experiments below used copies and scratch state. Later original-path transactions were separately authorized and are recorded in the installer checkpoint. The newer PoC discovered and initially read real shared `.parsec-persistent/devid.bin`; writes were denied, then later builds redirected observed APIs and denied original-path reads. Do not describe that first run or the partial mapper as complete read isolation.
 
 The login window had a native view and no WKWebView in its measured view tree. WebView code in the client does not prove an available page/DOM for every account. Hooks/UI/client-session support remain per-build runtime gates.
 

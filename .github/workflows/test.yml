@@ -111,6 +111,9 @@ jobs:
           python3 scripts/test-macos-keychain-canary.py
           python3 scripts/test-macos-inspect-bitrate.py
           bash scripts/test-install-macos.sh
+          python3 scripts/test-console-macos.py
+          python3 scripts/test-orbit-manager-macos.py
+          python3 scripts/test-package-macos.py
 
       # Runs the portable suite, including the macOS loader platform and the
       # std/no_std fixture e2e (`crates/parsec-orbit-loader-macos`).
