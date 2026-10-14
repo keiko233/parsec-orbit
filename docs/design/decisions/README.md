@@ -23,3 +23,4 @@ Format: Context, Decision, Consequences.
 | [0015](0015-macos-loader-as-host.md) | macOS runs the client from a host we control | Superseded by 0014 |
 | [0016](0016-orbit-ui-winio.md) | Orbit UI: External winio companion window with unified declarative ABI | Accepted |
 | [0017](0017-one-sdk-package-no-features.md) | One SDK package without features; `sdk-std` dissolved | Accepted |
+| [0018](0018-crate-roles-and-layout.md) | Crate roles and directory layout | Accepted |

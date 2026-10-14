@@ -956,7 +956,7 @@ script re-bootstrap with `get-orbit`; the release notes say so.
 | ADR | Title | Supersedes |
 | --- | --- | --- |
 | 0017 | One SDK package, no features; `sdk-std` dissolved into `sdk` + `sdk-testing`; crate-split criteria. **Written, accepted.** | amends 0002 |
-| 0018 | Crate roles and directory layout (`lib`, `plugin`, `tool`, dependency law) | none |
+| 0018 | Crate roles and directory layout (`lib`, `plugin`, `tool`, dependency law). **Written, accepted.** | none |
 | 0019 | OS ports, `layout` crate and per-plugin backends | none |
 | 0020 | The market is a plugin over the `registry` library | marketplace spec sections on the CLI |
 | 0021 | The installer and release tooling are Rust | 0006; `AGENTS.md` §8 |

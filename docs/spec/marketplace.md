@@ -30,7 +30,7 @@ The key list is `<Orbit root>/market/trusted-keys.txt` (or `--keys`): one `ed255
       "version": "0.1.0",
       "api": 1,
       "platform": "windows-x86_64",
-      "url": "parsec-orbit-plugin-hooks.zip",
+      "url": "parsec-orbit-lib-hooks.zip",
       "sha256": "<64 lowercase hex digits>",
       "size": 161561,
       "requires": ["com.example.base"]
@@ -54,8 +54,8 @@ The newest release for the host platform that is compatible and not a pre-releas
 A zip with exactly one folder, holding the plugin as the loader expects it:
 
 ```text
-parsec-orbit-plugin-hooks/plugin.toml
-parsec-orbit-plugin-hooks/parsec_orbit_plugin_hooks.dll
+parsec-orbit-lib-hooks/plugin.toml
+parsec-orbit-lib-hooks/parsec_orbit_lib_hooks.dll
 ```
 
 Windows packages use `kind = "dll"` and a `.dll` entry. macOS arm64 packages use `kind = "dylib"` and a `.dylib` entry. A zip still contains exactly one plugin folder.

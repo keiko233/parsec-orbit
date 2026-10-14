@@ -148,9 +148,9 @@ if ((uninstall)); then
 fi
 
 plugins=(
-    'parsec-orbit-plugin-config|com.parsec-orbit.config|libparsec_orbit_plugin_config.dylib'
-    'parsec-orbit-plugin-hooks|com.parsec-orbit.hooks|libparsec_orbit_plugin_hooks.dylib'
-    'parsec-orbit-plugin-js-runtime|com.parsec-orbit.js-runtime|libparsec_orbit_plugin_js_runtime.dylib'
+    'parsec-orbit-lib-config|com.parsec-orbit.config|libparsec_orbit_lib_config.dylib'
+    'parsec-orbit-lib-hooks|com.parsec-orbit.hooks|libparsec_orbit_lib_hooks.dylib'
+    'parsec-orbit-lib-js-runtime|com.parsec-orbit.js-runtime|libparsec_orbit_lib_js_runtime.dylib'
 )
 
 if ((!no_build)); then
@@ -159,9 +159,9 @@ if ((!no_build)); then
     (cd "$root" && cargo build --release --locked \
         -p parsec-orbit-installer-macos \
         -p parsec-orbit-loader-macos \
-        -p parsec-orbit-plugin-config \
-        -p parsec-orbit-plugin-hooks \
-        -p parsec-orbit-plugin-js-runtime) || fail 'cargo build failed'
+        -p parsec-orbit-lib-config \
+        -p parsec-orbit-lib-hooks \
+        -p parsec-orbit-lib-js-runtime) || fail 'cargo build failed'
 fi
 
 for artifact in "$installer" "$loader"; do
@@ -175,7 +175,7 @@ done
 
 for record in "${plugins[@]}"; do
     IFS='|' read -r crate plugin_id library <<< "$record"
-    manifest="$root/crates/$crate/plugin.macos.toml"
+    manifest="$root/libs/$crate/plugin.macos.toml"
     artifact="$release/$library"
     check_no_symlink_components "$manifest" || fail "refusing a symlink in manifest path: $manifest"
     check_no_symlink_components "$artifact" || fail "refusing a symlink in plugin artifact path: $artifact"
@@ -234,7 +234,7 @@ trap 'exit 143' TERM
 
 for record in "${plugins[@]}"; do
     IFS='|' read -r crate plugin_id library <<< "$record"
-    source_manifest="$root/crates/$crate/plugin.macos.toml"
+    source_manifest="$root/libs/$crate/plugin.macos.toml"
     source_library="$release/$library"
     staged="$stage/$plugin_id"
     mkdir "$staged"

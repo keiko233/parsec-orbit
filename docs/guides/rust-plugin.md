@@ -173,7 +173,7 @@ On Windows, to watch the log while the client starts, set `PARSEC_ORBIT_CONSOLE=
 
 * [`examples/parsec-orbit-plugin-hello-nostd`](../../examples/parsec-orbit-plugin-hello-nostd) - this guide's plugin.
 * [`examples/parsec-orbit-plugin-hello`](../../examples/parsec-orbit-plugin-hello) - the `std` flavour (writes a report file).
-* [`crates/parsec-orbit-plugin-high-bitrate-native`](../../crates/parsec-orbit-plugin-high-bitrate-native) - a real `std` plugin with a worker thread.
+* [`plugins/parsec-orbit-plugin-high-bitrate-native`](../../plugins/parsec-orbit-plugin-high-bitrate-native) - a real `std` plugin with a worker thread.
 
 ## Troubleshooting
 

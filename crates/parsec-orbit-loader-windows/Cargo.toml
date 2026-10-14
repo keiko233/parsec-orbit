@@ -1,0 +1,43 @@
+[package]
+name = "parsec-orbit-loader-windows"
+description = "bcrypt.dll proxy that forwards to the real bcrypt and hosts Parsec Orbit plugins"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+readme = "../../README.md"
+publish = false
+
+# The file name is the whole point: the client statically imports bcrypt.dll
+# and resolves it before it locks its own DLL search path to System32.
+[lib]
+name = "bcrypt"
+crate-type = ["cdylib"]
+
+[features]
+default = []
+# Adds `ParsecOrbitLoaderLastArgs`, which the verify tools use to prove that the
+# thunks hand the unmodified arguments to the real bcrypt functions.
+diagnostics = []
+
+[dependencies]
+parsec-orbit-core = { path = "../parsec-orbit-core" }
+parsec-orbit-plugin-abi = { path = "../parsec-orbit-plugin-abi" }
+
+# Windows-only: on other targets the crate compiles to an empty library.
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Storage_FileSystem",
+    "Win32_System_Console",
+    "Win32_System_Environment",
+    "Win32_System_IO",
+    "Win32_System_LibraryLoader",
+    "Win32_System_Diagnostics_Debug",
+    "Win32_System_SystemInformation",
+    "Win32_System_Threading",
+] }
+
+[dev-dependencies]
+parsec-orbit-core = { path = "../parsec-orbit-core", features = ["testutil"] }

@@ -1,0 +1,30 @@
+[package]
+name = "parsec-orbit-verify"
+description = "Verification tools: loader forwarding (callpaths, roundtrip) and one-shot WebView patch injection (webview-inject)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+# Checks that the loader forwards calls to the real bcrypt.dll unchanged.
+[[bin]]
+name = "callpaths"
+path = "src/callpaths.rs"
+
+# Runs real cryptography through the loader and checks known-answer vectors.
+[[bin]]
+name = "roundtrip"
+path = "src/roundtrip.rs"
+
+# One-shot WebView patch injection against a running client's DevTools endpoint.
+[[bin]]
+name = "webview-inject"
+path = "src/webview_inject.rs"
+
+[dependencies]
+parsec-orbit-lib-webview-bridge = { path = "../../libs/parsec-orbit-lib-webview-bridge" }
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_System_LibraryLoader",
+] }

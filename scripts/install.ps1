@@ -53,40 +53,40 @@ if (-not (Test-Path -LiteralPath $loader)) {
 
 $plugins = @(
     @{
-        Name = 'parsec-orbit-plugin-webview-bridge'
-        Source = Join-Path $root 'crates\parsec-orbit-plugin-webview-bridge'
-        Dll = 'parsec_orbit_plugin_webview_bridge.dll'
+        Name = 'parsec-orbit-lib-webview-bridge'
+        Source = Join-Path $root 'libs\parsec-orbit-lib-webview-bridge'
+        Dll = 'parsec_orbit_lib_webview_bridge.dll'
     },
     @{
         Name = 'parsec-orbit-plugin-high-bitrate-webview'
-        Source = Join-Path $root 'crates\parsec-orbit-plugin-high-bitrate-webview'
+        Source = Join-Path $root 'plugins\parsec-orbit-plugin-high-bitrate-webview'
         Dll = 'parsec_orbit_plugin_high_bitrate_webview.dll'
     },
     @{
         Name = 'parsec-orbit-plugin-high-bitrate-native'
-        Source = Join-Path $root 'crates\parsec-orbit-plugin-high-bitrate-native'
+        Source = Join-Path $root 'plugins\parsec-orbit-plugin-high-bitrate-native'
         Dll = 'parsec_orbit_plugin_high_bitrate_native.dll'
     }
 )
-if (Test-Path -LiteralPath (Join-Path $release 'parsec_orbit_plugin_ui.dll')) {
+if (Test-Path -LiteralPath (Join-Path $release 'parsec_orbit_lib_ui.dll')) {
     $plugins += @(
         @{
-            Name = 'parsec-orbit-plugin-ui'
-            Source = Join-Path $root 'crates\parsec-orbit-plugin-ui'
-            Dll = 'parsec_orbit_plugin_ui.dll'
+            Name = 'parsec-orbit-lib-ui'
+            Source = Join-Path $root 'libs\parsec-orbit-lib-ui'
+            Dll = 'parsec_orbit_lib_ui.dll'
         }
     )
 }
 if ($EnableStunSwap) {
     $plugins += @(
         @{
-            Name = 'parsec-orbit-plugin-hooks'
-            Source = Join-Path $root 'crates\parsec-orbit-plugin-hooks'
-            Dll = 'parsec_orbit_plugin_hooks.dll'
+            Name = 'parsec-orbit-lib-hooks'
+            Source = Join-Path $root 'libs\parsec-orbit-lib-hooks'
+            Dll = 'parsec_orbit_lib_hooks.dll'
         },
         @{
             Name = 'parsec-orbit-plugin-stun-swap'
-            Source = Join-Path $root 'crates\parsec-orbit-plugin-stun-swap'
+            Source = Join-Path $root 'plugins\parsec-orbit-plugin-stun-swap'
             Dll = 'parsec_orbit_plugin_stun_swap.dll'
         }
     )

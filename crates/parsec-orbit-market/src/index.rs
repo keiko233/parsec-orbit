@@ -13,7 +13,7 @@
 //!     "versions": [{
 //!       "version": "0.1.0",
 //!       "api": 1,
-//!       "url": "parsec-orbit-plugin-hooks.zip",
+//!       "url": "parsec-orbit-lib-hooks.zip",
 //!       "sha256": "<64 hex digits>",
 //!       "size": 123456
 //!     }]

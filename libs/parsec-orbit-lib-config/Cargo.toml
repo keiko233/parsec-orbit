@@ -1,0 +1,19 @@
+[package]
+name = "parsec-orbit-lib-config"
+description = "Parsec Orbit plugin that provides parsec-orbit.config: settings that survive restarts, one JSON file per plugin"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[lib]
+name = "parsec_orbit_lib_config"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+parsec-orbit-plugin-sdk = { path = "../../crates/parsec-orbit-plugin-sdk" }
+serde_json = "1"
+
+[dev-dependencies]
+parsec-orbit-plugin-sdk-testing = { path = "../../crates/parsec-orbit-plugin-sdk-testing" }

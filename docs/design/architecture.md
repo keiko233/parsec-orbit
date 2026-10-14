@@ -12,7 +12,7 @@
 ```text
                       parsecd.exe (Parsec client process)
  +-----------------------------------------------------------------------+
- |  bcrypt.dll  =  parsec-orbit-loader  (cdylib, thin)                    |
+ |  bcrypt.dll  =  parsec-orbit-loader-windows  (cdylib, thin)                    |
  |    thunks -> real bcrypt            Win32 Platform impl                |
  |    +----------------------------------------------------------+       |
 |    | parsec-orbit-core (rlib): manifest, resolver, registry,   |       |
@@ -29,7 +29,7 @@
  +-----------------------------------------------------------------------+
 ```
 
-* **Loader** (`parsec-orbit-loader`): `DllMain`, bcrypt thunks, a `Platform`
+* **Loader** (`parsec-orbit-loader-windows`): `DllMain`, bcrypt thunks, a `Platform`
   implementation on `windows-sys` and the opt-in debug console window. Nothing
   else.
 * **Core** (`parsec-orbit-core`): everything that does not need Win32: manifest
@@ -71,18 +71,19 @@ parsec-orbit-plugin-abi      no_std, zero deps. repr(C) types, constants, servic
         |-- parsec-orbit-core         loader logic (std; toml parse-only)
         |-- parsec-orbit-market       index, sha256/ed25519, safe installation, the market tool
                 ^
-                +-- parsec-orbit-loader   cdylib named `bcrypt`
+                +-- parsec-orbit-loader-windows   cdylib named `bcrypt`
 
-crates/     every Rust crate: the loader and SDK above, the official plugins and
-            the verification tools; high-bitrate-native and high-bitrate-webview -> sdk
-            (official), webview-bridge (devtools module), js-runtime (Boa), config,
-            hooks (retour), ui (winio)                                              -> sdk + heavy deps
+crates/     the SDK, the loaders, `core` and the shared Rust libraries (macos-state, market)
+libs/       service providers, loaded like plugins: webview-bridge (devtools module),
+            js-runtime (Boa), config, hooks (retour), ui (winio)                    -> sdk + heavy deps
+plugins/    features: high-bitrate-native, high-bitrate-webview, stun-swap          -> sdk
+tools/      host-side executables: parsec-orbit-verify
 examples/   parsec-orbit-plugin-hello (-> sdk), parsec-orbit-plugin-hello-nostd (-> sdk)
 javascript-sdk/  @parsec-orbit/sdk (TypeScript: types, definePlugin, ui helper, mock host)  [npm]
-tests/      parsec-orbit-e2e;  crates/parsec-orbit-verify  verification tools
+tests/      parsec-orbit-e2e (also checks the dependency law between these groups)
 ```
 
-Directory layout: every Rust crate - the loader, the SDKs, the official plugins and the verification tools - lives under `crates/` (done); the SDK is split into `-abi` and `-sdk` (done); `-core` holds the Win32-free loading logic (done).
+Directory layout ([restructure design](restructure.md), [ADR 0018](decisions/0018-crate-roles-and-layout.md)): `crates/` holds the SDK, the loaders, `core` and the shared libraries; `libs/` the service providers (a module that provides a `parsec-orbit.*` service or kind handler and has no feature of its own, `role = "lib"` in its manifest); `plugins/` the features; `tools/` the executables. The groups may only depend downwards; `tests/parsec-orbit-e2e/tests/architecture.rs` enforces it.
 
 ## Size policy
 

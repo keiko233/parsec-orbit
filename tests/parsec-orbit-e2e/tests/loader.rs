@@ -766,7 +766,7 @@ fn the_users_own_browser_arguments_are_left_untouched() {
 fn bandwidth_script() -> String {
     std::fs::read_to_string(
         common::workspace_root()
-            .join("crates/parsec-orbit-plugin-high-bitrate-webview/assets/bandwidth.js"),
+            .join("plugins/parsec-orbit-plugin-high-bitrate-webview/assets/bandwidth.js"),
     )
     .unwrap()
 }

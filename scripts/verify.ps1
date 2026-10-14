@@ -18,8 +18,8 @@ if (-not $Loader) {
 Push-Location $root
 try {
     Write-Host 'building with the diagnostics feature:'
-    Write-Host '  cargo build --release -p parsec-orbit-loader --features diagnostics'
-    cargo build --release -p parsec-orbit-loader --features diagnostics | Out-Host
+    Write-Host '  cargo build --release -p parsec-orbit-loader-windows --features diagnostics'
+    cargo build --release -p parsec-orbit-loader-windows --features diagnostics | Out-Host
     if ($LASTEXITCODE) { throw 'cargo build failed' }
     if (-not (Test-Path $Loader)) { throw "Missing $Loader" }
 
@@ -37,7 +37,7 @@ try {
     # artifact that goes into a release.
     Write-Host ''
     Write-Host 'rebuilding without diagnostics:'
-    cargo build --release -p parsec-orbit-loader | Out-Host
+    cargo build --release -p parsec-orbit-loader-windows | Out-Host
     if ($LASTEXITCODE) { throw 'cargo build failed' }
 } finally {
     Pop-Location

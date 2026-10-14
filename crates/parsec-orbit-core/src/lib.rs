@@ -1,6 +1,6 @@
 //! Plugin loading logic that does not need Win32.
 //!
-//! The loader proper (`parsec-orbit-loader`) is a `bcrypt.dll` proxy; the
+//! The loader proper (`parsec-orbit-loader-windows`) is a `bcrypt.dll` proxy; the
 //! decisions about *which* plugins to load, in what shape, and whether a
 //! descriptor is acceptable live here, written against two small traits so
 //! they can be unit-tested without mapping a single DLL:

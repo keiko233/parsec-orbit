@@ -1829,12 +1829,53 @@ dependencies = [
 ]
 
 [[package]]
-name = "parsec-orbit-loader"
+name = "parsec-orbit-lib-config"
 version = "0.1.1"
 dependencies = [
- "parsec-orbit-core",
- "parsec-orbit-plugin-abi",
+ "parsec-orbit-plugin-sdk",
+ "parsec-orbit-plugin-sdk-testing",
+ "serde_json",
+]
+
+[[package]]
+name = "parsec-orbit-lib-hooks"
+version = "0.1.1"
+dependencies = [
+ "parsec-orbit-plugin-sdk",
+ "parsec-orbit-plugin-sdk-testing",
+ "retour",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "parsec-orbit-lib-js-runtime"
+version = "0.1.1"
+dependencies = [
+ "boa_engine",
+ "parsec-orbit-plugin-sdk",
+ "parsec-orbit-plugin-sdk-testing",
+ "serde_json",
+ "toml",
+]
+
+[[package]]
+name = "parsec-orbit-lib-ui"
+version = "0.1.1"
+dependencies = [
+ "parsec-orbit-plugin-sdk",
+ "parsec-orbit-plugin-sdk-testing",
+ "serde",
+ "serde_json",
+ "windows-sys 0.61.2",
+ "winio",
+]
+
+[[package]]
+name = "parsec-orbit-lib-webview-bridge"
+version = "0.1.1"
+dependencies = [
+ "parsec-orbit-plugin-sdk",
+ "serde_json",
 ]
 
 [[package]]
@@ -1848,6 +1889,15 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+]
+
+[[package]]
+name = "parsec-orbit-loader-windows"
+version = "0.1.1"
+dependencies = [
+ "parsec-orbit-core",
+ "parsec-orbit-plugin-abi",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -1880,15 +1930,6 @@ dependencies = [
 [[package]]
 name = "parsec-orbit-plugin-abi"
 version = "0.1.1"
-
-[[package]]
-name = "parsec-orbit-plugin-config"
-version = "0.1.1"
-dependencies = [
- "parsec-orbit-plugin-sdk",
- "parsec-orbit-plugin-sdk-testing",
- "serde_json",
-]
 
 [[package]]
 name = "parsec-orbit-plugin-hello"
@@ -1926,27 +1967,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "parsec-orbit-plugin-hooks"
-version = "0.1.1"
-dependencies = [
- "parsec-orbit-plugin-sdk",
- "parsec-orbit-plugin-sdk-testing",
- "retour",
- "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "parsec-orbit-plugin-js-runtime"
-version = "0.1.1"
-dependencies = [
- "boa_engine",
- "parsec-orbit-plugin-sdk",
- "parsec-orbit-plugin-sdk-testing",
- "serde_json",
- "toml",
-]
-
-[[package]]
 name = "parsec-orbit-plugin-sdk"
 version = "0.1.1"
 dependencies = [
@@ -1971,30 +1991,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "parsec-orbit-plugin-ui"
-version = "0.1.1"
-dependencies = [
- "parsec-orbit-plugin-sdk",
- "parsec-orbit-plugin-sdk-testing",
- "serde",
- "serde_json",
- "windows-sys 0.61.2",
- "winio",
-]
-
-[[package]]
-name = "parsec-orbit-plugin-webview-bridge"
-version = "0.1.1"
-dependencies = [
- "parsec-orbit-plugin-sdk",
- "serde_json",
-]
-
-[[package]]
 name = "parsec-orbit-verify"
 version = "0.1.1"
 dependencies = [
- "parsec-orbit-plugin-webview-bridge",
+ "parsec-orbit-lib-webview-bridge",
  "windows-sys 0.61.2",
 ]
 
