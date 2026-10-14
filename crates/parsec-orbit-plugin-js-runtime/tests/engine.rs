@@ -100,6 +100,7 @@ fn plugin_spec(
         log: logger(lines),
         webview,
         config: None,
+        ui: None,
     }
 }
 
@@ -136,6 +137,7 @@ fn native_context() -> (Handle, Lines) {
         log: logger(&lines),
         webview: None,
         config: None,
+        ui: None,
     })
     .unwrap();
     (handle, lines)
@@ -367,27 +369,27 @@ fn capabilities_are_absent_without_their_permission() {
         r#"
         export default {
           setup(host) {
-            host.log.info("webview:", typeof host.webview, "config:", typeof host.config);
+            host.log.info("webview:", typeof host.webview, "config:", typeof host.config, "ui:", typeof host.ui);
           },
         };
         "#,
         &[],
     );
     result.unwrap();
-    assert!(said(&plugin.lines, "webview: undefined config: undefined"));
+    assert!(said(&plugin.lines, "webview: undefined config: undefined ui: undefined"));
 
     let (plugin, result) = load(
         r#"
         export default {
           setup(host) {
-            host.log.info("webview:", typeof host.webview, "config:", typeof host.config);
+            host.log.info("webview:", typeof host.webview, "config:", typeof host.config, "ui:", typeof host.ui);
           },
         };
         "#,
-        &["webview", "config"],
+        &["webview", "config", "ui"],
     );
     result.unwrap();
-    assert!(said(&plugin.lines, "webview: object config: object"));
+    assert!(said(&plugin.lines, "webview: object config: object ui: object"));
 }
 
 #[test]
@@ -935,4 +937,81 @@ fn host_config_uses_the_config_service_when_it_is_there() {
         !dir.0.join("data").join("config.json").exists(),
         "the file fallback is not used"
     );
+}
+
+static TEST_UI_SHOW: Mutex<bool> = Mutex::new(false);
+static TEST_UI_HIDE: Mutex<bool> = Mutex::new(false);
+static TEST_UI_SECTIONS: Mutex<Vec<String>> = Mutex::new(Vec::new());
+
+unsafe extern "system" fn test_ui_show() -> i32 {
+    *TEST_UI_SHOW.lock().unwrap() = true;
+    0
+}
+
+unsafe extern "system" fn test_ui_hide() -> i32 {
+    *TEST_UI_HIDE.lock().unwrap() = true;
+    0
+}
+
+unsafe extern "system" fn test_ui_is_visible() -> i32 {
+    1
+}
+
+unsafe extern "system" fn test_ui_register_section(schema: *const u8, len: usize) -> i32 {
+    let slice = unsafe { core::slice::from_raw_parts(schema, len) };
+    TEST_UI_SECTIONS.lock().unwrap().push(String::from_utf8_lossy(slice).into_owned());
+    0
+}
+
+unsafe extern "system" fn test_ui_unregister_section(_: *const u8, _: usize) -> i32 {
+    0
+}
+
+unsafe extern "system" fn test_ui_update_state(_: *const u8, _: usize, _: *const u8, _: usize) -> i32 {
+    0
+}
+
+static TEST_UI_SERVICE: parsec_orbit_plugin_sdk_std::ParsecOrbitUiV1 = parsec_orbit_plugin_sdk_std::ParsecOrbitUiV1 {
+    header: parsec_orbit_plugin_sdk_std::ParsecOrbitInterfaceHeader::new(
+        std::mem::size_of::<parsec_orbit_plugin_sdk_std::ParsecOrbitUiV1>(),
+        1,
+        0,
+    ),
+    show: Some(test_ui_show),
+    hide: Some(test_ui_hide),
+    is_visible: Some(test_ui_is_visible),
+    register_section: Some(test_ui_register_section),
+    unregister_section: Some(test_ui_unregister_section),
+    update_state: Some(test_ui_update_state),
+    on_action: None,
+    off_action: None,
+};
+
+#[test]
+fn host_ui_uses_the_ui_service_when_it_is_there() {
+    use parsec_orbit_plugin_sdk_std::services::UiClient;
+    let host = MockHost::new("com.parsec-orbit.js-runtime");
+    host.provide("parsec-orbit.ui", &TEST_UI_SERVICE.header);
+    let client = UiClient::new(&host.context()).unwrap();
+
+    let dir = Dir::new("ui-service");
+    dir.write(
+        "main.js",
+        r#"export default { async setup(host) {
+          host.log.info("visible:", await host.ui.isVisible());
+          await host.ui.show();
+          await host.ui.registerSection({ id: "my-section", title: "My Section", items: [] });
+          await host.ui.hide();
+        } };"#,
+    );
+    let lines: Lines = Arc::default();
+    let mut spec = plugin_spec(&dir, "com.test.plugin", &["ui"], None, &lines);
+    spec.ui = Some(client);
+    let handle = spawn(spec).unwrap();
+    handle.load().unwrap();
+
+    assert!(said(&lines, "visible: true"));
+    assert!(*TEST_UI_SHOW.lock().unwrap());
+    assert!(*TEST_UI_HIDE.lock().unwrap());
+    assert!(TEST_UI_SECTIONS.lock().unwrap().iter().any(|s| s.contains("my-section")));
 }

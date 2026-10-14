@@ -8,7 +8,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 
-use parsec_orbit_plugin_sdk_std::services::{ConfigClient, WebViewClient};
+use parsec_orbit_plugin_sdk_std::services::{ConfigClient, UiClient, WebViewClient};
 use parsec_orbit_plugin_sdk_std::{Context, Level};
 
 use crate::engine::{self, Handle, PluginInfo, Spec};
@@ -123,15 +123,17 @@ pub struct LoadRequest {
 pub enum Permission {
     Webview,
     Config,
+    Ui,
 }
 
 impl Permission {
-    pub const ALL: [Permission; 2] = [Permission::Webview, Permission::Config];
+    pub const ALL: [Permission; 3] = [Permission::Webview, Permission::Config, Permission::Ui];
 
     pub const fn as_str(self) -> &'static str {
         match self {
             Permission::Webview => "webview",
             Permission::Config => "config",
+            Permission::Ui => "ui",
         }
     }
 }
@@ -169,6 +171,7 @@ pub fn load_plugin(request: LoadRequest) -> Result<(), String> {
         // lives as long as the process, like the plugin does.
         config: ConfigClient::new(&runtime.cx)
             .map(|client| client.for_owner(Box::leak(request.id.clone().into_boxed_str()))),
+        ui: UiClient::new(&runtime.cx),
     };
     if locked(&runtime.plugins).contains_key(&request.id) {
         return Err("a plugin with this id is already running".to_string());
@@ -200,6 +203,7 @@ pub fn create_context(name: &str) -> Result<i64, i32> {
         log: logger(runtime.cx, name),
         webview: None,
         config: None,
+        ui: None,
     };
     let handle = engine::spawn(spec).map_err(|_| parsec_orbit_plugin_sdk_std::ERR_NOT_READY)?;
     let id = runtime.next_native.fetch_add(1, Ordering::SeqCst) + 1;

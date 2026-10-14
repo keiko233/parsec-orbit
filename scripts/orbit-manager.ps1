@@ -12,6 +12,7 @@
 #   powershell -ExecutionPolicy Bypass -File scripts\orbit-manager.ps1 plugins remove <id...>
 #   powershell -ExecutionPolicy Bypass -File scripts\orbit-manager.ps1 plugins update [id...]
 #   powershell -ExecutionPolicy Bypass -File scripts\orbit-manager.ps1 status
+#   powershell -ExecutionPolicy Bypass -File scripts\orbit-manager.ps1 ui
 #   powershell -ExecutionPolicy Bypass -File scripts\orbit-manager.ps1 help
 #
 # Options:
@@ -517,6 +518,7 @@ Commands:
   plugins remove <id...>   remove plugins
   plugins update [id...]   update plugins
   status                   show install state and latest release version
+  ui                       open or focus the Orbit companion settings window
   help                     show this text
 
 Options:
@@ -1300,6 +1302,39 @@ function Invoke-Plugins {
     Write-Log 'restart the Parsec client to apply'
 }
 
+function Invoke-Ui {
+    Write-Log 'opening Parsec Orbit settings window...'
+    $sig = @'
+[DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+public static extern IntPtr FindWindow(string lpClassName, string lpWindowName);
+[DllImport("user32.dll")]
+[return: MarshalAs(UnmanagedType.Bool)]
+public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+[DllImport("user32.dll")]
+[return: MarshalAs(UnmanagedType.Bool)]
+public static extern bool SetForegroundWindow(IntPtr hWnd);
+[DllImport("user32.dll")]
+public static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);
+'@
+    if (-not ('ParsecOrbit.NativeMethods' -as [type])) {
+        Add-Type -MemberDefinition $sig -Name 'NativeMethods' -Namespace 'ParsecOrbit'
+    }
+    $hwnd = [ParsecOrbit.NativeMethods]::FindWindow($null, 'Parsec Orbit')
+    if ($hwnd -ne [IntPtr]::Zero) {
+        [ParsecOrbit.NativeMethods]::ShowWindow($hwnd, 9) | Out-Null
+        [ParsecOrbit.NativeMethods]::SetForegroundWindow($hwnd) | Out-Null
+        Write-Log 'focused existing Parsec Orbit window'
+    } else {
+        [ParsecOrbit.NativeMethods]::keybd_event(0x11, 0, 0, [UIntPtr]::Zero)
+        [ParsecOrbit.NativeMethods]::keybd_event(0x10, 0, 0, [UIntPtr]::Zero)
+        [ParsecOrbit.NativeMethods]::keybd_event(0x4F, 0, 0, [UIntPtr]::Zero)
+        [ParsecOrbit.NativeMethods]::keybd_event(0x4F, 2, 0, [UIntPtr]::Zero)
+        [ParsecOrbit.NativeMethods]::keybd_event(0x10, 2, 0, [UIntPtr]::Zero)
+        [ParsecOrbit.NativeMethods]::keybd_event(0x11, 2, 0, [UIntPtr]::Zero)
+        Write-Log 'sent Ctrl+Shift+O shortcut to open Parsec Orbit window'
+    }
+}
+
 function Main {
     param([string[]]$ArgumentList)
     $appData = Get-AppData
@@ -1327,7 +1362,7 @@ function Main {
         }
         $command = 'install'
     }
-    $validCommands = @('install','upgrade','uninstall','plugins','status','help')
+    $validCommands = @('install','upgrade','uninstall','plugins','status','ui','help')
     if ($validCommands -notcontains $command) {
         Write-Usage
         exit 1
@@ -1360,6 +1395,7 @@ function Main {
         'uninstall' { Invoke-Uninstall -Options $options -PositionalIds $options.PositionalIds }
         'plugins' { Invoke-Plugins -Options $options -PositionalIds $options.PositionalIds }
         'status' { Show-OrbitStatus -Options $options }
+        'ui' { Invoke-Ui }
     }
 }
 
