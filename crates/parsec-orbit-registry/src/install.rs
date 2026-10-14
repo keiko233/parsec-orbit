@@ -16,6 +16,7 @@ use std::sync::Arc;
 use semver::Version;
 use serde::{Deserialize, Serialize};
 
+use crate::cache::Cache;
 use crate::index::{Index, PlatformId, Release, MAX_PACKAGE_BYTES};
 use crate::package::{self, Manifest};
 use crate::source::{resolve, Fetch};
@@ -140,6 +141,8 @@ pub struct Market<'a> {
     pub platform: PlatformId,
     /// Ad-hoc signer for staged macOS dylibs.
     pub code_signer: Arc<dyn DylibSigner>,
+    /// Verified indexes kept between runs; `None` keeps nothing.
+    pub cache: Option<Cache>,
 }
 
 impl<'a> Market<'a> {
@@ -157,12 +160,20 @@ impl<'a> Market<'a> {
             api: LOADER_API,
             platform,
             code_signer: Arc::new(SystemDylibSigner),
+            cache: None,
         }
     }
 
     /// Replaces the platform signer, primarily for isolated transaction tests.
     pub fn with_code_signer(mut self, signer: Arc<dyn DylibSigner>) -> Market<'a> {
         self.code_signer = signer;
+        self
+    }
+
+    /// Keeps each verified index below `dir`, and refuses an index whose serial
+    /// is lower than the cached one.
+    pub fn with_cache(mut self, dir: PathBuf) -> Market<'a> {
+        self.cache = Some(Cache::new(dir));
         self
     }
 
@@ -173,6 +184,7 @@ impl<'a> Market<'a> {
             .fetch
             .fetch(&format!("{location}.sig"), 4096)
             .map(|bytes| String::from_utf8_lossy(&bytes).into_owned());
+        let signature_text = signature.as_ref().ok().cloned();
         let mut signature_note = None;
         let signed = match signature {
             Ok(signature) => match trust::verify(&bytes, &signature, &self.trusted) {
@@ -193,8 +205,21 @@ impl<'a> Market<'a> {
                 )))
             }
         };
+        let index = Index::parse(&bytes)?;
+        // Only a signed index is compared with, or stored as, the verified one.
+        if let (Some(cache), true, Some(signature)) = (&self.cache, signed, &signature_text) {
+            let cached = cache
+                .load(location)
+                .filter(|cached| {
+                    trust::verify(&cached.index, &cached.signature, &self.trusted).is_ok()
+                })
+                .and_then(|cached| Index::parse(&cached.index).ok())
+                .and_then(|cached| cached.serial);
+            index.check_serial(cached)?;
+            cache.store(location, &bytes, signature)?;
+        }
         Ok(LoadedIndex {
-            index: Index::parse(&bytes)?,
+            index,
             location: location.to_string(),
             signed,
             signature_note,
@@ -305,14 +330,34 @@ impl<'a> Market<'a> {
         Ok(())
     }
 
-    fn install_release(
+    /// The package bytes from `url`, then from each mirror in order. The first
+    /// location whose size and sha256 match the index wins; when none does, the
+    /// error names every attempt.
+    fn fetch_package(&self, index: &LoadedIndex, release: &Release) -> Result<Vec<u8>, Error> {
+        let mut failures = Vec::new();
+        for url in std::iter::once(&release.url).chain(&release.mirrors) {
+            match self.fetch_verified(index, url, release) {
+                Ok(bytes) => return Ok(bytes),
+                Err(error) => failures.push(error),
+            }
+        }
+        if failures.len() == 1 {
+            return Err(failures.remove(0));
+        }
+        let attempts: Vec<String> = failures.iter().map(|error| error.to_string()).collect();
+        Err(with_text(
+            failures.remove(0),
+            format!("no location gave a valid package: {}", attempts.join("; ")),
+        ))
+    }
+
+    fn fetch_verified(
         &self,
         index: &LoadedIndex,
-        id: &str,
+        url: &str,
         release: &Release,
-        options: InstallOptions,
-    ) -> Result<Installed, Error> {
-        let location = resolve(&index.location, &release.url)?;
+    ) -> Result<Vec<u8>, Error> {
+        let location = resolve(&index.location, url)?;
         let bytes = self
             .fetch
             .fetch(&location, release.size.min(MAX_PACKAGE_BYTES))?;
@@ -324,6 +369,17 @@ impl<'a> Market<'a> {
             )));
         }
         trust::check_digest(&bytes, &release.sha256)?;
+        Ok(bytes)
+    }
+
+    fn install_release(
+        &self,
+        index: &LoadedIndex,
+        id: &str,
+        release: &Release,
+        options: InstallOptions,
+    ) -> Result<Installed, Error> {
+        let bytes = self.fetch_package(index, release)?;
 
         let package = package::read(&bytes)?;
         if package.manifest.id != id {
@@ -521,6 +577,22 @@ impl<'a> Market<'a> {
     }
 }
 
+/// The same kind of error, with another text.
+fn with_text(error: Error, text: String) -> Error {
+    match error {
+        Error::Usage(_) => Error::Usage(text),
+        Error::Index(_) => Error::Index(text),
+        Error::NotFound(_) => Error::NotFound(text),
+        Error::Incompatible(_) => Error::Incompatible(text),
+        Error::Hash(_) => Error::Hash(text),
+        Error::Signature(_) => Error::Signature(text),
+        Error::Package(_) => Error::Package(text),
+        Error::Conflict(_) => Error::Conflict(text),
+        Error::Io(_) => Error::Io(text),
+        Error::Network(_) => Error::Network(text),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -602,6 +674,8 @@ mod tests {
         memory: Memory,
         trusted: Vec<TrustedKey>,
         dir: Dir,
+        /// The signing secret, so a test can publish a changed index.
+        secret: String,
     }
 
     fn fixture(releases: &[(&str, &str, &[&str])]) -> Fixture {
@@ -631,6 +705,9 @@ mod tests {
                 sha256: trust::sha256_hex(&bytes),
                 size: bytes.len() as u64,
                 requires: requires.iter().map(|r| r.to_string()).collect(),
+                published: None,
+                yanked: false,
+                mirrors: Vec::new(),
             };
             match plugins.iter_mut().find(|p| p.id == *id) {
                 Some(plugin) => plugin.versions.push(release),
@@ -641,12 +718,15 @@ mod tests {
                     author: String::new(),
                     license: String::new(),
                     versions: vec![release],
+                    ..Default::default()
                 }),
             }
         }
         let index = Index {
             format: FORMAT,
             name: "test".into(),
+            serial: None,
+            generated: None,
             plugins,
         }
         .to_json();
@@ -661,6 +741,7 @@ mod tests {
             memory,
             trusted: trust::parse_trusted_keys(&format!("ed25519 {public}\n")).unwrap(),
             dir: Dir::new("plugins"),
+            secret,
         }
     }
 
@@ -1208,6 +1289,169 @@ mod tests {
             .map(|p| p.id)
             .collect();
         assert_eq!(ids, ["com.example.one", "two"]);
+    }
+
+    const PACKAGE_URL: &str = "https://market.example/com.example.p-1.0.0.zip";
+    const MIRROR_URL: &str = "https://mirror.example/p.zip";
+
+    /// Changes the fixture's index and signs it again with the same key.
+    fn republish(f: &mut Fixture, change: impl FnOnce(&mut Index)) {
+        let mut index = Index::parse(&f.memory.files[INDEX_URL]).unwrap();
+        change(&mut index);
+        let json = index.to_json();
+        f.memory
+            .files
+            .insert(INDEX_URL.into(), json.clone().into_bytes());
+        let key = trust::signing_key(&f.secret).unwrap();
+        f.memory.files.insert(
+            format!("{INDEX_URL}.sig"),
+            trust::sign(json.as_bytes(), &key).into_bytes(),
+        );
+    }
+
+    fn package_fetches(f: &Fixture) -> Vec<String> {
+        f.memory
+            .asked
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|location| location.ends_with(".zip"))
+            .cloned()
+            .collect()
+    }
+
+    #[test]
+    fn a_mirror_serves_the_package_when_the_url_does_not() {
+        let mut f = fixture(&[("com.example.p", "1.0.0", &[])]);
+        let package = f.memory.files.remove(PACKAGE_URL).unwrap();
+        f.memory.files.insert(MIRROR_URL.into(), package);
+        republish(&mut f, |index| {
+            index.plugins[0].versions[0].mirrors = vec![MIRROR_URL.into()];
+        });
+        let market = f.market();
+        let index = market.load_index(INDEX_URL).unwrap();
+        market
+            .install(&index, "com.example.p", None, InstallOptions::default())
+            .unwrap();
+
+        assert!(f.dir.0.join("com.example.p/p.dll").is_file());
+        assert_eq!(package_fetches(&f), [PACKAGE_URL, MIRROR_URL]);
+    }
+
+    #[test]
+    fn a_mirror_is_tried_when_the_url_serves_bytes_the_index_does_not_describe() {
+        let mut f = fixture(&[("com.example.p", "1.0.0", &[])]);
+        let package = f.memory.files[PACKAGE_URL].clone();
+        let mut tampered = package.clone();
+        let last = tampered.len() - 30;
+        tampered[last] ^= 0xFF;
+        f.memory.files.insert(PACKAGE_URL.into(), tampered);
+        f.memory.files.insert(MIRROR_URL.into(), package);
+        republish(&mut f, |index| {
+            index.plugins[0].versions[0].mirrors = vec![MIRROR_URL.into()];
+        });
+        let market = f.market();
+        let index = market.load_index(INDEX_URL).unwrap();
+        market
+            .install(&index, "com.example.p", None, InstallOptions::default())
+            .unwrap();
+
+        assert_eq!(
+            std::fs::read(f.dir.0.join("com.example.p/p.dll")).unwrap(),
+            b"MZ com.example.p 1.0.0"
+        );
+    }
+
+    #[test]
+    fn when_no_location_has_the_package_the_error_names_every_attempt() {
+        let mut f = fixture(&[("com.example.p", "1.0.0", &[])]);
+        f.memory.files.remove(PACKAGE_URL);
+        republish(&mut f, |index| {
+            index.plugins[0].versions[0].mirrors = vec![
+                "https://mirror.example/missing.zip".into(),
+                "../escape.zip".into(),
+            ];
+        });
+        let market = f.market();
+        let index = market.load_index(INDEX_URL).unwrap();
+        let error = market
+            .install(&index, "com.example.p", None, InstallOptions::default())
+            .unwrap_err()
+            .to_string();
+
+        assert!(
+            error.contains("no location gave a valid package"),
+            "{error}"
+        );
+        assert!(error.contains(PACKAGE_URL), "{error}");
+        assert!(error.contains("missing.zip"), "{error}");
+        assert!(error.contains("climbs out"), "{error}");
+        assert_eq!(
+            package_fetches(&f),
+            [PACKAGE_URL, "https://mirror.example/missing.zip"],
+            "a location that climbs out of the folder is never fetched"
+        );
+        assert!(!f.dir.0.join("com.example.p").exists());
+    }
+
+    #[test]
+    fn a_verified_index_is_cached_and_an_older_serial_is_refused() {
+        let mut f = fixture(&[("com.example.p", "1.0.0", &[])]);
+        republish(&mut f, |index| index.serial = Some(5));
+        let cache_dir = Dir::new("cache");
+        let cache = Cache::new(cache_dir.0.clone());
+        f.market()
+            .with_cache(cache_dir.0.clone())
+            .load_index(INDEX_URL)
+            .unwrap();
+        let stored = cache.load(INDEX_URL).expect("the verified index is stored");
+        assert_eq!(stored.index, f.memory.files[INDEX_URL]);
+
+        republish(&mut f, |index| index.serial = Some(4));
+        let error = f
+            .market()
+            .with_cache(cache_dir.0.clone())
+            .load_index(INDEX_URL)
+            .unwrap_err();
+        assert!(error.to_string().contains("rollback"), "{error}");
+        assert_eq!(cache.load(INDEX_URL).unwrap().index, stored.index);
+    }
+
+    #[test]
+    fn an_index_no_trusted_key_signed_is_never_cached() {
+        let mut f = fixture(&[("com.example.p", "1.0.0", &[])]);
+        let cache_dir = Dir::new("unsigned-cache");
+        let cache = Cache::new(cache_dir.0.clone());
+
+        let mut files = f.memory.files.clone();
+        files.remove(&format!("{INDEX_URL}.sig"));
+        let unsigned = Memory {
+            files,
+            ..Default::default()
+        };
+        let mut market = Market::new(
+            &unsigned,
+            f.dir.0.clone(),
+            f.trusted.clone(),
+            PlatformId::windows_x86_64(),
+        )
+        .with_cache(cache_dir.0.clone());
+        market.allow_unsigned = true;
+        assert!(!market.load_index(INDEX_URL).unwrap().signed);
+        assert!(cache.load(INDEX_URL).is_none());
+
+        let (other, _) = trust::generate_keypair().unwrap();
+        let index = f.memory.files[INDEX_URL].clone();
+        f.memory.files.insert(
+            format!("{INDEX_URL}.sig"),
+            trust::sign(&index, &trust::signing_key(&other).unwrap()).into_bytes(),
+        );
+        assert!(f
+            .market()
+            .with_cache(cache_dir.0.clone())
+            .load_index(INDEX_URL)
+            .is_err());
+        assert!(cache.load(INDEX_URL).is_none());
     }
 
     #[test]

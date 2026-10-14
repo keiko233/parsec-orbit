@@ -483,6 +483,9 @@ pub fn build_index(folder: &Path, name: &str) -> Result<Index, Error> {
             sha256: trust::sha256_hex(&bytes),
             size: bytes.len() as u64,
             requires: manifest.requires.clone(),
+            published: None,
+            yanked: false,
+            mirrors: Vec::new(),
         };
         match plugins.iter_mut().find(|plugin| plugin.id == manifest.id) {
             Some(plugin) => plugin.versions.push(release),
@@ -493,6 +496,7 @@ pub fn build_index(folder: &Path, name: &str) -> Result<Index, Error> {
                 author: manifest.author.clone(),
                 license: manifest.license.clone(),
                 versions: vec![release],
+                ..Default::default()
             }),
         }
     }
@@ -500,6 +504,8 @@ pub fn build_index(folder: &Path, name: &str) -> Result<Index, Error> {
     let index = Index {
         format: FORMAT,
         name: name.to_string(),
+        serial: None,
+        generated: None,
         plugins,
     };
     // The same checks a client will make.

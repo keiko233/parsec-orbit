@@ -125,10 +125,16 @@ pub struct Index {
     pub format: u32,
     #[serde(default)]
     pub name: String,
+    /// Increases with every change of content; see [`Index::check_serial`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub serial: Option<u64>,
+    /// When the index was generated (RFC 3339, UTC). Informative only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub generated: Option<String>,
     pub plugins: Vec<Plugin>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Plugin {
     pub id: String,
     #[serde(default)]
@@ -139,6 +145,26 @@ pub struct Plugin {
     pub author: String,
     #[serde(default)]
     pub license: String,
+    /// `lib` or `plugin`; absent means `plugin`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub role: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub summary: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub category: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub homepage: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub group: Option<String>,
+    /// Pre-selected by the installer.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub default: bool,
+    /// A `lib` that a default plugin needs.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub required: bool,
+    /// Published by the official maintainers.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub official: bool,
     pub versions: Vec<Release>,
 }
 
@@ -157,10 +183,23 @@ pub struct Release {
     /// Ids the plugin needs installed first (its `requires`).
     #[serde(default)]
     pub requires: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub published: Option<String>,
+    /// A withdrawn release: never chosen by default, but an exact `--version`
+    /// still selects it.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub yanked: bool,
+    /// Other locations of the same package, tried in order after `url`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub mirrors: Vec<String>,
 }
 
 fn default_api() -> u32 {
     1
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 /// Whether `id` is acceptable as a plugin id and as a path component: 1 to 128
@@ -202,6 +241,16 @@ impl Index {
             seen.push(&plugin.id);
             if plugin.versions.is_empty() {
                 return bad(format!("plugin {} has no versions", plugin.id));
+            }
+            if let Some(role) = plugin
+                .role
+                .as_deref()
+                .filter(|role| !matches!(*role, "lib" | "plugin"))
+            {
+                return bad(format!(
+                    "plugin {} has role {role:?}; expected \"lib\" or \"plugin\"",
+                    plugin.id
+                ));
             }
             let mut versions: Vec<(Version, PlatformId)> = Vec::new();
             for release in &plugin.versions {
@@ -249,6 +298,19 @@ impl Index {
 
     pub fn plugin(&self, id: &str) -> Option<&Plugin> {
         self.plugins.iter().find(|plugin| plugin.id == id)
+    }
+
+    /// Refuses an index older than the one verified before (`cached` is that
+    /// index's serial). A missing serial counts as 0, so an index without one
+    /// is refused once a verified index with a serial has been cached.
+    pub fn check_serial(&self, cached: Option<u64>) -> Result<(), Error> {
+        let (serial, cached) = (self.serial.unwrap_or(0), cached.unwrap_or(0));
+        if serial < cached {
+            return Err(Error::Index(format!(
+                "index serial {serial} is older than the verified serial {cached}: refusing a rollback"
+            )));
+        }
+        Ok(())
     }
 
     /// Serialises with a stable layout (what gets signed).
@@ -301,6 +363,7 @@ impl Plugin {
         }
         self.versions
             .iter()
+            .filter(|release| !release.yanked)
             .filter(|release| release.platform == *platform)
             .filter(|release| release.api <= api)
             .filter_map(|release| Some((Version::parse(&release.version).ok()?, release)))
@@ -336,6 +399,9 @@ mod tests {
             sha256: "ab".repeat(32),
             size: 10,
             requires: Vec::new(),
+            published: None,
+            yanked: false,
+            mirrors: Vec::new(),
         }
     }
 
@@ -347,6 +413,7 @@ mod tests {
             author: String::new(),
             license: String::new(),
             versions,
+            ..Default::default()
         }
     }
 
@@ -354,6 +421,8 @@ mod tests {
         serde_json::to_vec(&Index {
             format: FORMAT,
             name: "test".into(),
+            serial: None,
+            generated: None,
             plugins,
         })
         .unwrap()
@@ -428,6 +497,94 @@ mod tests {
         check(vec![plugin(vec![needs])], "invalid id");
         assert!(Index::parse(b"[]").is_err());
         assert!(Index::parse(b"").is_err());
+    }
+
+    #[test]
+    fn a_yanked_release_is_skipped_unless_its_version_is_asked_for() {
+        let mut yanked = release("2.0.0", 1);
+        yanked.yanked = true;
+        let p = plugin(vec![release("1.0.0", 1), yanked]);
+        let windows = PlatformId::windows_x86_64();
+        assert_eq!(p.select(None, 1, &windows).unwrap().version, "1.0.0");
+        assert_eq!(
+            p.select(Some("2.0.0"), 1, &windows).unwrap().version,
+            "2.0.0"
+        );
+
+        let mut only = release("1.0.0", 1);
+        only.yanked = true;
+        assert!(matches!(
+            plugin(vec![only]).select(None, 1, &windows),
+            Err(Error::Incompatible(_))
+        ));
+    }
+
+    #[test]
+    fn an_index_older_than_the_verified_one_is_refused() {
+        let mut index = Index::parse(&index_of(vec![plugin(vec![release("1.0.0", 1)])])).unwrap();
+        assert!(index.check_serial(None).is_ok(), "nothing cached");
+        assert!(index.check_serial(Some(0)).is_ok(), "a missing serial is 0");
+        index.serial = Some(5);
+        assert!(index.check_serial(Some(5)).is_ok(), "the same index again");
+        assert!(index.check_serial(Some(4)).is_ok(), "newer than the cache");
+        let error = index.check_serial(Some(6)).unwrap_err();
+        assert!(matches!(error, Error::Index(_)), "{error}");
+        assert!(error.to_string().contains("rollback"), "{error}");
+        index.serial = None;
+        assert!(
+            index.check_serial(Some(1)).is_err(),
+            "a missing serial is 0"
+        );
+    }
+
+    #[test]
+    fn the_additive_fields_round_trip_and_stay_out_of_plain_indexes() {
+        let text = format!(
+            r#"{{"format":1,"serial":7,"generated":"2026-10-15T00:00:00Z","x-future":{{"a":1}},"plugins":[{{"id":"a","role":"lib","summary":"s","category":"c","homepage":"h","group":"g","default":true,"required":true,"official":true,"versions":[{{"version":"1.0.0","url":"a.zip","sha256":"{}","size":1,"published":"2026-10-01","yanked":true,"mirrors":["https://m.example/a.zip"]}}]}}]}}"#,
+            "0".repeat(64)
+        );
+        let index = Index::parse(text.as_bytes()).unwrap();
+        assert_eq!(index.serial, Some(7));
+        let listed = &index.plugins[0];
+        assert_eq!(listed.role.as_deref(), Some("lib"));
+        assert!(listed.default && listed.required && listed.official);
+        assert!(listed.versions[0].yanked);
+        assert_eq!(listed.versions[0].mirrors, ["https://m.example/a.zip"]);
+        assert_eq!(Index::parse(index.to_json().as_bytes()).unwrap(), index);
+
+        let plain = Index::parse(&index_of(vec![plugin(vec![release("1.0.0", 1)])])).unwrap();
+        let json = plain.to_json();
+        for key in [
+            "serial",
+            "generated",
+            "role",
+            "summary",
+            "default",
+            "required",
+            "official",
+            "published",
+            "yanked",
+            "mirrors",
+        ] {
+            assert!(
+                !json.contains(&format!("\"{key}\"")),
+                "{key} is written: {json}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_role_is_lib_or_plugin() {
+        for role in ["lib", "plugin"] {
+            let mut p = plugin(vec![release("1.0.0", 1)]);
+            p.role = Some(role.into());
+            assert!(Index::parse(&index_of(vec![p])).is_ok(), "{role}");
+        }
+        let mut app = plugin(vec![release("1.0.0", 1)]);
+        app.role = Some("app".into());
+        let error = Index::parse(&index_of(vec![app])).unwrap_err();
+        assert!(matches!(error, Error::Index(_)), "{error}");
+        assert!(error.to_string().contains("role"), "{error}");
     }
 
     #[test]

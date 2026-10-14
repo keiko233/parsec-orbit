@@ -46,6 +46,10 @@ The key list is `<Orbit root>/market/trusted-keys.txt` (or `--keys`): one `ed255
 * `platform` is optional. It is `<os>-<arch>`: lowercase letters and digits, a `-`, then lowercase letters, digits and `_` (`windows-x86_64`, `macos-arm64`). It is `windows-x86_64` when omitted, preserving existing indexes. Any other valid value is read, but the tool lists and installs only releases for its own platform, which is `windows-x86_64` or `macos-arm64`; a malformed value refuses the index. Two packages may use the same plugin version when they target different platforms, but a platform and version pair must be unique. See [macOS platform rules](macos-platform.md#9-marketplace-on-macos) for package format, ad-hoc signing and paths.
 * `requires` is copied from the plugin's manifest (version constraints dropped); `install --with-deps` installs what the index lists for the host platform.
 * `size` is at most 256 MiB.
+* `serial` (optional integer) rises with every change of the index. A tool that has verified an index with a serial refuses a later index with a lower one (rollback); a missing serial counts as 0. `generated` (optional, RFC 3339) is informative.
+* A plugin's `role` (optional) is `lib` or `plugin`, `plugin` when absent; any other value refuses the index. `summary`, `category`, `homepage`, `group`, `default`, `required` and `official` are presentation fields that are read and written without being acted on here.
+* A release's `published` (optional, RFC 3339 date) is informative. `yanked` (default `false`) withdraws a release: it is never chosen by default, but `--version` still installs it.
+* `mirrors` (optional, in order) are other locations of the package, resolved like `url`. When `url` fails its size or sha256 check, or cannot be fetched, each mirror is tried in turn and the first valid one is installed; a failure names every location tried.
 
 The newest release for the host platform that is compatible and not a pre-release is the default; `--version` picks another matching release, pre-releases included. Asking for a version that exists only on another platform is refused.
 
@@ -65,6 +69,8 @@ It is checked before anything is written: names are plain relative paths with `/
 ## Installing
 
 Plugins go to `<Orbit root>/plugins/<id>/` (or `--plugins-dir`).
+
+The library can keep the last verified index of each source in a cache folder (`Market::with_cache`; the command line does not enable it yet). Only an index a trusted key signed is stored, as `index.json`, `index.json.sig` and `etag` (the sha256 of `index.json`) in `<cache>/<sha256 of the location>/`, each replaced atomically. A later index whose `serial` is lower than the cached one is refused.
 
 1. fetch the index and its signature, verify it;
 2. fetch the package, compare size and sha256, check it;

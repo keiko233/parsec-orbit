@@ -11,6 +11,7 @@
 //!
 //! The specification is `docs/spec/marketplace.md`.
 
+pub mod cache;
 pub mod cli;
 pub mod index;
 pub mod install;
