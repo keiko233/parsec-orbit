@@ -13,6 +13,7 @@
 //! caller passes that path explicitly, and the binary never escalates.
 
 pub mod apply;
+pub mod assessment;
 pub mod cli;
 pub mod digest;
 pub mod journal;

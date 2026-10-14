@@ -117,10 +117,43 @@ def state_changed(before, after):
 def mach_o_arm64(path):
     with Path(path).open("rb") as stream:
         header = stream.read(8)
-    if len(header) < 8:
-        return False
-    magic, cpu = int.from_bytes(header[:4], "little"), int.from_bytes(header[4:8], "little")
-    return magic == 0xFEEDFACF and cpu == 0x100000C
+        if len(header) < 8:
+            return False
+        magic, cpu = int.from_bytes(header[:4], "little"), int.from_bytes(header[4:8], "little")
+        if magic == 0xFEEDFACF:
+            return cpu == 0x100000C
+        if int.from_bytes(header[:4], "big") != 0xCAFEBABE:
+            return False
+        count = int.from_bytes(header[4:8], "big")
+        if count < 1 or count > 2:
+            return False
+        table = stream.read(count * 20)
+        if len(table) != count * 20:
+            return False
+        size = os.fstat(stream.fileno()).st_size
+        slices = []
+        found_arm64 = False
+        for index in range(count):
+            entry = table[index * 20:(index + 1) * 20]
+            cpu, subtype, offset, length, alignment = [
+                int.from_bytes(entry[i:i + 4], "big") for i in range(0, 20, 4)]
+            if (cpu not in (0x1000007, 0x100000C) or alignment > 30
+                    or offset % (1 << alignment) or offset < 8 + count * 20
+                    or length < 32 or offset + length > size):
+                return False
+            if any(cpu == other_cpu or (offset < other_offset + other_size
+                    and other_offset < offset + length)
+                    for other_cpu, other_offset, other_size in slices):
+                return False
+            slices.append((cpu, offset, length))
+            stream.seek(offset)
+            slice_header = stream.read(12)
+            if (int.from_bytes(slice_header[:4], "little") != 0xFEEDFACF
+                    or int.from_bytes(slice_header[4:8], "little") != cpu
+                    or int.from_bytes(slice_header[8:12], "little") != subtype):
+                return False
+            found_arm64 |= cpu == 0x100000C
+        return found_arm64
 
 
 def inside(path, root):

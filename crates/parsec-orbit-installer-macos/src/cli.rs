@@ -17,6 +17,7 @@ parsec-orbit-installer-macos - transactional apply and restore for the patched P
 Usage: parsec-orbit-installer-macos <command> [options]
 
   inspect <app>                    classify the selected bundle; change nothing
+  assess <app>                     report signature, Gatekeeper and quarantine
   apply <app> --loader <dylib>     back up, patch, sign, verify and install
   uninstall <app>                  restore the matching pristine bundle
   status <app>                     print the recorded installation state
@@ -104,6 +105,23 @@ pub fn run(args: &[String], out: &mut dyn Write) -> Result<(), String> {
     }
 
     match command.as_str() {
+        "assess" => {
+            let report = crate::assessment::assess(app_argument(&options)?)?;
+            if options.json {
+                write_json(out, &report)
+            } else {
+                writeln!(
+                    out,
+                    "app: {}\nstrict signature: {}\nGatekeeper: {}\nquarantine: {}\n{}",
+                    report.app.display(),
+                    report.strict_signature.success,
+                    report.gatekeeper.success,
+                    report.quarantine.is_some(),
+                    report.gatekeeper.stderr.trim()
+                )
+                .map_err(|error| error.to_string())
+            }
+        }
         "inspect" => {
             let app = app_argument(&options)?;
             inspect(app, &options, out)

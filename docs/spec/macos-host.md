@@ -16,7 +16,7 @@ Untagged statements are requirements, not observations. A passing disposable-cop
 
 ## 1. Scope and terms
 
-macOS `aarch64`, Parsec 150.x, client mode only. Hosting, x86_64 and an out-of-process plugin companion remain out of scope. Signing/distribution research is required by ADR 0014; Developer ID/notarization success is not assumed.
+macOS `aarch64`, Parsec 150.x, client mode only. Hosting, x86_64 execution and an out-of-process plugin companion remain out of scope. The selected signing route is local ad-hoc signing, including end-user installation (maintainer decision, 2026-10-15); end-user scripts are deferred. Retaining an unmodified x86_64 slice in the vendor universal container is not x86_64 support.
 
 | Term | Meaning |
 | --- | --- |
@@ -148,9 +148,9 @@ Create Orbit root privately (0700). Sign in separately; no credential migration.
 
 - Development PoC: ad-hoc outer signature with runtime and only `com.apple.security.cs.disable-library-validation`; owned dylibs signed first, outer bundle last. Both static dependencies and later real-core plugin loading passed `[measured]`.
 - This removes team validation for this process and replaces the original vendor identity/seal. It does not disable SIP globally or preserve vendor notarization. No `--deep` blanket re-signing of the vendor client.
-- `codesign --verify --strict` passed, but `spctl --assess --type execute` rejected the PoC `[measured]`. Distribution, downloaded/quarantined payloads and any Developer ID/notarization strategy are release gates.
+- Ad-hoc is the selected local installation route for users as well as development. `codesign --verify --strict` passed, but `spctl --assess --type execute` rejected both the PoC and the formal-installer disposable copy `[measured]`. Developer ID/notarization is not a prerequisite for this route; the rejection and downloaded/quarantined behavior must still be reported accurately.
 - Do not silently remove quarantine, bypass warnings or disable protections. Report supported signing behavior accurately.
-- HR remains enabled: earlier plain-host RX/JIT observations cannot be applied to the new host without measurement. JS/Boa behavior, executable-memory requirements and rebinding feasibility require targeted tests, not speculative extra entitlements.
+- HR remains enabled. Config writes/reads and Boa evaluation passed inside the formal-installer disposable client, including re-exec `[measured]`; no JIT or additional entitlements were needed for that scenario. Rebinding feasibility has its own targeted gate; plain-host RX/JIT observations do not justify extra exceptions.
 - Hosting and profile-gated capture remain out of scope. Client microphone/camera/TCC/Keychain effects of re-signing are `[unverified]`.
 
 ## 9. Client versions and compatibility
@@ -172,7 +172,7 @@ Installer responsibilities (`install.sh`/`uninstall.sh`/`package.sh` or equivale
 7. Package only Orbit-owned artifacts/checksums. Signing/Gatekeeper validation is mandatory before claiming a supported release.
 
 Implemented in `parsec-orbit-installer-macos`
-(`inspect|apply|uninstall|status`, `--loader`, `--orbit-root`, `--purge-data`,
+(`inspect|assess|apply|uninstall|status`, `--loader`, `--orbit-root`, `--purge-data`,
 `--json`), which never escalates: it fails with the permission error and
 names the required action. Scratch apply/re-apply/uninstall, injected and
 crafted interruption recovery, exact tree restore (bytes, kind, permission
@@ -180,9 +180,12 @@ bits, size, symlink targets), strict signature verification of the restored
 toy bundle and unknown/stale/running-input refusals are `[measured]` on
 disposable toy bundles, together with `ditto`-staged copies and an inserted
 `LC_LOAD_DYLIB` that dyld honors at runtime. The shipped whitelist recognizes
-the M1a-measured vendor stub hash but no real vendor bundle has been applied.
-`/Applications` authorization, original path/id launch, full metadata/ACL/
-xattr fidelity, vendor-update concurrency and Gatekeeper are `[unverified]`.
+the official universal vendor stub; the 2026-10-15 disposable official-copy
+apply/first-launch/restore also passed `[measured]`. Snapshots now include
+mtime/ownership/ACL/xattrs; cooperating installers are locked and injected
+external replacements are preserved. Actual `/Applications` entry behavior,
+uncooperative vendor-update races and downloaded-payload launch remain
+`[unverified]`. Gatekeeper rejection is measured and explicitly reported.
 See the [installer checkpoint](../design/macos/installer-checkpoint.md).
 
 ## 11. Compatibility with the Windows documents

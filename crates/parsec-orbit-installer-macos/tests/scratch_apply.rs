@@ -572,6 +572,23 @@ fn a_universal_stub_keeps_both_slices_and_restores_exactly() {
 }
 
 #[test]
+fn assessment_keeps_a_synthetic_quarantine_attribute_and_bundle_identity() {
+    let toy = build_toy("installer-assessment", true);
+    let quarantine = "0081;65000000;OrbitScratch;";
+    run(Command::new("/usr/bin/xattr")
+        .args(["-w", "com.apple.quarantine", quarantine])
+        .arg(&toy.app));
+    let before = digest::tree(&toy.app).unwrap();
+    let report = parsec_orbit_installer::assessment::assess(&toy.app).unwrap();
+    assert!(report.strict_signature.success);
+    assert_eq!(report.bundle_id, "com.example.toy");
+    assert_eq!(report.quarantine.as_deref(), Some(quarantine.as_bytes()));
+    assert!(report.signing_details.stderr.contains("Signature=adhoc"));
+    assert!(report.gatekeeper.exit_code.is_some());
+    assert!(digest::differences(&before, &digest::tree(&toy.app).unwrap()).is_empty());
+}
+
+#[test]
 fn an_interrupted_transaction_is_recovered_by_the_next_apply() {
     for after_swap in [false, true] {
         let toy = build_toy(

@@ -226,6 +226,23 @@ def test_mach_o_check():
         fixture.cleanup()
 
 
+def test_universal_mach_o_requires_a_valid_arm64_slice():
+    fixture = Fixture()
+    try:
+        image = bytearray(128)
+        struct.pack_into(">7I", image, 0, 0xCAFEBABE, 1, 0x100000C, 0, 64, 64, 6)
+        struct.pack_into("<3I", image, 64, 0xFEEDFACF, 0x100000C, 0)
+        fixture.executable.write_bytes(image)
+        assert runner.mach_o_arm64(fixture.executable)
+        for field, value in [(16, 0), (20, 1024), (24, 31), (8, 0x1000007)]:
+            broken = image.copy()
+            struct.pack_into(">I", broken, field, value)
+            fixture.executable.write_bytes(broken)
+            assert not runner.mach_o_arm64(fixture.executable)
+    finally:
+        fixture.cleanup()
+
+
 def main():
     tests = [value for name, value in sorted(globals().items())
         if name.startswith("test_") and callable(value)]
