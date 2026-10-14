@@ -33,24 +33,184 @@ commands as thin delegates.
   them.
 - Separate adjacent workflow steps with one blank line.
 
-## Worktrees
+## Worktrees and resource reuse
 
-Feature and refactoring work runs in an isolated git worktree by default; working
-in the current checkout is an option when the user chooses it after a cost
-assessment. Before implementation, weigh the isolation benefit against dependency
-installation, an independent Cargo `target/`, disk use, and any uncommitted changes
-already in the checkout. Summarize the costs, state a recommendation, then ask the
-user and wait for the choice unless they have already chosen. Reuse a suitable
-existing worktree when one is available.
+Feature/refactoring work runs in isolated git worktrees by default. Working in the
+current checkout is an option when the user chooses it after a cost assessment.
+Before implementation:
 
-- Keep the worktree outside the repository tree and give it its own writable
-  `target/`; never share a `CARGO_TARGET_DIR` or link a writable build directory
-  back to the main checkout.
-- Do not change the developer's system configuration or existing directory layout
-  to prepare a worktree.
-- On Windows, `git worktree remove` can fail with `Filename too long` for a
-  worktree with `node_modules`/`target`; force-delete with the `\\?\`
-  extended-length prefix, then `git worktree prune`.
+- Consider the task's scope, expected duration, concurrent work, and existing
+  uncommitted changes in the current checkout.
+- Weigh the isolation benefits against dependency installation, an independent
+  Cargo `target/` (about 19 GB in this checkout), disk usage, and any preparation a
+  fresh worktree needs. Reuse a suitable existing worktree when available.
+- Summarize the relevant costs and benefits, state a recommendation, then ask the
+  user whether to work in a worktree or the current checkout. Wait for their choice
+  before implementation; if they have already specified a choice for the task,
+  follow it without asking again.
+- Keep isolated worktrees as the recommended default for feature/refactoring work.
+  Small, isolated edits may be cheaper in the current checkout; broad changes or
+  concurrent work strengthen the case for a worktree. The assessment adds a
+  user-selectable alternative, not a replacement for the isolation and resource
+  reuse policy.
+
+When the user chooses a worktree, choose a path outside the repo tree using the
+filesystem policy below; respect any location the developer has explicitly
+selected. Worktrees share the main `.git`. Each worktree owns its
+**branch-dependent** outputs; its Cargo `target/` may start as an independent
+copy-on-write (CoW) clone of an existing target.
+
+### Filesystem and location policy
+
+Inspect the filesystem containing the project and the volume containing the source
+target before creating a worktree. Check the proposed destination's existing parent
+as well: a matching filesystem type on two different volumes does not establish
+clone support. Prefer an existing parent outside the repo tree on the same
+clone-capable volume. On Windows, if the project is on ReFS, create the worktree on
+that same ReFS volume rather than defaulting to a worktree directory on NTFS. If
+the developer explicitly chooses a different location, explain any loss of cloning
+and use an independent target there.
+
+Use existing filesystem capabilities only. Do not reformat or repartition disks,
+create or mount VHD/VHDX images, add filesystems or mount points, create snapshot
+datasets/subvolumes, move existing checkouts or caches, or change global
+environment variables or tool configuration to enable reuse. Creating a new
+worktree and its own `target/` under an existing parent is the intended operation;
+reorganizing the developer's existing directories is not.
+
+Before preparing the target, tell the user which filesystem and source/destination
+volume were detected, which native reuse method will be used, and whether that
+method was previously used or verified for this project and these paths. Prefer an
+existing applicable method rather than introducing a different one. A previous
+successful clone or probe may establish support while the relevant volumes, OS and
+copy tool remain applicable; recheck when those conditions change. This is a status
+explanation, not a separate approval step after the worktree choice is already
+authorized. If native cloning is unsupported or cannot be verified with existing
+tools, briefly explain that target reuse will be skipped and build independently.
+Do not pursue VHDs, filesystem changes or other storage workarounds.
+
+| Existing environment                     | Target reuse in a new worktree                                 | Conditions                                                                                                  |
+| ---------------------------------------- | -------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| Windows ReFS                             | CoW (block) clone into the worktree's own `target/`            | Source and destination on the same ReFS volume; verify that the OS and copy operation support block cloning |
+| Windows NTFS                             | Independent target, built as needed                            | No native ReFS-style block cloning; do not substitute hardlinks or provision another volume                 |
+| Unsupported or cross-volume destinations | Independent target, built as needed                            | No verified native CoW clone for the selected paths                                                         |
+
+Parsec Orbit is Windows-only, so the macOS and Linux clone filesystems do not apply
+here.
+
+Use a small disposable file under the selected existing parents to verify clone
+support when it is not already established. A fast copy or a successful command
+alone does not prove shared blocks. A clone-only API/operation must succeed, or
+filesystem extent information must confirm sharing; modifying the destination must
+leave the source unchanged. Do not install system tools or change system settings
+just to run the probe. If cloning cannot be established, report the limitation and
+build an independent target instead of silently copying a large target tree.
+
+The native operation is
+[ReFS block cloning](https://learn.microsoft.com/en-us/windows-server/storage/refs/block-cloning)
+(`FSCTL_DUPLICATE_EXTENTS_TO_FILE`).
+[Robocopy](https://learn.microsoft.com/en-us/windows-server/administration/windows-commands/robocopy/)
+can fall back to an ordinary copy, so its successful exit status alone is
+insufficient to establish CoW reuse. Do not use a full-copy fallback as the default
+for target seeding.
+
+### Reuse policy
+
+| Path (repo-relative)                                       | Approx size | Policy                                                                  | Reason                                                                                                                                     |
+| ---------------------------------------------------------- | ----------- | ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `target/`                                                  | ~19 GB      | **Independent CoW clone when supported; otherwise build independently** | Clones share unchanged data blocks while keeping files and Cargo locks independent; never share a writable target directory                 |
+| `node_modules/`                                            | ~79 MB      | **Independent `pnpm install`**                                          | The pnpm global store already hardlink-dedupes; sharing risks concurrent lock conflicts                                                     |
+| `dist/`                                                    | build output | **Independent - never symlink**                                        | `scripts/package.ps1` wipes and refills it; one worktree's package run would overwrite another's staging                                   |
+| `javascript-sdk/dist/`, `javascript-sdk/dist-test/`, `examples/*-ts/dist/` | build output | **Independent - never symlink**                          | Branch-dependent TypeScript build output                                                                                                   |
+
+No path in this repository is a symlink candidate: there are no downloaded
+sidecars or static resources to share, and every other gitignored path is
+branch-dependent build output. The Cargo `target/` is the one artifact worth
+seeding.
+
+This repository has no gitignored build prerequisites of the kind a Tauri build
+needs: there is no `build.rs` anywhere, and nothing validates a generated `dist/`
+at compile time. A fresh worktree needs `target/` (seeded or built) and a
+`pnpm install`.
+
+### Reuse Cargo target through CoW
+
+- Seed a new, absent `target/` from a suitable existing target on the same
+  clone-capable volume. Do not overwrite an existing worktree's target. A clone
+  creates independent files; it must not hardlink destination files back to the
+  source, use a symlink/junction to the source target, or point multiple worktrees
+  at one `CARGO_TARGET_DIR`. Hardlinks between files entirely inside the new target
+  may be preserved.
+- Clone only while the source target is not being written by Cargo, rustc,
+  rust-analyzer, or other build tools. A recursive file clone is not an atomic
+  directory snapshot. Do not stop the developer's running processes to obtain a
+  seed; if the source cannot be kept idle, skip seeding and build independently.
+- Prefer a source built with the same resolved Rust toolchain version, target
+  triple, lockfile, profile, features, and rustflags. Reuse an already suitable
+  target; do not clean or rebuild the main checkout just to prepare a seed.
+  Preserve timestamps, permissions and link semantics, and ensure copied links do
+  not redirect writes to the source target.
+- Treat the clone as a build cache, not a completed build for the new worktree.
+  Cargo must validate it through the relevant build/check/test command before use.
+  Absolute paths, build-script outputs and source timestamps can cause rebuilding
+  even at the same commit. Do not rewrite Cargo fingerprints or cached paths to
+  force reuse.
+- Cloning saves initial data duplication, not every future build's space: rewritten
+  or newly generated artifacts need storage. Directory size sums can double-count
+  hardlinks and CoW data; assess savings through filesystem allocation information
+  or measured volume-space changes.
+- Keep the `node_modules/` installation and the `dist/` staging independent. Do not
+  extend target cloning into a shared output directory.
+
+For changes to worktree preparation tooling, verify clone support and write
+isolation with disposable files, then verify Cargo behavior after seeding:
+build/check/test as appropriate, rebuild after a source change, build two worktrees
+concurrently, and remove one without modifying the seed or the other worktree. Test
+the unsupported-filesystem path as well: it must leave a usable independent
+worktree without provisioning storage or performing an unannounced full target
+copy.
+
+### Create a worktree
+
+Commands shown for Windows / PowerShell. Choose `<worktree-path>` according to the
+filesystem policy above and `<type>/<name>` according to the task's branch
+convention. After creating the worktree, seed its `target/` according to the CoW
+policy when supported, before launching build tools; otherwise leave it to Cargo
+to create independently.
+
+```powershell
+$main = git rev-parse --show-toplevel                 # capture main checkout root
+git worktree add <worktree-path> -b <type>/<name>
+cd <worktree-path>
+
+# Seed target/ through verified CoW cloning when supported.
+# Otherwise let Cargo create it; never link it back to the main target.
+
+pnpm install
+```
+
+The main checkout lives on `F:` (ReFS). The Codex-managed worktree root under
+`%USERPROFILE%\.codex\worktrees\` is on `C:` (NTFS), so a worktree created there
+cannot reuse the target through a block clone. When target reuse matters, create
+the worktree under an existing parent on `F:` with `git worktree add` instead of
+relying on the default location, or accept an independent target and say so.
+
+### Remove a worktree
+
+`git worktree remove` on Windows can fail with `Filename too long` because
+per-worktree `node_modules/` and `target/` hold paths over MAX_PATH. Force-delete
+with the extended-length prefix, then reconcile git:
+
+```powershell
+Remove-Item -LiteralPath "\\?\<absolute-worktree-path>" -Recurse -Force
+git worktree prune
+git worktree list
+```
+
+Removal reclaims only the worktree's own files - it never touches the main
+checkout or another worktree's target. For CoW target clones, shared data blocks
+remain allocated while another file still references them; deleting a clone
+releases only allocations no longer referenced.
 
 ## Git commits
 
@@ -115,10 +275,10 @@ Body rules:
 Assume the reader is a competent developer familiar with the project; do not
 explain what they already know:
 
-- How to build the project — that belongs in documentation, not in a commit
+- How to build the project - that belongs in documentation, not in a commit
   message.
 - Obvious statements of usage.
-- "Build succeeded" or "all tests green" — the commit's existence already implies
+- "Build succeeded" or "all tests green" - the commit's existence already implies
   it passed.
 
 Mention these only when they are genuinely non-obvious:

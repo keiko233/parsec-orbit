@@ -30,7 +30,8 @@ loader, and the [documentation index](../README.md) for the map of `docs/`.
 - Write the test or reproduce the failure first, then make it pass.
 - Keep changes focused, verify the intended behavior, and submit atomic commits.
 - Prefer isolated worktrees for feature work; ask before choosing the current
-  checkout.
+  checkout, and reuse the Cargo `target/` where the filesystem supports a block
+  clone.
 
 ## Maintaining these rules
 

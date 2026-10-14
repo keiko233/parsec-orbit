@@ -167,9 +167,12 @@ and keep the pnpm commands as thin delegates. See
 
 ## 10. Worktrees
 
-Follow [Worktrees](docs/development/workflow.md#worktrees). Feature and
-refactoring work runs in an isolated worktree by default; assess the cost,
-recommend a location, and ask the user unless they have already chosen.
+Follow [Worktrees and resource reuse](docs/development/workflow.md#worktrees-and-resource-reuse).
+Feature and refactoring work runs in an isolated worktree by default; assess the
+cost, recommend a location, and ask the user unless they have already chosen.
+Reuse the Cargo `target/` through a block clone when the worktree is on the same
+clone-capable volume as the main checkout, and never share a writable target
+directory.
 
 ## 11. Git Commits
 
