@@ -90,7 +90,7 @@ impl Plugin for Webview {
 parsec_orbit_plugin_sdk_std::declare_plugin! {
     id = "com.parsec-orbit.webview",
     name = "WebView UI Patches",
-    version = "0.1.0",
+    version = "0.1.1",
     author = "Parsec Orbit contributors",
     description = "Adds bandwidth limits above 50 Mbps to the WebView UI",
     license = "MIT",

@@ -57,6 +57,7 @@ Budget: 360 KiB = 368,640 bytes, so phase 2 left 512 bytes. The growth is the re
 | `hooks` | 385,536 | `std`, `retour` |
 | `parsec-orbit-market.exe` | 1,847,296 | TLS (`rustls`), zip, ed25519 |
 | loader `bcrypt.dll` | 374,272 | 5,632 bytes over the 360 KiB budget, see below |
+| loader `bcrypt.dll` with the debug console | 381,952 | +7,680 (+2.1 %) over the row above |
 
 Measured again on the release branch rather than on the phase branch these
 numbers were first taken from: the DevTools client now lives in its own crate
@@ -64,13 +65,25 @@ and the webview bridge changed its thread model, so `webview-bridge` and
 `js-runtime` moved by a few KB. `config`, `hooks` and the market tool are
 identical.
 
+**The debug console costs 7,680 bytes.** Measured as the difference between the
+loader at the same commit with and without the feature (374,272 B → 381,952 B,
++2.1 %), both from `cargo build --release --locked`, the build
+[package.ps1](../../scripts/package.ps1) ships. That is the `AllocConsole` /
+`CreateFileW` / `CreateThread` imports, the `Follower`, and the two new `Config`
+fields, plus the token query that tells the client's two instances apart; the
+follower's thread is created with the raw `CreateThread` the plugin worker
+already used, because `std::thread` would have cost about 20 KB on its own. The
+switch is a run-time environment variable (`PARSEC_ORBIT_CONSOLE`), not a cargo
+feature, so the one DLL that ships carries it.
+
 **The loader is over its budget.** Phase 2 left 512 bytes of the 360 KiB
-(368,640 B); the release build is 374,272 B, 5,632 B too much. Nothing in
-phase 5 links against the loader, so the growth is the phase-3/4 work piling
-up in it: the service registry, the per-plugin host tables and the extra host
-revision entries. The documented lever is the `toml` parser below the
-`plugin.toml` reader (about 36 KiB of `.text`); until it is pulled, the
-"stays under 360 KiB" line in [architecture.md](architecture.md) is not met.
+(368,640 B); the release build is 374,272 B and 381,952 B with the console,
+13,312 B too much. Nothing in phase 5 links against the loader, so the growth
+is the phase-3/4 work piling up in it: the service registry, the per-plugin
+host tables and the extra host revision entries. The documented lever is the
+`toml` parser below the `plugin.toml` reader (about 36 KiB of `.text`); until
+it is pulled, the "stays under 360 KiB" line in
+[architecture.md](architecture.md) is not met.
 
 ## macOS arm64 (M0)
 

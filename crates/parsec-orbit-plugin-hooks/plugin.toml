@@ -3,7 +3,7 @@
 # access to the process; install it only for plugins that need it.
 id = "com.parsec-orbit.hooks"
 name = "Hooks"
-version = "0.1.0"
+version = "0.1.1"
 kind = "dll"
 entry = "parsec_orbit_plugin_hooks.dll"
 author = "Parsec Orbit contributors"

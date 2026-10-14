@@ -52,6 +52,55 @@ Everything runs sequentially on the loader worker thread after the warm-up delay
 
 The loader logs `ready: N loaded, M skipped, K failed` and, per decision, one line naming the plugin and the reason (`<id> <version>: skipped, <reason>`). The e2e suite asserts these lines.
 
+## 6. Debug console
+
+`PARSEC_ORBIT_CONSOLE` makes the loader open a console window on its worker
+thread before the first line is logged and mirror every line of the loader log
+into it, unchanged and in the same order. It picks which instances do that:
+
+| Value | Opens a window in |
+| --- | --- |
+| unset, or anything else | no instance (the default) |
+| `1`, `on`, `true`, `yes` | every instance |
+| `client` | only the instance the user started |
+| `host` | only the instance the service started |
+
+The values are spelled exactly: `ON` and `Client` are not recognised. The
+client runs twice on a normal machine - the Parsec service starts one instance
+for hosting, which runs as `LocalSystem` (`S-1-5-18`), and the user starts the
+other - and a Windows console belongs to a single process, so `1` means one
+window per instance while `client` and `host` keep a debug session to one. The
+two are told apart by the process token's user, and that is the only thing
+consulted: a service configured to run under another account would count as a
+client instance, and a token that cannot be read counts as a client's. An
+instance the setting does not cover logs that it was skipped. A process that
+already has a console - a debugger, a host started from a terminal - reuses it
+instead of opening a second window.
+
+The console never changes the load: one that cannot be opened is a warning in
+the log file, and nothing else about the load differs. Ctrl+C and Ctrl+Break
+typed into the window are handled and leave the client running, so a stray
+keypress cannot end a session.
+
+Closing the window is the one event that cannot be survived: Windows sends
+`CTRL_CLOSE_EVENT` so that the process can clean up and then terminates it
+whatever the handler returns (verified on Windows 11, with and without a
+detach attempt). Closing the debug window therefore ends the client, and the
+log file is where the session is read afterwards. The loader does not install
+a handler that pretends otherwise.
+
+The window also follows Parsec's own log, `%APPDATA%\Parsec\log_cl.txt` (the
+client instance) and then `%APPDATA%\Parsec\log.txt` (the instance that
+hosts), and prints appended lines with a `[parsec] ` prefix, so both sides of
+a session are visible in one place. Each file is opened for reading on every
+poll and closed again, which never blocks Parsec's own rotation; a file that
+was replaced or truncated is followed from its beginning again. A log that is
+already there is followed from its end - the lines of previous runs are not
+repeated - except for one of at most 64 KiB written within the last 15 seconds,
+which is a rotation of the current run and is shown from its beginning, so its
+first lines are not lost. A line that grows past 64 KiB without a line break is
+printed as it stands instead of being buffered further.
+
 ## Open questions
 
 * Per-plugin `init` timeout/watchdog (currently none; a hung `init` blocks later plugins).

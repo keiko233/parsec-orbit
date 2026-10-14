@@ -967,7 +967,7 @@ dependencies = [
 
 [[package]]
 name = "parsec-orbit-core"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "parsec-orbit-plugin-abi",
  "toml",
@@ -975,14 +975,14 @@ dependencies = [
 
 [[package]]
 name = "parsec-orbit-devtools"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "serde_json",
 ]
 
 [[package]]
 name = "parsec-orbit-e2e"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "serde_json",
  "windows-sys 0.61.2",
@@ -990,7 +990,7 @@ dependencies = [
 
 [[package]]
 name = "parsec-orbit-fixture-nostd"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "parsec-orbit-plugin-sdk",
  "parsec-orbit-plugin-sdk-std",
@@ -998,14 +998,14 @@ dependencies = [
 
 [[package]]
 name = "parsec-orbit-fixture-plugin"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "parsec-orbit-plugin-sdk",
 ]
 
 [[package]]
 name = "parsec-orbit-installer-macos"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "libc",
  "parsec-orbit-core",
@@ -1017,7 +1017,7 @@ dependencies = [
 
 [[package]]
 name = "parsec-orbit-loader"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "parsec-orbit-core",
  "parsec-orbit-plugin-abi",
@@ -1026,7 +1026,7 @@ dependencies = [
 
 [[package]]
 name = "parsec-orbit-loader-macos"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "libc",
  "parsec-orbit-core",
@@ -1039,7 +1039,7 @@ dependencies = [
 
 [[package]]
 name = "parsec-orbit-macos-state"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "libc",
  "parsec-orbit-core",
@@ -1050,7 +1050,7 @@ dependencies = [
 
 [[package]]
 name = "parsec-orbit-market"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "base64",
  "ed25519-dalek",
@@ -1066,11 +1066,11 @@ dependencies = [
 
 [[package]]
 name = "parsec-orbit-plugin-abi"
-version = "0.1.0"
+version = "0.1.1"
 
 [[package]]
 name = "parsec-orbit-plugin-config"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "parsec-orbit-plugin-sdk-std",
  "serde_json",
@@ -1078,14 +1078,14 @@ dependencies = [
 
 [[package]]
 name = "parsec-orbit-plugin-hello"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "parsec-orbit-plugin-sdk-std",
 ]
 
 [[package]]
 name = "parsec-orbit-plugin-hello-nostd"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "parsec-orbit-plugin-sdk",
  "parsec-orbit-plugin-sdk-std",
@@ -1093,7 +1093,7 @@ dependencies = [
 
 [[package]]
 name = "parsec-orbit-plugin-high-bitrate-native"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "parsec-orbit-plugin-sdk-std",
  "windows-sys 0.61.2",
@@ -1101,7 +1101,7 @@ dependencies = [
 
 [[package]]
 name = "parsec-orbit-plugin-high-bitrate-webview"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "parsec-orbit-plugin-sdk-std",
  "serde_json",
@@ -1109,7 +1109,7 @@ dependencies = [
 
 [[package]]
 name = "parsec-orbit-plugin-hooks"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "parsec-orbit-plugin-sdk-std",
  "retour",
@@ -1118,7 +1118,7 @@ dependencies = [
 
 [[package]]
 name = "parsec-orbit-plugin-js-runtime"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "boa_engine",
  "parsec-orbit-plugin-sdk-std",
@@ -1128,14 +1128,14 @@ dependencies = [
 
 [[package]]
 name = "parsec-orbit-plugin-sdk"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "parsec-orbit-plugin-abi",
 ]
 
 [[package]]
 name = "parsec-orbit-plugin-sdk-std"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "parsec-orbit-plugin-sdk",
  "parsec-orbit-plugin-sdk-std",
@@ -1145,7 +1145,7 @@ dependencies = [
 
 [[package]]
 name = "parsec-orbit-plugin-stun-swap"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "parsec-orbit-plugin-sdk-std",
  "windows-sys 0.61.2",
@@ -1153,7 +1153,7 @@ dependencies = [
 
 [[package]]
 name = "parsec-orbit-plugin-webview-bridge"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "parsec-orbit-devtools",
  "parsec-orbit-plugin-sdk-std",
@@ -1162,21 +1162,21 @@ dependencies = [
 
 [[package]]
 name = "parsec-orbit-verify-callpaths"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "windows-sys 0.61.2",
 ]
 
 [[package]]
 name = "parsec-orbit-verify-roundtrip"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "windows-sys 0.61.2",
 ]
 
 [[package]]
 name = "parsec-orbit-verify-webview-inject"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "parsec-orbit-devtools",
  "parsec-orbit-plugin-high-bitrate-webview",
@@ -1521,9 +1521,9 @@ dependencies = [
 
 [[package]]
 name = "sha2"
-version = "0.11.0"
+version = "0.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "446ba717509524cb3f22f17ecc096f10f4822d76ab5c0b9822c5f9c284e825f4"
+checksum = "47d7069beb7d6ac7b9acd1039986e73443f24234f41074da099d6f994ac9ad19"
 dependencies = [
  "cfg-if",
  "cpufeatures",
@@ -2115,9 +2115,9 @@ dependencies = [
 
 [[package]]
 name = "zip"
-version = "9.0.2"
+version = "9.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9e2fc56a6707efb066c40aead2409ebb1224e6dde24a074e9fbc78ced500507b"
+checksum = "c2d98561b612a84ae525331a7a094429ef8a5772514ed507ff6db5f54badc971"
 dependencies = [
  "crc32fast",
  "flate2",

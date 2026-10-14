@@ -3,7 +3,7 @@
 # per-plugin settings, kept as JSON below %APPDATA%\ParsecOrbit\data\<this id>\.
 id = "com.parsec-orbit.config"
 name = "Config Store"
-version = "0.1.0"
+version = "0.1.1"
 kind = "dylib"
 entry = "libparsec_orbit_plugin_config.dylib"
 author = "Parsec Orbit contributors"

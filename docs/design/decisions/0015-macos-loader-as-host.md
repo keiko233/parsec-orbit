@@ -1,4 +1,4 @@
-# 0006 - macOS runs the client from a host we control
+# 0015 - macOS runs the client from a host we control
 
 Status: Superseded as the default product route by [ADR 0014](0014-macos-patched-bundle.md). This record preserves the earlier host-copy decision.
 

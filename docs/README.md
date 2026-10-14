@@ -5,6 +5,7 @@
 | [`spec/`](spec/) | Normative specifications: ABI, manifest, loading rules, host services, SDK APIs. A change in behaviour changes the spec in the same commit. | Plugin authors, SDK and loader implementers |
 | [`design/`](design/) | Why things are the way they are: architecture, decision records, roadmap. Not normative. | Contributors |
 | [`guides/`](guides/) | Task-oriented how-tos (write a Rust plugin, write a TypeScript plugin, ship a plugin). Written together with the SDKs they describe. | Plugin authors |
+| [`development/`](development/) | How we work: workflow, commits, testing and Rust style, and the rules coding agents must follow. | Contributors and coding agents |
 
 ## Specifications
 
@@ -34,6 +35,7 @@ open questions at the end.
 * [design/macos-phases.md](design/macos-phases.md) - macOS phases M0-M2: deliverables, exit criteria, dependencies, risks
 * [design/size-report.md](design/size-report.md) - measured sizes: runtime spike, plugins, loader
 * [design/releasing.md](design/releasing.md) - how releases and crate publishing are done
+* [design/network-installer.md](design/network-installer.md) - signed release manifests and the install/upgrade/uninstall script
 * [design/decisions/](design/decisions/) - decision records (`NNNN-title.md`)
 * [design/macos/](design/macos/) - macOS support research: constraints, client internals, the loader-as-host design and its dynamic smoke test
 

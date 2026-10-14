@@ -75,6 +75,20 @@ scripts\package.ps1        # stages dist\ with bcrypt.dll, plugin zips, SHA256SU
 powershell -ExecutionPolicy Bypass -File scripts\install.ps1   # from an elevated prompt
 ```
 
+To install from a GitHub release instead of a checkout:
+
+```powershell
+irm https://github.com/keiko233/parsec-orbit/releases/latest/download/orbit-manager.ps1 -OutFile $env:TEMP\orbit-manager.ps1
+powershell -ExecutionPolicy Bypass -File $env:TEMP\orbit-manager.ps1 install
+```
+
+`install` fetches the signed release manifest, lets you pick optional plugins
+and whether to force the WebView2 UI, and requires an elevated prompt.
+`upgrade` updates an existing install, `uninstall` restores the original
+`bcrypt.dll`, and `plugins list|install|remove|update` manages official
+plugins through the market tool. See
+[docs/design/network-installer.md](docs/design/network-installer.md).
+
 `scripts\install.ps1` stops the Parsec service, backs up the previous
 `bcrypt.dll`, copies the loader and the official plugins into
 `C:\Program Files\Parsec\plugins\` and starts the service again
@@ -84,7 +98,15 @@ hand, copy `bcrypt.dll` next to `parsecd.exe` (typically
 
 The client loads the proxy at start-up. It appends to the first writable path
 of `PARSEC_ORBIT_LOG`, `%APPDATA%\ParsecOrbit\parsec-orbit.log`, the client
-directory and `%TEMP%`, and mirrors every line to the debugger output.
+directory and `%TEMP%`, and mirrors every line to the debugger output. With
+`PARSEC_ORBIT_CONSOLE=1` it also opens a console window before the first line
+and shows the same lines next to Parsec's own log (`%APPDATA%\Parsec\`), so a
+plugin can be watched while the client starts. The client runs as two
+instances (the one the user started and the one the service started), and each
+gets its own window with `1`; `PARSEC_ORBIT_CONSOLE=client` or `=host` opens it
+in one of them only. Closing that window ends the client with it - Windows
+terminates a process whose console is closed - so the log file is what remains
+of a session that ended that way.
 
 ### macOS arm64 local installation
 

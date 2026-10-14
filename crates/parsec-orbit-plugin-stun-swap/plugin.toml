@@ -2,7 +2,7 @@
 # install the detour; the loader skips this plugin when hooks is absent.
 id = "com.keiko233.stun-swap"
 name = "CN STUN Swap"
-version = "0.1.0"
+version = "0.1.1"
 kind = "dll"
 entry = "parsec_orbit_plugin_stun_swap.dll"
 author = "keiko"

@@ -160,11 +160,13 @@ Copy the folder (`plugin.toml` plus the DLL) to `<Parsec client directory>\plugi
 
 To try a plugin without installing it, point `PARSEC_ORBIT_PLUGIN_DIR` at a directory that contains it.
 
-On macOS the loader reads `<Orbit root>/plugins` and `PARSEC_ORBIT_PLUGIN_DIR`
-as well, with `:` as the separator (`PARSEC_ORBIT_HOME` moves the root from
-`~/Library/Application Support/ParsecOrbit`), but there is no installed loader
-to put a plugin in yet: that arrives with M1, and until then the macOS loader
-is exercised by `cargo test -p parsec-orbit-loader-macos` alone.
+On macOS, install native plugins under `<Orbit root>/plugins`, using the
+macOS manifest and an ad-hoc signed arm64 dylib. The loader also reads
+`PARSEC_ORBIT_PLUGIN_DIR` with `:` as the separator. See the
+[macOS installation guide](macos-install.md) for the patched-app installation
+and isolated state root.
+
+On Windows, to watch the log while the client starts, set `PARSEC_ORBIT_CONSOLE=1`: the loader opens a console window and mirrors the log into it, next to Parsec's own log lines. The client runs twice (the user's instance and the service's), so `1` opens a window for each; `PARSEC_ORBIT_CONSOLE=client` (or `host`) opens it in one of them.
 
 ## Samples
 

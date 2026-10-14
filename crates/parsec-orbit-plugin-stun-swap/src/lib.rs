@@ -495,7 +495,7 @@ impl Plugin for StunSwap {
 parsec_orbit_plugin_sdk_std::declare_plugin! {
     id = "com.keiko233.stun-swap",
     name = "CN STUN Swap",
-    version = "0.1.0",
+    version = "0.1.1",
     author = "keiko",
     description = "Redirects stun.parsec.app to healthy mainland-China STUN servers",
     license = "MIT",

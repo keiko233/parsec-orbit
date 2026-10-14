@@ -132,9 +132,10 @@ fn timestamp() -> (u16, u16, u16, u16, u16, u16) {
     )
 }
 
-/// Appends one line. Every line is also mirrored to the debugger output, and a
-/// failed write is retried: a reader that did not share write access is enough
-/// to make a single attempt fail.
+/// Appends one line. Every line is also mirrored to the debugger output and,
+/// when the console was opened, to its window; a failed write is retried: a
+/// reader that did not share write access is enough to make a single attempt
+/// fail.
 fn write_line(path: Option<&Path>, line: &str) {
     if let Some(path) = path {
         let name = wide(&path.to_string_lossy());
@@ -174,6 +175,10 @@ fn write_line(path: Option<&Path>, line: &str) {
         .chain(std::iter::once(0))
         .collect();
     unsafe { OutputDebugStringW(text.as_ptr()) };
+
+    // The console sink adds the line break it needs, so it gets the line
+    // without this one.
+    parsec_orbit_core::console::print_line(line.strip_suffix('\n').unwrap_or(line));
 }
 
 /// `[MM-DD hh:mm:ss.mmm] [tag] [process pid=N] message`, newline terminated.

@@ -578,6 +578,63 @@ fn logging_goes_to_appdata_by_default() {
 }
 
 #[test]
+fn the_debug_console_is_opt_in() {
+    // Off by default: nothing about a console in the log.
+    let off = client("console-off");
+    let run = run_client(&off);
+    run.assert_success()
+        .assert_log_contains("ready:")
+        .assert_log_lacks("debug console");
+
+    // On: the loader opens a console (the host already has one, so it is
+    // reused here) and reports the outcome. A machine where the console
+    // cannot be opened must report that instead - and still load plugins.
+    let on = client("console-on");
+    let run = on.run(CLIENT, "ready:", |command| {
+        command.env("PARSEC_ORBIT_CONSOLE", "1");
+    });
+    run.assert_success().assert_log_contains("ready:");
+    assert!(
+        run.log.contains("debug console open") || run.log.contains("no console could be opened"),
+        "the console attempt has to be reported either way\n{}",
+        run.describe()
+    );
+
+    if run.log.contains("debug console open") {
+        run.assert_log_contains(&format!(
+            "following Parsec's log: {}",
+            on.appdata.join("Parsec").join("log_cl.txt").display()
+        ));
+    }
+
+    // The narrow values pick one of the client's two instances. This test
+    // runs as the logged-in user, so it is the client instance: `client`
+    // opens the window here and `host` leaves it closed, saying why.
+    let only_client = client("console-client");
+    let run = only_client.run(CLIENT, "ready:", |command| {
+        command.env("PARSEC_ORBIT_CONSOLE", "client");
+    });
+    run.assert_success().assert_log_contains("ready:");
+    assert!(
+        run.log.contains("debug console open") || run.log.contains("no console could be opened"),
+        "PARSEC_ORBIT_CONSOLE=client is this instance and has to try\n{}",
+        run.describe()
+    );
+
+    let only_host = client("console-host");
+    let run = only_host.run(CLIENT, "ready:", |command| {
+        command.env("PARSEC_ORBIT_CONSOLE", "host");
+    });
+    run.assert_success()
+        .assert_log_contains("ready:")
+        .assert_log_contains(
+            "debug console skipped: PARSEC_ORBIT_CONSOLE=host does not cover this instance (client)",
+        )
+        .assert_log_lacks("debug console open")
+        .assert_log_lacks("following Parsec's log");
+}
+
+#[test]
 fn an_unwritable_log_path_costs_only_that_candidate() {
     let sandbox = client("log-fallback");
     // A directory cannot be opened as a log file.

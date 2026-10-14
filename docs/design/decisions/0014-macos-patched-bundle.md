@@ -1,7 +1,7 @@
 # 0014 - macOS loads Orbit through a patched official app bundle
 
 Status: Accepted direction; implementation and distribution gates remain open.
-Supersedes ADR 0006 and ADR 0012 as the default product route. Partially supersedes ADR 0011's exclusion of signing/distribution research and its no-entitlement assumption. ADR 0007's isolated state remains required, with the additional shared-path coverage below.
+Supersedes [ADR 0015](0015-macos-loader-as-host.md) and ADR 0012 as the default product route. Partially supersedes ADR 0011's exclusion of signing/distribution research and its no-entitlement assumption. ADR 0007's isolated state remains required, with the additional shared-path coverage below.
 
 ## Context
 

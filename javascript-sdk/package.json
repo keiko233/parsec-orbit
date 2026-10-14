@@ -1,6 +1,6 @@
 {
   "name": "@parsec-orbit/sdk",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "SDK for Parsec Orbit JavaScript and TypeScript plugins: types, definePlugin, the page-side helper and a mock host for tests",
   "keywords": ["parsec", "plugin", "sdk"],
   "license": "MIT",

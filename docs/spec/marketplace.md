@@ -86,16 +86,34 @@ parsec-orbit-market index <folder> --out index.json [--name text]   # publishers
 parsec-orbit-market keygen <name>             # writes <name>.key (secret), prints the public key line
 parsec-orbit-market sign index.json --key <name>.key
 parsec-orbit-market verify index.json [--keys file]
+parsec-orbit-market verify-any file [--keys file]
 ```
 
-`--index` can also come from `PARSEC_ORBIT_INDEX`. Locations are files or `http(s)` URLs.
+`--index` can also come from `PARSEC_ORBIT_INDEX`. Locations are files or
+`http(s)` URLs. `verify-any` checks a signature without requiring the file to
+be an index; the network installer uses it for `release.json`.
 
 ## Publishing
 
-The `index` publisher command marks packages with `kind = "dylib"` as `macos-arm64`; other packages retain the `windows-x86_64` default. The market tool is not shipped yet: the workspace still builds and tests it, but `scripts/package.ps1` leaves `parsec-orbit-market.exe` out of `dist\` and no `index.json` is published with a release. When it does ship, the plan is for the release workflow to build `index.json` from the zips in `dist` and sign it with the `MARKET_SIGNING_KEY` secret (the content of the `.key` file made by `keygen`), so the index of a release is `https://github.com/<owner>/<repo>/releases/download/<tag>/index.json`. Generating and guarding the real key is the maintainer's job; the repository contains none.
+The `index` publisher command marks packages with `kind = "dylib"` as
+`macos-arm64`; other packages retain the `windows-x86_64` default.
+
+`scripts/package.ps1` ships `parsec-orbit-market.exe` with every release,
+builds `index.json` from the zips in `dist`, and writes `release.json` (the
+distribution manifest the network installer reads). When the maintainer
+passes `-SigningKeyFile`, the same step signs both JSON files. The Release
+workflow turns the `MARKET_SIGNING_KEY` secret (the content of the `.key` file
+made by `keygen`) into a temporary key file, so the index of a release is
+`https://github.com/<owner>/<repo>/releases/download/<tag>/index.json`.
+Generating and guarding the real key, and putting its public line into the
+network installer's embedded key constant, is the maintainer's job; the
+repository contains no secret.
 
 ## Not (yet) provided
 
 * The `parsec-orbit.market` interface (install source and update metadata of a plugin to other plugins) is reserved; the metadata is the `market.json` file for now.
-* No automatic updates, no in-client UI, no revocation list (a leaked key is dealt with by changing the key list).
+* No automatic background updates and no in-client UI; upgrades are explicit
+  through `scripts/orbit-manager.ps1 upgrade` (see
+  [network-installer.md](../design/network-installer.md)). No revocation list
+  exists; a leaked key is dealt with by changing the key list.
 * No version constraints in `requires` (see the [manifest](plugin-manifest.md)).

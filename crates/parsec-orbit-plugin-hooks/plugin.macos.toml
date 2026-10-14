@@ -1,7 +1,7 @@
 # macOS arm64 package metadata for the official hooks plugin.
 id = "com.parsec-orbit.hooks"
 name = "Hooks"
-version = "0.1.0"
+version = "0.1.1"
 kind = "dylib"
 entry = "libparsec_orbit_plugin_hooks.dylib"
 author = "Parsec Orbit contributors"

@@ -4,7 +4,7 @@
 # of the default install; a JavaScript plugin lists it in `requires`.
 id = "com.parsec-orbit.js-runtime"
 name = "JavaScript Runtime"
-version = "0.1.0"
+version = "0.1.1"
 kind = "dylib"
 entry = "libparsec_orbit_plugin_js_runtime.dylib"
 author = "Parsec Orbit contributors"

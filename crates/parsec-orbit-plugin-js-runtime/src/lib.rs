@@ -42,7 +42,7 @@ impl Plugin for JsRuntime {
 parsec_orbit_plugin_sdk_std::declare_plugin! {
     id = "com.parsec-orbit.js-runtime",
     name = "JavaScript Runtime",
-    version = "0.1.0",
+    version = "0.1.1",
     author = "Parsec Orbit contributors",
     description = "Runs JavaScript plugins (kind = \"js\") and provides parsec-orbit.js",
     license = "MIT",

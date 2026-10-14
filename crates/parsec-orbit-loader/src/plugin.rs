@@ -187,6 +187,8 @@ mod tests {
             data_root: None,
             devtools_port: None,
             any_host: false,
+            console: parsec_orbit_core::console::Target::Off,
+            parsec_logs: Vec::new(),
         }
     }
 

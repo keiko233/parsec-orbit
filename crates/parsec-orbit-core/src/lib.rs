@@ -11,6 +11,7 @@
 //! This crate must stay light (see ADR 0004): no async runtime, no serde.
 
 pub mod activate;
+pub mod console;
 pub mod host;
 pub mod kind;
 pub mod manifest;
