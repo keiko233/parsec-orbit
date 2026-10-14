@@ -961,7 +961,7 @@ script re-bootstrap with `get-orbit`; the release notes say so.
 | 0020 | The market is a plugin over the `registry` library | marketplace spec sections on the CLI |
 | 0021 | The installer and release tooling are Rust | 0006; `AGENTS.md` §8 |
 | 0022 | The official registry is `manifest/` on `main`, signed by CI | marketplace spec "Publishing" |
-| 0023 | Pending-update promotion in `core` | none |
+| 0023 | Pending-update promotion in `core`. **Written, accepted, implemented.** | none |
 | 0024 | `no_std` policy: plugins by measurement, no SDK feature switch, loader spike gate | none |
 | 0025 | File formats: TOML for edited files, JSON for exchanged ones, one source per fact | none |
 

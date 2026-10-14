@@ -20,6 +20,9 @@ pub struct Config {
     pub plugin_dirs: Vec<PathBuf>,
     /// Parent of the per-plugin data directories.
     pub data_root: Option<PathBuf>,
+    /// Where Orbit installs plugins and where it stages updates of loaded
+    /// ones.
+    pub staging: Option<(PathBuf, PathBuf)>,
 }
 
 /// The real home of the current user, straight from the passwd database.
@@ -90,6 +93,7 @@ impl Config {
 
     fn from_layout(layout: Layout) -> Self {
         Config {
+            staging: layout.managed_plugins_dir().zip(layout.pending_dir()),
             orbit_root: layout.root.unwrap_or_else(|| PathBuf::from("ParsecOrbit")),
             log_candidates: layout.log_candidates,
             plugin_dirs: layout.plugin_dirs,

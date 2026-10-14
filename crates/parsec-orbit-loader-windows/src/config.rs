@@ -19,6 +19,9 @@ pub struct Config {
     pub plugin_dirs: Vec<PathBuf>,
     /// Parent of the per-plugin data directories; `None` without `%APPDATA%`.
     pub data_root: Option<PathBuf>,
+    /// Where Orbit installs plugins and where it stages updates of loaded
+    /// ones; `None` without `%APPDATA%`.
+    pub staging: Option<(PathBuf, PathBuf)>,
     /// `None` disables the devtools arguments.
     pub devtools_port: Option<u16>,
     /// Run the full plugin work even when the host is not the client.
@@ -72,6 +75,7 @@ impl Config {
         }
 
         Config {
+            staging: layout.managed_plugins_dir().zip(layout.pending_dir()),
             log_candidates: layout.log_candidates,
             plugin_dirs: layout.plugin_dirs,
             data_root: layout.data_root,

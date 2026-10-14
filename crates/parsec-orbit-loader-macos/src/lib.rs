@@ -68,6 +68,9 @@ static SESSION: Session = Session::new();
 /// the Windows loader: host callbacks keep pointing at the same sink.
 pub fn scan(config: &Config) -> Summary {
     parsec_orbit_core::host::install_logger(&SINK);
+    if let Some((plugins, pending)) = &config.staging {
+        parsec_orbit_core::staging::promote(&SINK, plugins, pending);
+    }
     SESSION.scan(
         Env {
             platform: &MacPlatform,

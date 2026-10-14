@@ -104,9 +104,13 @@ impl Logger for FileLogger {
 
 static FILE_LOGGER: FileLogger = FileLogger;
 
-/// Walks every configured plugin directory and logs the `ready:` summary.
+/// Promotes staged updates, walks every configured plugin directory and logs
+/// the `ready:` summary.
 pub fn scan(config: &Config) -> Summary {
     parsec_orbit_core::host::install_logger(&FILE_LOGGER);
+    if let Some((plugins, pending)) = &config.staging {
+        parsec_orbit_core::staging::promote(&FILE_LOGGER, plugins, pending);
+    }
     SESSION.scan(
         Env {
             platform: &Win32Platform,
@@ -167,6 +171,7 @@ mod tests {
             log_candidates: Vec::new(),
             plugin_dirs: dirs.iter().map(|dir| dir.to_path_buf()).collect(),
             data_root: None,
+            staging: None,
             devtools_port: None,
             any_host: false,
             console: parsec_orbit_core::console::Target::Off,

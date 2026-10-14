@@ -19,6 +19,7 @@ pub mod manifest;
 pub mod plan;
 pub mod scan;
 pub mod session;
+pub mod staging;
 #[cfg(any(test, feature = "testutil"))]
 pub mod testutil;
 

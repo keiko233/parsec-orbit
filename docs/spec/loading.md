@@ -2,6 +2,10 @@
 
 Status: implemented on Windows (`parsec-orbit-core`: `scan`, `plan`, `kind`) and for the macOS platform crate (`crates/parsec-orbit-loader-macos`, M0). The entries marked **macOS** are the platform differences; the launch bootstrap that installs them end-to-end is M1 ([macos-platform.md](macos-platform.md)). The per-plugin `init` contract is in [plugin-abi.md](plugin-abi.md#lifecycle).
 
+## 0. Staged updates
+
+Before it discovers anything, the loader promotes updates that a program running inside the client staged (the market plugin cannot replace a mapped DLL). `<Orbit root>/pending/<id>/` holds a complete plugin folder; for each such folder whose name is a valid plugin id and that contains `plugin.toml`, `<Orbit root>/plugins/<id>/` is replaced by it: the installed folder is renamed to `<id>.orbit-old`, the staged folder is renamed in, and the old one is deleted. If the second rename fails the old folder is put back and the failure is logged; leftovers `<id>.orbit-old` are deleted by the next start. Names starting with `.` are ignored (a writer's unfinished copy). Nothing is mapped at that point, so the rename cannot collide with a loaded image. Without an Orbit root (a Windows service environment without `%APPDATA%`) nothing is promoted. Implemented in `parsec_orbit_core::staging`, called by both loaders ([ADR 0023](../design/decisions/0023-staged-update-promotion.md)).
+
 ## 1. Discovery
 
 Plugin directories, in priority order: `PARSEC_ORBIT_PLUGIN_DIR`

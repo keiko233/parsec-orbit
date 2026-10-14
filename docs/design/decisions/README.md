@@ -25,3 +25,4 @@ Format: Context, Decision, Consequences.
 | [0017](0017-one-sdk-package-no-features.md) | One SDK package without features; `sdk-std` dissolved | Accepted |
 | [0018](0018-crate-roles-and-layout.md) | Crate roles and directory layout | Accepted |
 | [0019](0019-layout-crate-and-shared-loader-glue.md) | One `layout` crate and shared loader glue | Accepted |
+| [0023](0023-staged-update-promotion.md) | Staged updates are promoted by the loader | Accepted |

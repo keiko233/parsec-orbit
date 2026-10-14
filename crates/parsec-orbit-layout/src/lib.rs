@@ -21,6 +21,8 @@ use std::path::{Path, PathBuf};
 /// Directory names inside the Orbit root.
 pub const PLUGINS_DIR: &str = "plugins";
 pub const DATA_DIR: &str = "data";
+/// Updates staged for the next start ([`Layout::pending_dir`]).
+pub const PENDING_DIR: &str = "pending";
 /// The loader log file name, in every location it is offered.
 pub const LOG_FILE: &str = "parsec-orbit.log";
 
@@ -110,6 +112,17 @@ fn dedupe(os: Os, paths: Vec<PathBuf>) -> Vec<PathBuf> {
 }
 
 impl Layout {
+    /// The plugin directory Orbit itself installs into (`<root>/plugins`).
+    pub fn managed_plugins_dir(&self) -> Option<PathBuf> {
+        self.root.as_ref().map(|root| root.join(PLUGINS_DIR))
+    }
+
+    /// Where updates of loaded plugins are staged (`<root>/pending`); the
+    /// loader promotes them before it maps anything.
+    pub fn pending_dir(&self) -> Option<PathBuf> {
+        self.root.as_ref().map(|root| root.join(PENDING_DIR))
+    }
+
     /// A layout below a fixed Orbit root, ignoring the environment. The macOS
     /// activated host uses it: its paths come from the installation record,
     /// not from variables a process could set.
@@ -272,6 +285,18 @@ mod tests {
         assert_eq!(mac(&layout.log_candidates), ["/orbit/parsec-orbit.log"]);
         assert_eq!(layout.data_root.as_deref(), Some(Path::new("/orbit/data")));
         assert_eq!(layout.root.as_deref(), Some(Path::new("/orbit")));
+    }
+
+    #[test]
+    fn staged_updates_live_next_to_the_managed_plugins() {
+        let layout = Layout::for_root(PathBuf::from("/orbit"));
+        assert_eq!(
+            layout.managed_plugins_dir(),
+            Some(PathBuf::from("/orbit/plugins"))
+        );
+        assert_eq!(layout.pending_dir(), Some(PathBuf::from("/orbit/pending")));
+        let service = windows(Some("C:\\Parsec"), &[]);
+        assert_eq!(service.pending_dir(), None, "no %APPDATA%, nothing staged");
     }
 
     #[test]

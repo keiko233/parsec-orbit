@@ -73,6 +73,7 @@ pub extern "C" fn ParsecOrbitMacosHarnessRun(
             .map(|part| PathBuf::from(part.trim()))
             .collect(),
         data_root,
+        staging: None,
     };
     let _ = crate::log::init(&config.log_candidates);
     crate::scan(&config).failed as i32
