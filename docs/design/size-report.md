@@ -1,6 +1,6 @@
 # Size report
 
-Measured on `x86_64-pc-windows-msvc`, release profile (`opt-level = "z"`, `lto = "fat"`, `codegen-units = 1`, `panic = "abort"`, `strip = "symbols"`), static CRT where a CRT is linked at all. Sizes are bytes of the DLL.
+Measured on `x86_64-pc-windows-msvc`, release profile (`opt-level = "z"`, `lto = "fat"`, `codegen-units = 1`, `panic = "abort"`, `strip = "symbols"`), static CRT where a CRT is linked at all. Sizes are bytes of the DLL. The [macOS arm64](#macos-arm64-m0) numbers below were taken with the same profile on `aarch64-apple-darwin`.
 
 ## Plugin runtime spike (phase 3)
 
@@ -84,3 +84,78 @@ host tables and the extra host revision entries. The documented lever is the
 `toml` parser below the `plugin.toml` reader (about 36 KiB of `.text`); until
 it is pulled, the "stays under 360 KiB" line in
 [architecture.md](architecture.md) is not met.
+
+## macOS arm64 (M0)
+
+Measured on `aarch64-apple-darwin` with the same release profile, `.dylib`
+sizes in bytes. The Windows budget above is not a macOS budget: the macOS
+loader is a plugin *host* loaded into Parsec by a patched-bundle load command,
+not a proxy DLL, and M1 grows it with the installation gate, the isolation
+shims and the readiness probe. The 360 KiB line still stands as the reference
+until M1 settles what the injected dylib really needs, and the difference is
+worth watching: the `harness` build is 62,128 B heavier than the Windows
+`bcrypt.dll` (436,400 B vs 374,272 B) with the same profile, before any of the
+M1 gate, shims or readiness code exists. Two caveats on the comparison: this
+build links `std`/libSystem rather than the Windows no-CRT layout, and it is
+not yet fully reachable, so dead-code stripping will move the number again
+once the M1 bootstrap calls into the whole crate.
+
+| Artifact | Size | Notes |
+| --- | ---: | --- |
+| loader `libparsec_orbit_loader.dylib` with `harness` | 436,400 | closest to the M1 injected build |
+| loader `libparsec_orbit_loader.dylib` without `harness` | 16,720 | not a useful number yet: no constructor or discovery entry point is linked, so most of the crate is dead-stripped |
+| `hello-nostd` (`freestanding!`) | 50,272 | libSystem heap, no CRT |
+| fixture `no_std` (`.alloc`/`.stack` kinds) | 67,248 | test fixture |
+| `hello` (`std`) | 285,472 | |
+| fixture `plugin` (`std`) | 302,608 | test fixture |
+
+The `no_std` jump from 10,752 B on Windows to 50,272 B here is Mach-O
+section/LoadCommand overhead plus the Rust `core` flavour and the libSystem
+imports (`malloc`, `free`, `realloc`, `posix_memalign`) the Windows
+`raw-dylib` build keeps leaner. `core::fmt` is still the bulk of the code.
+
+### M1a checkpoint (accepted 2026-10-14, not the completed loader)
+
+The default release dylib with the dependency constructor, installation
+binding, NSS interception, custom-SBPL isolation gate, shared-persistent
+redirect, verified home arming, deferred runtime worker and the
+`parsec-orbit.client` service is **571,504 B** on macOS 27 arm64
+(`cbccb4f9...d5cee`; 386,528 B before those runtime additions were linked in,
+369,104 B before the isolation profile and interposition table). It is
+measured with the release profile above and no `harness` feature. Reaching
+vendor main now links the previously dead-stripped core activation, so this
+number is a checkpoint, not a final budget, and it is above the historical
+360 KiB Windows reference. The new JSON/hash dependencies reuse the
+workspace's existing serde/serde_json/sha2 versions; no second crypto
+dependency stack was added.
+
+### M1b checkpoint (2026-10-14, not the completed loader)
+
+Moving the seed transaction out of the loader crate into the shared
+`parsec-orbit-macos-state` rlib (so the transactional installer can seed
+without linking the loader `cdylib`) rebuilt the same default release dylib at
+**571,472 B**, SHA-256
+`b278d7b8c4b68e720a03d45d54c7c55433e486addbf35e00d6a97ce4d377f5b0`
+(32 B smaller than the M1a checkpoint; the loader re-exports `seed`/`Seed
+Report` unchanged). The new installer binary `parsec-orbit-installer-macos`
+is **505,680 B** in the same release profile; it is an ordinary CLI, not part
+of the injected dylib, so it does not consume the loader budget.
+
+
+### M1c/M2 independent checkpoint (2026-10-15)
+
+Default release artifacts, macOS arm64, without `harness`. Sizes include the
+linker's signature; applying/signing copies changes their hashes.
+
+| Artifact | Bytes | SHA-256 |
+| --- | ---: | --- |
+| loader `libparsec_orbit_loader.dylib` | 571,472 | `e56a6f798babad9203f3bd16af951447acff14af26d3c4a1cee79f30ba063ce1` |
+| installer `parsec-orbit-installer-macos` | 539,328 | `172cf6d51cacd69c25e9078eca02d7866c9c367630e46b76ff52a82f5291b1cc` |
+| hooks `libparsec_orbit_plugin_hooks.dylib` | 336,688 | `ada192290452e2534240705a9176cfb3446c71a6e4f47212a29373debe393161` |
+
+The loader remains the same size as M1b after sharing the client ABI and
+accepting bounded numeric release tags. The installer grew by 33,648 B for
+universal parsing, full metadata, recovery/locking and assessment. Hooks are
+a separate optional plugin, not added to the injected loader. The historical
+360 KiB reference is still exceeded by the 571,472 B loader; no final macOS
+budget or size optimization is claimed here.

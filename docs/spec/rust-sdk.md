@@ -63,7 +63,7 @@ For `#![no_std]` plugins. Call it once at the crate root. It emits, outside the 
 * the C runtime functions the compiler calls (`memcpy`, `memmove`, `memset`, `memcmp`, `bcmp`, `strlen`, `__chkstk`, `_fltused`, `__CxxFrameHandler3` stub, `_DllMainCRTStartup`) as private assembly,
 * the linker directive `/NODEFAULTLIB`.
 
-The plugin crate has to be built with `panic = "abort"` in **every** profile (`[profile.dev] panic = "abort"` in the workspace manifest), and only `x86_64-pc-windows-msvc` is supported. A `std` plugin does not call it.
+The plugin crate has to be built with `panic = "abort"` in **every** profile (`[profile.dev] panic = "abort"` in the workspace manifest), and only `x86_64-pc-windows-msvc` is supported. A `std` plugin does not call it. On macOS `freestanding!` has a separate flavour for `aarch64-apple-darwin` (allocator over `libSystem`, trap on panic, no MSVC stand-ins): see [macos-platform.md](macos-platform.md#5-rust-sdk-on-macos).
 
 ### `parsec-orbit-plugin-sdk-std`
 
@@ -110,4 +110,5 @@ The two official plugins are the SDK's regression baseline: their unit and end-t
 ## Open questions
 
 * Whether a proc-macro `#[plugin]` attribute is worth the compile-time cost over `declare_plugin!` (leaning: no).
+* Size of a `no_std` plugin on `aarch64-apple-darwin` (it imports `libSystem`), to be recorded in the size report.
 * `aarch64-pc-windows-msvc` support for `freestanding!` (assembly for the C runtime functions).

@@ -5,6 +5,9 @@
 //! Request, chooses the fastest healthy one, and answers only that hostname
 //! with the chosen IPv4 address. Everything else passes through unchanged.
 
+// Windows-only; the macOS port needs the M2 hooks backend.
+#![cfg(windows)]
+
 use std::cell::Cell;
 use std::collections::HashSet;
 use std::ffi::{c_char, c_int, c_void, CStr, CString};

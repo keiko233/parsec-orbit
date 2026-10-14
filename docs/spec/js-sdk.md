@@ -2,6 +2,10 @@
 
 Status: implemented (`parsec-orbit-plugin-js-runtime`, `javascript-sdk`, `examples/parsec-orbit-plugin-bandwidth-ts`); `config` uses the config service when it is installed. Decisions: [ADR 0003](../design/decisions/0003-js-runtime-is-a-plugin.md), [ADR 0005](../design/decisions/0005-boa-as-js-engine.md).
 
+## Platforms
+
+The model below is written for Windows (WebView2). On macOS (draft) JS plugins and the `Host` API are the same; the page realm is the client's WKWebView page, whose URL and DOM are not known yet, so `host.webview` is available only once a web view is attached and `orbit.rpc` is unverified: see [macos-platform.md](macos-platform.md#parsec-orbitwebview-and-the-webview-bridge).
+
 ## Model
 
 A JS plugin is a directory with a `plugin.toml` (`kind = "js"`, `requires = ["com.parsec-orbit.js-runtime"]`) and a bundled script. The JS runtime plugin is **not part of the default install**; without it the loader skips JS plugins with `skipped, needs com.parsec-orbit.js-runtime, not installed` ([loading.md](loading.md#3-ordering)). A plugin with the `webview` permission also lists `com.parsec-orbit.webview-bridge` in `requires`.

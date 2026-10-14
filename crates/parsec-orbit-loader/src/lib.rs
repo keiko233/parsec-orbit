@@ -19,6 +19,9 @@
 //! else happens on that worker thread (or lazily on the first forwarded call),
 //! never inside `DllMain`.
 
+// Windows-only; the macOS loader is a separate crate in M0b.
+#![cfg(windows)]
+
 mod config;
 mod console;
 mod exports;

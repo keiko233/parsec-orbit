@@ -1,0 +1,33 @@
+[package]
+name = "parsec-orbit-loader-macos"
+description = "The macOS loader dylib: dlopen Platform, append Logger and the Orbit core inside the patched Parsec app"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+readme = "../../README.md"
+publish = false
+
+# The file name is the dependency the installer adds to the patched stub:
+# `@executable_path/../Frameworks/libparsec_orbit_loader.dylib`.
+[lib]
+name = "parsec_orbit_loader"
+crate-type = ["cdylib", "rlib"]
+
+[features]
+default = []
+# Adds the entry points the macOS e2e suite dlopens to drive one scan without
+# the activation gate. Never enabled by the installer or a release build.
+harness = []
+
+[dependencies]
+parsec-orbit-core = { path = "../parsec-orbit-core" }
+parsec-orbit-macos-state = { path = "../parsec-orbit-macos-state" }
+parsec-orbit-plugin-abi = { path = "../parsec-orbit-plugin-abi" }
+libc = "0.2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.11"
+
+[dev-dependencies]
+parsec-orbit-core = { path = "../parsec-orbit-core", features = ["testutil"] }

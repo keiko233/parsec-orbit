@@ -149,6 +149,43 @@ jobs:
           files: dist/*
           body_path: RELEASE_NOTES.md
 
+  release-macos:
+    needs: release
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+
+      - name: Package the macOS arm64 distribution
+        env:
+          MARKET_SIGNING_KEY: ${{ secrets.MARKET_SIGNING_KEY }}
+        run: |
+          set -euo pipefail
+          if [[ -n "$MARKET_SIGNING_KEY" ]]; then
+            umask 077
+            key="$RUNNER_TEMP/parsec-orbit-market-macos.key"
+            trap 'rm -f "$key"' EXIT
+            printf '%s' "$MARKET_SIGNING_KEY" > "$key"
+            python3 scripts/package-macos.py --signing-key "$key"
+          else
+            python3 scripts/package-macos.py
+          fi
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: parsec-orbit-macos-arm64-${{ github.ref_name }}
+          path: dist/macos/*
+
+      - name: Attach macOS assets to the GitHub release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v3
+        with:
+          files: dist/macos/*
+
   # Publishes @parsec-orbit/sdk for the same tag. The Publish workflow bumps
   # javascript-sdk/package.json to the workspace version, so the tag and the
   # npm version always agree. Needs an npm automation token with publish

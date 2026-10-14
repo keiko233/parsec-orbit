@@ -1,4 +1,9 @@
 //! Helpers shared by the end-to-end tests and the `loader-host` binary.
+//!
+//! Windows-only: this harness maps the loader with `LoadLibraryW` and parses
+//! PE files. The macOS e2e harness is
+//! `parsec-orbit-loader-macos/tests/fixture_e2e.rs`.
+#![cfg(windows)]
 
 use std::path::Path;
 

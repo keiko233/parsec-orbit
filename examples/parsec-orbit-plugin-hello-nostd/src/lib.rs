@@ -8,7 +8,6 @@
 //!
 //! The crate has to be built with `panic = "abort"` in every profile (see the
 //! workspace manifest), because a `no_std` library cannot unwind.
-
 #![cfg_attr(not(test), no_std)]
 
 use parsec_orbit_plugin_sdk::prelude::*;

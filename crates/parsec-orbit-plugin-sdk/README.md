@@ -44,7 +44,8 @@ Build it as a `cdylib` with `panic = "abort"` in every profile.
 Specification: [`docs/spec/rust-sdk.md`](https://github.com/keiko233/parsec-orbit/blob/main/docs/spec/rust-sdk.md).
 Guide: [Write a Rust plugin](https://github.com/keiko233/parsec-orbit/blob/main/docs/guides/rust-plugin.md).
 
-Only `x86_64-pc-windows-msvc` is supported by `freestanding!`.
+`freestanding!` supports `x86_64-pc-windows-msvc` and (with a separate
+libSystem flavour) `aarch64-apple-darwin`.
 
 ## License
 

@@ -1,13 +1,30 @@
 # Parsec Orbit
 
 An unofficial, local-only proof of concept for loading plugins in the Parsec
-client. It uses a `bcrypt.dll` proxy and does not modify Parsec files.
+client. On Windows it uses a `bcrypt.dll` proxy and does not modify Parsec
+files; on macOS arm64 it loads Orbit through a locally patched, ad-hoc-signed
+`Parsec.app` (see [macOS host](docs/spec/macos-host.md)). The local installer
+supports the selected original application path with a version-bound pristine
+backup and restore. Account/session, quarantined delivery and internals-dependent
+native bitrate/WebView support remain unverified; see the
+[phase evidence](docs/design/macos-phases.md).
 
 ## Layout
 
 * `crates/parsec-orbit-loader/` - the `bcrypt.dll` proxy. It forwards every export to
   the real `bcrypt.dll`, opens the WebView2 DevTools endpoint and hosts the
   plugin system.
+* `crates/parsec-orbit-loader-macos/` - the macOS arm64 counterpart: a
+  `Platform` over `dlopen`/`dlsym`/`dlerror`, an append-only logger and the
+  same plugin scan/host logic. It is a plain dylib for now; M1 loads it from a
+  patched `Parsec.app`.
+* `crates/parsec-orbit-installer-macos/` - the transactional patcher:
+  inspect/apply/uninstall/status, a version-bound pristine backup plus
+  append-only journal, a whitelisted header-space `LC_LOAD_DYLIB` patch,
+  inside-out ad-hoc signing, verification, rollback and the preseed; see the
+  [M1b checkpoint](docs/design/macos/installer-checkpoint.md).
+* `crates/parsec-orbit-macos-state/` - the atomic isolated-state seed shared
+  by the installer (as an rlib) and the macOS loader (which re-exports it).
 * `crates/parsec-orbit-plugin-abi/`, `crates/parsec-orbit-plugin-sdk/`,
   `crates/parsec-orbit-plugin-sdk-std/` - the plugin ABI, the Rust SDK
   (`Plugin`, `Context`, a `no_std` runtime for 10 KB plugins) and its `std`
@@ -23,7 +40,7 @@ client. It uses a `bcrypt.dll` proxy and does not modify Parsec files.
   [README](crates/parsec-orbit-plugin-webview-bridge/README.md).
 * `crates/parsec-orbit-plugin-config/` and `crates/parsec-orbit-plugin-hooks/` -
   official plugins that provide `parsec-orbit.config` (settings that survive
-  restarts) and `parsec-orbit.hooks` (inline function hooks).
+  restarts) and `parsec-orbit.hooks` (Windows inline detours; bounded imported-pointer hooks on macOS).
 * `crates/parsec-orbit-market/` - the `parsec-orbit-market` tool: plugin index,
   sha256 and ed25519 checks, safe installation; see
   [Marketplace](docs/spec/marketplace.md). `crates/parsec-orbit-devtools/` is
@@ -91,6 +108,47 @@ in one of them only. Closing that window ends the client with it - Windows
 terminates a process whose console is closed - so the log file is what remains
 of a session that ended that way.
 
+### macOS arm64 local installation
+
+For release downloads without a Rust checkout, see the
+[macOS network installer](docs/guides/macos-network-install.md). To follow Orbit
+and the isolated client's logs in a terminal, see the
+[macOS debug console](docs/guides/macos-console.md).
+
+Quit Parsec, then run the wrapper as your ordinary signed-in user:
+
+```bash
+/bin/bash scripts/install-macos.sh
+```
+
+It builds the macOS installer, loader, Config, Hooks and JS runtime; signs
+staged plugins ad hoc; and installs persistently into `/Applications/Parsec.app`.
+It prompts through sudo only for the Rust transaction. Records, state and
+external signing/copy tools use your UID. Retained administrator identity is
+used only for protected bundle renames and lock creation. No client is started
+or stopped automatically; reopen Parsec normally after success.
+
+Data/logs are in `~/Library/Application Support/ParsecOrbit`; the loader uses
+independent client state and does not migrate your existing Parsec credentials.
+Native bitrate and WebView plugins are not included on macOS. Supported stubs
+are whitelisted; unknown or running clients and stale installs refuse.
+
+```bash
+# Restore the original bundle and retain Orbit data/plugins/backups.
+/bin/bash scripts/install-macos.sh --uninstall
+
+# Reuse already built release artifacts.
+/bin/bash scripts/install-macos.sh --no-build
+```
+
+`--app /absolute/path/Parsec.app` and `--orbit-root /absolute/private/folder`
+select a test installation; use the same values to uninstall. Replaced official
+plugin folders are retained under `plugin-backups/`; unrelated plugins remain.
+Use the wrapper as the ordinary user, not `sudo bash scripts/install-macos.sh`.
+The script handles sudo itself. Restore reports any OS-added root provenance
+marker while preserving every original attribute. See the
+[installation guide](docs/guides/macos-install.md) for checks and recovery.
+
 ## Tests
 
 ```powershell
@@ -98,11 +156,14 @@ pnpm install; pnpm -r build; pnpm -r test   # the JavaScript SDK and the sample
 cargo test --workspace
 ```
 
-Windows only (the loader is a `bcrypt.dll` proxy). The JavaScript workspace
-needs Node.js 26+ and pnpm 12 (`packageManager` pins it); Node is also needed
-for the behaviour tests of the script injected into the WebView UI; without it
-that one test is skipped (set `PARSEC_ORBIT_REQUIRE_NODE=1` to make it fail
-instead).
+The Windows suite needs Windows: the loader is a `bcrypt.dll` proxy and the
+end-to-end tests build a host process named `parsecd.exe`. macOS arm64
+(`macos-26`, the arm64 runner) runs the portable subset: the core, the macOS
+loader platform and the std/no_std fixtures; the Windows-only crates compile
+to empty libraries there. The JavaScript workspace needs Node.js 26+ and pnpm
+12 (`packageManager` pins it); Node is also needed for the behaviour tests of
+the script injected into the WebView UI; without it that one test is skipped
+(set `PARSEC_ORBIT_REQUIRE_NODE=1` to make it fail instead).
 
 * **Unit tests** sit next to the code: ABI layout (`abi`) and the export macro
   (`sdk`), settings, logging and the forwarding thunks (`loader`), manifests,
@@ -113,6 +174,9 @@ instead).
   the DevTools client and the bridge session against a fake endpoint;
   `crates/parsec-orbit-plugin-high-bitrate-webview/tests/` runs
   `assets/bandwidth.js` in a fake browser under Node.
+  `crates/parsec-orbit-installer-macos/tests/scratch_apply.rs` builds
+  disposable arm64 toy bundles with `clang` and runs the real installer
+  against them (round trip, dyld dependency, interruptions, refusals).
 * **End-to-end tests** in `tests/parsec-orbit-e2e/` build the loader and the
   plugins into `target/e2e`, install them into a throwaway client directory
   next to a host process named `parsecd.exe`, and check the log, the files the
@@ -120,6 +184,8 @@ instead).
   the `crates/parsec-orbit-verify-*` tools (`callpaths`, `roundtrip`), so the forwarding checks of
   `scripts\verify.ps1` are part of `cargo test`.
 
-The tests redirect `%APPDATA%` and `%TEMP%` into temporary directories and
-never touch an installed Parsec client. CI (`.github/workflows/test.yml`) runs
-the same command plus `cargo fmt --check`.
+The tests never touch an installed Parsec client: the Windows suite redirects
+`%APPDATA%`/`%TEMP%` into temporary directories and the macOS e2e passes fresh
+private plugin and log directories into the loader harness. CI
+(`.github/workflows/test.yml`) runs the same command plus `cargo fmt --check`
+on both platforms.

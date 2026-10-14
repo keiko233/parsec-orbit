@@ -10,6 +10,7 @@ pub const MANIFEST: &str = "plugin.toml";
 
 /// Plugin kinds named in the manifest.
 pub const KIND_DLL: &str = "dll";
+pub const KIND_DYLIB: &str = "dylib";
 pub const KIND_JS: &str = "js";
 
 /// Metadata read from `plugin.toml`. Every field is optional except the ones
@@ -34,7 +35,8 @@ pub struct Manifest {
     pub optional: Vec<String>,
     /// Virtual ids this plugin satisfies besides its own `id`.
     pub provides: Vec<String>,
-    /// Capabilities requested by sandboxed kinds; ignored for `dll`.
+    /// Capabilities requested by sandboxed kinds; ignored for the native
+    /// kinds `dll` and `dylib`.
     pub permissions: Vec<String>,
     /// Things the loader tolerated but the author should know about, logged
     /// once when the manifest is accepted.
@@ -272,6 +274,7 @@ mod tests {
     #[test]
     fn plugin_kinds_are_the_documented_ones() {
         assert_eq!(KIND_DLL, "dll");
+        assert_eq!(KIND_DYLIB, "dylib");
         assert_eq!(KIND_JS, "js");
         assert_eq!(MANIFEST, "plugin.toml");
     }

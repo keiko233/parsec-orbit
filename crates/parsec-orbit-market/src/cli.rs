@@ -3,7 +3,7 @@
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use crate::index::{Index, Plugin, Release, FORMAT};
+use crate::index::{Index, Platform, Plugin, Release, FORMAT};
 use crate::install::{InstallOptions, LoadedIndex, Market};
 use crate::package;
 use crate::source::Fetch;
@@ -33,8 +33,10 @@ For publishers
 
 Options
   --index <location>         index file or URL (or PARSEC_ORBIT_INDEX)
-  --plugins-dir <folder>     default %APPDATA%\\ParsecOrbit\\plugins
-  --keys <file>              trusted keys, default %APPDATA%\\ParsecOrbit\\market\\trusted-keys.txt
+  --plugins-dir <folder>     default <Orbit root>/plugins
+  --keys <file>              trusted keys, default <Orbit root>/market/trusted-keys.txt
+                             (macOS arm64: ~/Library/Application Support/ParsecOrbit;
+                              PARSEC_ORBIT_HOME overrides it)
                              (one `ed25519 <base64 public key> [comment]` per line)
   --allow-unsigned           accept an index whose signature is missing or wrong
                              (the digests in it are then only as good as its source)
@@ -98,11 +100,30 @@ fn parse(args: &[String]) -> Result<Options, Error> {
 }
 
 fn appdata(env: &dyn Environment) -> Result<PathBuf, Error> {
-    env.var("APPDATA")
-        .map(|appdata| Path::new(&appdata).join("ParsecOrbit"))
-        .ok_or_else(|| {
-            Error::Usage("%APPDATA% is not set; give --plugins-dir and --keys".to_string())
-        })
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    {
+        if let Some(root) = env.var("PARSEC_ORBIT_HOME") {
+            return Ok(PathBuf::from(root));
+        }
+        env.var("HOME")
+            .map(|home| {
+                Path::new(&home)
+                    .join("Library")
+                    .join("Application Support")
+                    .join("ParsecOrbit")
+            })
+            .ok_or_else(|| {
+                Error::Usage("HOME is not set; give --plugins-dir and --keys".to_string())
+            })
+    }
+    #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
+    {
+        env.var("APPDATA")
+            .map(|appdata| Path::new(&appdata).join("ParsecOrbit"))
+            .ok_or_else(|| {
+                Error::Usage("%APPDATA% is not set; give --plugins-dir and --keys".to_string())
+            })
+    }
 }
 
 fn one<'a>(options: &'a Options, what: &str) -> Result<&'a str, Error> {
@@ -138,6 +159,7 @@ fn market<'a>(
     options: &Options,
     env: &dyn Environment,
     fetch: &'a dyn Fetch,
+    platform: Platform,
 ) -> Result<Market<'a>, Error> {
     let plugins_dir = match &options.plugins_dir {
         Some(dir) => PathBuf::from(dir),
@@ -145,6 +167,7 @@ fn market<'a>(
     };
     let mut market = Market::new(fetch, plugins_dir, read_keys(options, env, fetch)?);
     market.allow_unsigned = options.allow_unsigned;
+    market.platform = platform;
     Ok(market)
 }
 
@@ -166,6 +189,16 @@ pub fn run(
     env: &dyn Environment,
     fetch: &dyn Fetch,
     out: &mut dyn Write,
+) -> Result<(), Error> {
+    run_on_platform(args, env, fetch, out, Platform::current())
+}
+
+fn run_on_platform(
+    args: &[String],
+    env: &dyn Environment,
+    fetch: &dyn Fetch,
+    out: &mut dyn Write,
+    platform: Platform,
 ) -> Result<(), Error> {
     let Some((command, rest)) = args.split_first() else {
         return Err(Error::Usage(USAGE.to_string()));
@@ -193,12 +226,21 @@ pub fn run(
     match command.as_str() {
         "help" | "--help" | "-h" => say(out, USAGE.trim_end().to_string()),
         "list" => {
-            let market = market(&options, env, fetch)?;
+            let market = market(&options, env, fetch, platform)?;
             let index = market.load_index(&index_location(&options, env)?)?;
             warn_unsigned(out, &index)?;
             let installed = market.installed()?;
             for plugin in &index.index.plugins {
-                let latest = plugin.select(None, market.api).map(|r| r.version.clone());
+                if !plugin
+                    .versions
+                    .iter()
+                    .any(|release| release.platform == market.platform)
+                {
+                    continue;
+                }
+                let latest = plugin
+                    .select(None, market.api, market.platform)
+                    .map(|r| r.version.clone());
                 let here = installed
                     .iter()
                     .find(|p| p.id == plugin.id)
@@ -217,7 +259,7 @@ pub fn run(
             Ok(())
         }
         "installed" => {
-            let market = market(&options, env, fetch)?;
+            let market = market(&options, env, fetch, platform)?;
             for plugin in market.installed()? {
                 let from = match &plugin.origin {
                     Some(origin) => format!("market {}", origin.index),
@@ -229,7 +271,7 @@ pub fn run(
         }
         "install" => {
             let id = one(&options, "plugin id")?.to_string();
-            let market = market(&options, env, fetch)?;
+            let market = market(&options, env, fetch, platform)?;
             let index = market.load_index(&index_location(&options, env)?)?;
             warn_unsigned(out, &index)?;
             let done = market.install(
@@ -259,7 +301,7 @@ pub fn run(
             say(out, "restart the Parsec client to load it".to_string())
         }
         "update" => {
-            let market = market(&options, env, fetch)?;
+            let market = market(&options, env, fetch, platform)?;
             let index = market.load_index(&index_location(&options, env)?)?;
             let wanted = options.positional.first().cloned();
             let updates: Vec<String> = market
@@ -288,7 +330,7 @@ pub fn run(
         }
         "remove" => {
             let id = one(&options, "plugin id")?.to_string();
-            let market = market(&options, env, fetch)?;
+            let market = market(&options, env, fetch, platform)?;
             let removed = market.remove(&id, options.force)?;
             say(out, format!("removed {} {}", removed.id, removed.version))
         }
@@ -415,6 +457,11 @@ pub fn build_index(folder: &Path, name: &str) -> Result<Index, Error> {
         let release = Release {
             version: manifest.version.clone(),
             api: manifest.api,
+            platform: if manifest.kind == "dylib" {
+                Platform::MacosArm64
+            } else {
+                Platform::WindowsX86_64
+            },
             url: path
                 .file_name()
                 .and_then(|name| name.to_str())
@@ -488,7 +535,7 @@ mod tests {
     fn command(args: &[&str], env: &dyn Environment) -> Result<String, Error> {
         let args: Vec<String> = args.iter().map(|a| a.to_string()).collect();
         let mut out = Vec::new();
-        run(&args, env, &Real, &mut out)?;
+        run_on_platform(&args, env, &Real, &mut out, Platform::WindowsX86_64)?;
         Ok(String::from_utf8(out).unwrap())
     }
 
@@ -585,7 +632,7 @@ mod tests {
         };
         let run_args = |args: Vec<String>| -> Result<String, Error> {
             let mut out = Vec::new();
-            run(&args, &no_env, &Real, &mut out)?;
+            run_on_platform(&args, &no_env, &Real, &mut out, Platform::WindowsX86_64)?;
             Ok(String::from_utf8(out).unwrap())
         };
 
@@ -632,7 +679,7 @@ mod tests {
     }
 
     #[test]
-    fn the_index_is_found_through_the_environment_and_appdata() {
+    fn the_index_is_found_through_the_environment_and_platform_root() {
         let user = Dir::new("env");
         let publisher = Dir::new("env-pub");
         write_package(&publisher, "com.example.p", "1.0.0", "");
@@ -640,10 +687,15 @@ mod tests {
         let none = Vars(HashMap::new());
         command(&["index", &publisher.path(""), "--out", &index], &none).unwrap();
 
-        let env = Vars(HashMap::from([
-            ("APPDATA".to_string(), user.path("roaming")),
-            ("PARSEC_ORBIT_INDEX".to_string(), index.clone()),
-        ]));
+        let mut values = HashMap::from([("PARSEC_ORBIT_INDEX".to_string(), index.clone())]);
+        #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+        values.insert(
+            "PARSEC_ORBIT_HOME".to_string(),
+            user.path("roaming/ParsecOrbit"),
+        );
+        #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
+        values.insert("APPDATA".to_string(), user.path("roaming"));
+        let env = Vars(values);
         // Nothing trusted yet: the index is refused, with the reason.
         let error = command(&["list"], &env).unwrap_err().to_string();
         assert!(error.contains("signature"), "{error}");
@@ -663,6 +715,30 @@ mod tests {
             .0
             .join("roaming/ParsecOrbit/plugins/com.example.p/plugin.toml")
             .is_file());
+    }
+
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    #[test]
+    fn macos_orbit_root_defaults_under_home_and_accepts_the_override() {
+        let home = Dir::new("mac-home");
+        let env = Vars(HashMap::from([("HOME".to_string(), home.path(""))]));
+        assert_eq!(
+            appdata(&env).unwrap(),
+            home.0
+                .join("Library")
+                .join("Application Support")
+                .join("ParsecOrbit")
+        );
+
+        let override_root = home.0.join("custom-root");
+        let env = Vars(HashMap::from([
+            ("HOME".to_string(), home.path("")),
+            (
+                "PARSEC_ORBIT_HOME".to_string(),
+                override_root.to_string_lossy().into_owned(),
+            ),
+        ]));
+        assert_eq!(appdata(&env).unwrap(), override_root);
     }
 
     #[test]
@@ -809,5 +885,27 @@ mod tests {
         let empty = Dir::new("empty");
         assert!(build_index(&empty.0, "").unwrap().plugins.is_empty());
         assert!(build_index(&empty.0.join("missing"), "").is_err());
+    }
+
+    #[test]
+    fn publisher_index_uses_manifest_kind_for_release_platform() {
+        let dir = Dir::new("platform-publish");
+        write_package(&dir, "com.example.windows", "1.0.0", "");
+        let manifest = "id = \"com.example.mac\"\nversion = \"1.0.0\"\nkind = \"dylib\"\nentry = \"plugin.dylib\"\n";
+        let mac_package = zip_of(&[
+            ("com.example.mac/plugin.toml", manifest.as_bytes()),
+            ("com.example.mac/plugin.dylib", b"Mach-O"),
+        ]);
+        std::fs::write(dir.0.join("com.example.mac-1.0.0.zip"), mac_package).unwrap();
+
+        let index = build_index(&dir.0, "platforms").unwrap();
+        assert_eq!(
+            index.plugin("com.example.windows").unwrap().versions[0].platform,
+            Platform::WindowsX86_64
+        );
+        assert_eq!(
+            index.plugin("com.example.mac").unwrap().versions[0].platform,
+            Platform::MacosArm64
+        );
     }
 }

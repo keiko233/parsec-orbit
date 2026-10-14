@@ -10,11 +10,13 @@
 //! cannot be replaced (Windows refuses the rename); that is reported as such.
 
 use std::path::{Path, PathBuf};
+use std::process::Command;
+use std::sync::Arc;
 
 use semver::Version;
 use serde::{Deserialize, Serialize};
 
-use crate::index::{Index, Release, MAX_PACKAGE_BYTES};
+use crate::index::{Index, Platform, Release, MAX_PACKAGE_BYTES};
 use crate::package::{self, Manifest};
 use crate::source::{resolve, Fetch};
 use crate::trust::{self, TrustedKey};
@@ -78,6 +80,54 @@ pub struct Installed {
     pub replaced: Option<String>,
 }
 
+/// Signs and verifies a staged macOS plugin library.
+pub trait DylibSigner: Send + Sync {
+    fn sign(&self, dylib: &Path) -> Result<(), Error>;
+    fn verify(&self, dylib: &Path) -> Result<(), Error>;
+}
+
+struct SystemDylibSigner;
+
+fn run_codesign(action: &str, arguments: &[&str], dylib: &Path) -> Result<(), Error> {
+    let output = Command::new("/usr/bin/codesign")
+        .args(arguments)
+        .arg(dylib)
+        .output()
+        .map_err(|error| Error::Io(format!("could not start codesign to {action}: {error}")))?;
+    if output.status.success() {
+        return Ok(());
+    }
+    let detail = String::from_utf8_lossy(&output.stderr);
+    Err(Error::Io(format!(
+        "codesign could not {action} {}: {} (status {})",
+        dylib.display(),
+        detail.trim(),
+        output.status
+    )))
+}
+
+impl DylibSigner for SystemDylibSigner {
+    fn sign(&self, dylib: &Path) -> Result<(), Error> {
+        let output = Command::new("/usr/bin/lipo")
+            .arg(dylib)
+            .args(["-verify_arch", "arm64"])
+            .output()
+            .map_err(|error| Error::Io(format!("could not verify arm64 architecture: {error}")))?;
+        if !output.status.success() {
+            return Err(Error::Package(format!(
+                "{} has no valid arm64 slice: {}",
+                dylib.display(),
+                String::from_utf8_lossy(&output.stderr).trim(),
+            )));
+        }
+        run_codesign("sign", &["--force", "--sign", "-"], dylib)
+    }
+
+    fn verify(&self, dylib: &Path) -> Result<(), Error> {
+        run_codesign("verify", &["--verify", "--strict", "--verbose=2"], dylib)
+    }
+}
+
 pub struct Market<'a> {
     pub fetch: &'a dyn Fetch,
     pub plugins_dir: PathBuf,
@@ -86,6 +136,10 @@ pub struct Market<'a> {
     pub allow_unsigned: bool,
     /// Loader ABI version; releases that need more are not offered.
     pub api: u32,
+    /// Host platform used to filter the index.
+    pub platform: Platform,
+    /// Ad-hoc signer for staged macOS dylibs.
+    pub code_signer: Arc<dyn DylibSigner>,
 }
 
 impl<'a> Market<'a> {
@@ -96,7 +150,15 @@ impl<'a> Market<'a> {
             trusted,
             allow_unsigned: false,
             api: LOADER_API,
+            platform: Platform::current(),
+            code_signer: Arc::new(SystemDylibSigner),
         }
+    }
+
+    /// Replaces the platform signer, primarily for isolated transaction tests.
+    pub fn with_code_signer(mut self, signer: Arc<dyn DylibSigner>) -> Market<'a> {
+        self.code_signer = signer;
+        self
     }
 
     /// Fetches the index at `location` and its signature (`<location>.sig`).
@@ -217,7 +279,7 @@ impl<'a> Market<'a> {
             .index
             .plugin(id)
             .ok_or_else(|| Error::NotFound(format!("{id} is not in the index")))?;
-        let release = plugin.select(version, self.api)?;
+        let release = plugin.select(version, self.api, self.platform)?;
         visiting.push(id.to_string());
 
         if options.with_deps {
@@ -271,6 +333,25 @@ impl<'a> Market<'a> {
                 package.manifest.version, release.version
             )));
         }
+        if release.platform == Platform::MacosArm64 {
+            if package.manifest.kind != "dylib" {
+                return Err(Error::Package(format!(
+                    "{} {} targets macos-arm64 but its manifest kind is {:?}, expected \"dylib\"",
+                    id, release.version, package.manifest.kind
+                )));
+            }
+            if package
+                .manifest
+                .entry
+                .as_deref()
+                .is_none_or(|entry| !entry.ends_with(".dylib"))
+            {
+                return Err(Error::Package(format!(
+                    "{} {} targets macos-arm64 but its manifest entry is not a .dylib",
+                    id, release.version
+                )));
+            }
+        }
 
         std::fs::create_dir_all(&self.plugins_dir)?;
         let target = self.plugins_dir.join(id);
@@ -298,6 +379,25 @@ impl<'a> Market<'a> {
         let _ = std::fs::remove_dir_all(&staging);
         let staged = (|| -> Result<(), Error> {
             package::write_to(&package, &staging)?;
+            if release.platform == Platform::MacosArm64 {
+                let mut dylibs = 0;
+                for file in package
+                    .files
+                    .iter()
+                    .filter(|file| file.path.ends_with(".dylib"))
+                {
+                    let dylib = staging.join(file.path.replace('/', std::path::MAIN_SEPARATOR_STR));
+                    self.code_signer.sign(&dylib)?;
+                    self.code_signer.verify(&dylib)?;
+                    dylibs += 1;
+                }
+                if dylibs == 0 {
+                    return Err(Error::Package(format!(
+                        "{} {} targets macos-arm64 but contains no .dylib files",
+                        id, release.version
+                    )));
+                }
+            }
             let origin = Origin {
                 id: id.to_string(),
                 version: release.version.clone(),
@@ -376,7 +476,7 @@ impl<'a> Market<'a> {
             let Some(plugin) = index.index.plugin(&installed.id) else {
                 continue;
             };
-            let Ok(release) = plugin.select(None, self.api) else {
+            let Ok(release) = plugin.select(None, self.api, self.platform) else {
                 continue;
             };
             let newer = match (
@@ -422,6 +522,7 @@ mod tests {
     use crate::index::{Plugin, FORMAT};
     use crate::package::tests::{good, zip_of, MANIFEST};
     use crate::source::tests::Memory;
+    use std::sync::atomic::{AtomicBool, Ordering};
 
     struct Dir(PathBuf);
     impl Dir {
@@ -446,18 +547,48 @@ mod tests {
     const INDEX_URL: &str = "https://market.example/index.json";
 
     fn package_for(id: &str, version: &str, requires: &[&str]) -> Vec<u8> {
+        package_for_platform(id, version, requires, Platform::WindowsX86_64)
+    }
+
+    fn package_for_platform(
+        id: &str,
+        version: &str,
+        requires: &[&str],
+        platform: Platform,
+    ) -> Vec<u8> {
         let requires: Vec<String> = requires.iter().map(|r| format!("\"{r}\"")).collect();
-        let manifest = format!(
-            "id = \"{id}\"\nversion = \"{version}\"\nentry = \"p.dll\"\nrequires = [{}]\n",
-            requires.join(", ")
-        );
-        zip_of(&[
-            (&format!("{id}/plugin.toml"), manifest.as_bytes()),
-            (
-                &format!("{id}/p.dll"),
-                format!("MZ {id} {version}").as_bytes(),
-            ),
-        ])
+        match platform {
+            Platform::WindowsX86_64 => {
+                let manifest = format!(
+                    "id = \"{id}\"\nversion = \"{version}\"\nentry = \"p.dll\"\nrequires = [{}]\n",
+                    requires.join(", ")
+                );
+                zip_of(&[
+                    (&format!("{id}/plugin.toml"), manifest.as_bytes()),
+                    (
+                        &format!("{id}/p.dll"),
+                        format!("MZ {id} {version}").as_bytes(),
+                    ),
+                ])
+            }
+            Platform::MacosArm64 => {
+                let manifest = format!(
+                    "id = \"{id}\"\nversion = \"{version}\"\nkind = \"dylib\"\nentry = \"p.dylib\"\nrequires = [{}]\n",
+                    requires.join(", ")
+                );
+                zip_of(&[
+                    (&format!("{id}/plugin.toml"), manifest.as_bytes()),
+                    (
+                        &format!("{id}/p.dylib"),
+                        format!("Mach-O {id} {version}").as_bytes(),
+                    ),
+                    (
+                        &format!("{id}/Frameworks/helper.dylib"),
+                        b"nested helper dylib",
+                    ),
+                ])
+            }
+        }
     }
 
     /// A market with these `(id, version, requires)` releases, signed.
@@ -468,12 +599,20 @@ mod tests {
     }
 
     fn fixture(releases: &[(&str, &str, &[&str])]) -> Fixture {
+        let windows_releases: Vec<_> = releases
+            .iter()
+            .map(|(id, version, requires)| (*id, *version, *requires, Platform::WindowsX86_64))
+            .collect();
+        fixture_with_platform(&windows_releases)
+    }
+
+    fn fixture_with_platform(releases: &[(&str, &str, &[&str], Platform)]) -> Fixture {
         let (secret, public) = trust::generate_keypair().unwrap();
         let key = trust::signing_key(&secret).unwrap();
         let mut memory = Memory::default();
         let mut plugins: Vec<Plugin> = Vec::new();
-        for (id, version, requires) in releases {
-            let bytes = package_for(id, version, requires);
+        for (id, version, requires, platform) in releases {
+            let bytes = package_for_platform(id, version, requires, *platform);
             let url = format!("{id}-{version}.zip");
             memory
                 .files
@@ -481,6 +620,7 @@ mod tests {
             let release = Release {
                 version: version.to_string(),
                 api: 1,
+                platform: *platform,
                 url,
                 sha256: trust::sha256_hex(&bytes),
                 size: bytes.len() as u64,
@@ -520,7 +660,45 @@ mod tests {
 
     impl Fixture {
         fn market(&self) -> Market<'_> {
-            Market::new(&self.memory, self.dir.0.clone(), self.trusted.clone())
+            self.market_for(Platform::WindowsX86_64)
+        }
+
+        fn market_for(&self, platform: Platform) -> Market<'_> {
+            let mut market = Market::new(&self.memory, self.dir.0.clone(), self.trusted.clone());
+            market.platform = platform;
+            market
+        }
+    }
+
+    #[derive(Default)]
+    struct RecordingSigner {
+        fail_sign: AtomicBool,
+        signed: std::sync::Mutex<Vec<PathBuf>>,
+        verified: std::sync::Mutex<Vec<PathBuf>>,
+    }
+
+    impl DylibSigner for RecordingSigner {
+        fn sign(&self, dylib: &Path) -> Result<(), Error> {
+            self.signed.lock().unwrap().push(dylib.to_path_buf());
+            if self.fail_sign.load(Ordering::SeqCst) {
+                return Err(Error::Io("simulated codesign signing failure".into()));
+            }
+            use std::io::Write;
+            std::fs::OpenOptions::new()
+                .append(true)
+                .open(dylib)?
+                .write_all(b"\nad-hoc signature")?;
+            Ok(())
+        }
+
+        fn verify(&self, dylib: &Path) -> Result<(), Error> {
+            self.verified.lock().unwrap().push(dylib.to_path_buf());
+            let bytes = std::fs::read(dylib)?;
+            if bytes.ends_with(b"\nad-hoc signature") {
+                Ok(())
+            } else {
+                Err(Error::Io("simulated codesign verification failure".into()))
+            }
         }
     }
 
@@ -566,6 +744,123 @@ mod tests {
         assert_eq!(installed.len(), 1);
         assert_eq!(installed[0].id, "com.example.p");
         assert!(installed[0].origin.is_some());
+    }
+
+    #[test]
+    fn macos_install_signs_and_verifies_every_dylib_but_records_package_digest() {
+        let f = fixture_with_platform(&[("com.example.mac", "1.0.0", &[], Platform::MacosArm64)]);
+        let signer = Arc::new(RecordingSigner::default());
+        let market = f
+            .market_for(Platform::MacosArm64)
+            .with_code_signer(signer.clone());
+        let index = market.load_index(INDEX_URL).unwrap();
+        let package_digest = index.index.plugins[0].versions[0].sha256.clone();
+
+        market
+            .install(&index, "com.example.mac", None, InstallOptions::default())
+            .unwrap();
+
+        let installed = f.dir.0.join("com.example.mac");
+        for path in ["p.dylib", "Frameworks/helper.dylib"] {
+            assert!(
+                std::fs::read(installed.join(path))
+                    .unwrap()
+                    .ends_with(b"\nad-hoc signature"),
+                "{path} was not signed"
+            );
+        }
+        let signed = signer.signed.lock().unwrap();
+        let verified = signer.verified.lock().unwrap();
+        assert_eq!(signed.len(), 2);
+        assert_eq!(verified.len(), 2);
+        assert!(signed.iter().any(|path| path.ends_with("p.dylib")));
+        assert!(signed
+            .iter()
+            .any(|path| path.ends_with("Frameworks/helper.dylib")));
+        assert_eq!(signed.as_slice(), verified.as_slice());
+
+        let origin: Origin =
+            serde_json::from_slice(&std::fs::read(installed.join(MARKET_FILE)).unwrap()).unwrap();
+        assert_eq!(origin.sha256, package_digest);
+    }
+
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    #[test]
+    fn system_signer_rejects_a_library_without_arm64_before_signing() {
+        let dir = Dir::new("wrong-architecture");
+        std::fs::create_dir_all(&dir.0).unwrap();
+        let source = dir.0.join("probe.c");
+        let library = dir.0.join("probe.dylib");
+        std::fs::write(&source, b"int orbit_wrong_arch(void) { return 42; }").unwrap();
+        let output = Command::new("clang")
+            .args(["-arch", "x86_64", "-dynamiclib"])
+            .arg(source)
+            .arg("-o")
+            .arg(&library)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let before = std::fs::read(&library).unwrap();
+        assert!(SystemDylibSigner
+            .sign(&library)
+            .unwrap_err()
+            .to_string()
+            .contains("arm64"));
+        assert_eq!(std::fs::read(library).unwrap(), before);
+    }
+
+    #[test]
+    fn a_macos_signing_failure_keeps_the_previous_installation() {
+        let f = fixture_with_platform(&[
+            ("com.example.mac", "1.0.0", &[], Platform::MacosArm64),
+            ("com.example.mac", "2.0.0", &[], Platform::MacosArm64),
+        ]);
+        let signer = Arc::new(RecordingSigner::default());
+        let market = f
+            .market_for(Platform::MacosArm64)
+            .with_code_signer(signer.clone());
+        let index = market.load_index(INDEX_URL).unwrap();
+        market
+            .install(
+                &index,
+                "com.example.mac",
+                Some("1.0.0"),
+                InstallOptions::default(),
+            )
+            .unwrap();
+
+        let installed = f.dir.0.join("com.example.mac");
+        let old_library = std::fs::read(installed.join("p.dylib")).unwrap();
+        let old_origin = std::fs::read(installed.join(MARKET_FILE)).unwrap();
+        signer.fail_sign.store(true, Ordering::SeqCst);
+        let error = market
+            .install(
+                &index,
+                "com.example.mac",
+                Some("2.0.0"),
+                InstallOptions::default(),
+            )
+            .unwrap_err();
+
+        assert!(error
+            .to_string()
+            .contains("simulated codesign signing failure"));
+        assert_eq!(
+            std::fs::read(installed.join("p.dylib")).unwrap(),
+            old_library
+        );
+        assert_eq!(
+            std::fs::read(installed.join(MARKET_FILE)).unwrap(),
+            old_origin
+        );
+        assert!(!std::fs::read_dir(&f.dir.0)
+            .unwrap()
+            .flatten()
+            .any(|entry| entry.file_name().to_string_lossy().starts_with(".orbit-")));
     }
 
     #[test]

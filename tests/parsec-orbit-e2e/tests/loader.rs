@@ -4,6 +4,7 @@
 //! copy of the host binary named `parsecd.exe`, plugins under `plugins\`),
 //! starts it with a clean environment, and inspects the loader's log, the
 //! host's report and the files the plugins write.
+#![cfg(windows)]
 
 mod common;
 

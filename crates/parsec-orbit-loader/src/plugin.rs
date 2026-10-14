@@ -103,6 +103,10 @@ impl Platform for Win32Platform {
             exports,
         })
     }
+
+    fn native_kind(&self) -> &'static str {
+        parsec_orbit_core::KIND_DLL
+    }
 }
 
 /// Sends the core's lines to the loader log.

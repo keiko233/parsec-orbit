@@ -8,7 +8,10 @@
 //! JavaScript services are provided by official plugins and bound next to
 //! them.
 
-use crate::abi::{ParsecOrbitInterfaceHeader, ParsecOrbitKindHandlerV1, ParsecOrbitPluginLoadInfo};
+use crate::abi::{
+    ParsecOrbitClientV1, ParsecOrbitInterfaceHeader, ParsecOrbitKindHandlerV1,
+    ParsecOrbitPluginLoadInfo,
+};
 
 /// Builds the table a plugin registers with
 /// [`Context::register_kind_handler`](crate::Context::register_kind_handler)
@@ -65,6 +68,19 @@ impl Interface for Js {
     type Table = ParsecOrbitJsV1;
 
     fn header(table: &ParsecOrbitJsV1) -> &ParsecOrbitInterfaceHeader {
+        &table.header
+    }
+}
+
+/// Binding of `parsec-orbit.client`, version 1.
+pub struct Client;
+
+impl Interface for Client {
+    const NAME: &'static CStr = c"parsec-orbit.client";
+    const MAJOR: u16 = 1;
+    type Table = ParsecOrbitClientV1;
+
+    fn header(table: &ParsecOrbitClientV1) -> &ParsecOrbitInterfaceHeader {
         &table.header
     }
 }
@@ -231,6 +247,32 @@ impl JsClient {
     }
 }
 
+/// Safe calls on `parsec-orbit.client`.
+#[derive(Clone, Copy)]
+pub struct ClientClient {
+    table: &'static ParsecOrbitClientV1,
+}
+
+impl ClientClient {
+    /// The service, if the loader registered a complete version 1 table.
+    pub fn new(cx: &Context) -> Option<ClientClient> {
+        cx.service::<Client>().map(|table| ClientClient { table })
+    }
+
+    /// Gets client build information as JSON. The callback runs before this
+    /// method returns, and its borrowed text is valid only for that call.
+    pub fn info(&self, mut out: impl FnMut(&str)) -> Result {
+        let info = self.table.info.ok_or(Error::new(ERR_NOT_READY))?;
+        let mut sink: &mut dyn FnMut(&str) = &mut out;
+        code(unsafe {
+            info(
+                Some(collect),
+                &mut sink as *mut &mut dyn FnMut(&str) as *mut c_void,
+            )
+        })
+    }
+}
+
 // ---- parsec-orbit.config -----------------------------------------------------
 
 use crate::abi::{ParsecOrbitConfigV1, ParsecOrbitHooksV1, ERR_NOT_FOUND};
@@ -354,7 +396,7 @@ impl Interface for Hooks {
     }
 }
 
-/// Inline hooks on functions of the client process.
+/// Hooks on client functions. The provider chooses the hooking mechanism.
 #[derive(Clone, Copy)]
 pub struct HooksClient {
     table: &'static ParsecOrbitHooksV1,

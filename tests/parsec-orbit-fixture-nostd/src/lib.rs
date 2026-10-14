@@ -13,7 +13,6 @@
 //! | other    | nothing |
 //!
 //! Every action logs `fixture-nostd: <what> ok ...` so a test can assert on it.
-
 #![cfg_attr(not(test), no_std)]
 
 extern crate alloc;

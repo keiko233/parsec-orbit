@@ -1,26 +1,50 @@
 # Hooks
 
-Official [Parsec Orbit](../../README.md) plugin. It provides
-`parsec-orbit.hooks` ([spec](../../docs/spec/services.md#parsec-orbithooks-provided-by-the-hooks-plugin-version-10)):
-inline hooks on functions of the client process. A hook overwrites the start of
-the target with a jump to a detour and builds a trampoline that runs the
-displaced instructions and continues in the original function (the instruction
-relocation is done by [`retour`](https://crates.io/crates/retour)).
+Official Parsec Orbit plugin providing the parsec-orbit.hooks service.
 
-```rust
-let hooks = HooksClient::new(cx).expect("is com.parsec-orbit.hooks installed?");
-let target = hooks.resolve("kernel32.dll", "GetTickCount").unwrap();
-let (hook, original) = unsafe { hooks.install(target, my_detour as *const _)? };
-hooks.enable(hook)?;
-```
+On Windows, hooks use retour inline detours. The target function body is
+patched, a trampoline calls the unhooked function, and hooks start disabled.
 
-Hooks are installed disabled; `enable`, `disable` and `remove` take the id; a
-function can be hooked once. A detour has the exact signature and calling
-convention of the target and must never unwind. Everything beyond that - what
-the detour does, whether other threads are inside the function when the hook is
-switched - is the plugin's responsibility. This is the sharpest tool a plugin
-can ask for: list the plugin in `requires` only if you need it, and install it
-only for plugins you trust. It is not part of the default install.
+On arm64 macOS, hooks rebind imported function pointers in loaded Mach-O
+images. The target function body remains unchanged, and the original pointer
+returned by install is the target itself. Resolved image paths are copied by
+dyld callbacks, and each resolved image is pinned for the process lifetime.
+The original pointer remains valid after disable and remove. Images loaded later
+are processed by dyld callbacks.
 
-x86-64 only. Tests hook functions of the test process, including a system
-function.
+The macOS backend accepts classic 64-bit arm64 Mach-O images with indirect
+symbol tables and `S_LAZY_SYMBOL_POINTERS` or `S_NON_LAZY_SYMBOL_POINTERS`
+sections. It rejects images with chained fixups, unknown required load
+commands, or malformed/unreadable metadata. A slot is eligible only when its
+current value exactly equals the resolved target. Unresolved lazy stubs are
+left untouched; install returns `ERR_NOT_READY` when no already-bound matching
+slot exists. Late images use the same bound-pointer check from dyld callbacks.
+A target without a matching slot in a supported loaded image returns
+`ERR_NOT_READY`.
+
+Parser input is capped at 16 MiB of load commands, 64 MiB per linkedit read,
+512-byte symbol and library names, and 16,384 pointer slots per image. The
+registry holds at most 256 registered hooks, 65,536 rebound slots per hook,
+and 4,096 permanently pinned resolved images.
+
+Direct calls, unresolved lazy stubs, chained-fixup images, and client-local
+functions without an imported pointer are outside coverage. A macOS unit
+regression verifies that an executable address used as an unresolved stub is
+not accepted as the original target. The scratch integration test exercises a
+Hardened Runtime executable signed ad hoc with only
+`com.apple.security.cs.disable-library-validation`, plus owned ad-hoc-signed
+dylibs. It covers an `RTLD_LAZY` late image, symbol lifetime after the caller
+closes its dylib handle, enable/disable/remove, and an unsupported local target.
+The same lifecycle passed for an owned linked function in guarded official
+101a, 104a and 105c client processes (`scripts/fixtures/macos-hooks-probe.c`).
+These measurements do not establish hooks on vendor internals. The backend
+does not patch executable bytes, use JIT permissions, or
+request additional entitlements.
+
+A detour must have the exact signature and calling convention of the target
+and must never unwind. Hooks are process-wide; plugins remain responsible for
+what their detours do and for application-level synchronization.
+
+The checked-in plugin.toml is the Windows package manifest. For a macOS
+package, use plugin.macos.toml and name the built dylib
+libparsec_orbit_plugin_hooks.dylib. Both manifests provide the same service.

@@ -18,6 +18,8 @@
 | [spec/rust-sdk.md](spec/rust-sdk.md) | Implemented | `parsec-orbit-plugin-abi`, `-sdk` and `-sdk-std` crates, `freestanding!` runtime, size policy |
 | [spec/js-sdk.md](spec/js-sdk.md) | Implemented | JS plugin model, `@parsec-orbit/sdk` TypeScript API, WebView operations |
 | [spec/marketplace.md](spec/marketplace.md) | Implemented | Plugin index, sha256, signatures, safe installation, `parsec-orbit-market` |
+| [spec/macos-host.md](spec/macos-host.md) | Draft | macOS patched-app launch, loader, state isolation, signing and transactional installation |
+| [spec/macos-platform.md](spec/macos-platform.md) | Draft | macOS paths, `dylib` plugins, per-service behaviour, marketplace |
 
 "Draft" means agreed direction, not yet implemented; each draft spec lists its
 open questions at the end.
@@ -26,10 +28,18 @@ open questions at the end.
 
 * [design/architecture.md](design/architecture.md) - components, crate graph, size and concurrency policy
 * [design/roadmap.md](design/roadmap.md) - phases
+* [design/macos/native-dependency-poc.md](design/macos/native-dependency-poc.md) - measured copy PoC and remaining signing/original-path gates
+* [design/macos/bootstrap-checkpoint.md](design/macos/bootstrap-checkpoint.md) - M1a guarded activation: acceptance evidence and audit limits
+* [design/macos/installer-checkpoint.md](design/macos/installer-checkpoint.md) - M1b transaction: apply/restore evidence and the unverified list
+* [design/macos/extension-projects.md](design/macos/extension-projects.md) - Spicetify and alternative extension mechanisms
+* [design/macos-phases.md](design/macos-phases.md) - macOS phases M0-M2: deliverables, exit criteria, dependencies, risks
 * [design/size-report.md](design/size-report.md) - measured sizes: runtime spike, plugins, loader
 * [design/releasing.md](design/releasing.md) - how releases and crate publishing are done
 * [design/network-installer.md](design/network-installer.md) - signed release manifests and the install/upgrade/uninstall script
 * [design/decisions/](design/decisions/) - decision records (`NNNN-title.md`)
+* [design/macos/](design/macos/) - macOS support research: constraints, client internals, the loader-as-host design and its dynamic smoke test
+* [guides/macos-console.md](guides/macos-console.md) - independent terminal log viewer
+* [guides/macos-network-install.md](guides/macos-network-install.md) - verified release downloads and persistent macOS installation
 
 ## Related notes outside this repository
 

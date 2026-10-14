@@ -18,8 +18,11 @@ the same definitions.
   tables, `log_ex`, the interface registry) is appended after the revision 1
   fields, so plugins built against either revision keep working.
 
-Windows only in practice (the loader is a `bcrypt.dll` proxy), but the crate
-itself builds anywhere.
+The crate itself builds anywhere. In practice it is loaded on Windows
+(`bcrypt.dll` proxy) and on macOS arm64, where the loader is a dylib mapped
+into a patched copy of `Parsec.app`. `kind = "dll"` stays the Windows default
+and `kind = "dylib"` the macOS default; a manifest that names the other
+platform's kind is skipped with a message instead of being mapped.
 
 ## License
 
