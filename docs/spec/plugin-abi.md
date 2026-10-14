@@ -7,15 +7,15 @@ crate fails when they drift. Change the ABI, change this document. This ABI uses
 the `ParsecOrbit*` export and type names and the `parsec_orbit_plugin!` SDK
 macro.
 
-Status: implemented, ABI 1 with host revision 2.
+Status: implemented, ABI 1 with host revision 2. The ABI is the same on macOS (draft, [macos-platform.md](macos-platform.md)); where the text says DLL, `LoadLibraryW` or `%APPDATA%`, the macOS counterpart is a dylib, `dlopen` and the Orbit root.
 
 ## Lifecycle
 
 ```text
 client starts
-  -> loader is loaded (bcrypt.dll proxy)
+  -> loader is loaded (bcrypt.dll proxy; on macOS: loader dylib injected into the host)
        -> plugin directories are scanned, manifests read, load order decided
-            -> LoadLibraryW(plugin)
+            -> LoadLibraryW(plugin)        (macOS: dlopen)
                  -> ParsecOrbitPluginQuery(loader ABI version) -> plugin descriptor
                  -> abi_version / struct_size are validated
                  -> ParsecOrbitPluginInit(&ParsecOrbitHost) -> 0 means success
@@ -67,7 +67,7 @@ typedef struct ParsecOrbitHost {
     /* ---- revision 2 (208 bytes on x64) ---- */
     const char *plugin_id;        /* manifest id (descriptor id for manifest-less plugins) */
     const char *plugin_dir;       /* absolute, UTF-8 */
-    const char *data_dir;         /* %APPDATA%\ParsecOrbit\data\<id>; may not exist yet; NULL without %APPDATA% */
+    const char *data_dir;         /* <data root>\<id>, data root = %APPDATA%\ParsecOrbit\data (macOS: <Orbit root>/data); may not exist yet; NULL when unknown */
     void (*log_ex)(uint32_t level, const uint8_t *target, size_t target_len,
                    const uint8_t *message, size_t len);
     int32_t (*register_interface)(const ParsecOrbitHost *host, const char *name,
@@ -87,7 +87,7 @@ Conventions:
 - Log levels: `0=trace 1=debug 2=info 3=warn 4=error`.
 - Structs only grow at the tail; nothing before `reserved` is changed, removed,
   or reordered.
-- Callbacks use `extern "system"`, never unwind across the boundary and may be
+- Callbacks use `extern "system"` (the platform C ABI on macOS), never unwind across the boundary and may be
   called from any thread unless an interface says otherwise.
 
 ## Host revision 2
@@ -225,10 +225,11 @@ Error codes returned by the host and by interfaces:
 | Name | Service |
 | --- | --- |
 | `parsec-orbit.hooks` | Function hook registration/unregistration (reserved) |
-| `parsec-orbit.webview` | WebView2 bridge (inject scripts, evaluate, messages) |
+| `parsec-orbit.webview` | WebView bridge (inject scripts, evaluate, messages); WebView2 on Windows, WKWebView on macOS |
 | `parsec-orbit.js` | JS runtime handle, for DLL plugins that need eval |
 | `parsec-orbit.ui` | Declarative UI service (winio companion window) |
-| `parsec-orbit.kind.<kind>` | Handler that loads plugins of a non-`dll` kind (`kind.js`) |
+| `parsec-orbit.kind.<kind>` | Handler that loads plugins of a kind that is not a native kind (`dll`, `dylib`), for example `kind.js` |
+| `parsec-orbit.client` | macOS only (draft): which client build is running ([macos-platform.md](macos-platform.md#parsec-orbitclient)) |
 | `parsec-orbit.config`, `parsec-orbit.market` | Settings storage, marketplace metadata (reserved) |
 
 `parsec-orbit.*` is reserved for official services; the one exception is
@@ -274,6 +275,18 @@ __declspec(dllexport) int32_t ParsecOrbitPluginInit(const ParsecOrbitHost *host)
 
 Rust plugins generate these three exports with the `parsec_orbit_plugin!` macro; see
 `examples/parsec-orbit-plugin-hello`.
+
+## Platforms
+
+| | Windows | macOS (draft) |
+| --- | --- | --- |
+| Library | PE `.dll`, kind `dll` | Mach-O `.dylib`, kind `dylib`, `arm64`, at least ad-hoc signed |
+| Mapping | `LoadLibraryW`, then `LoadLibraryExW` fallback | `dlopen(RTLD_NOW|RTLD_LOCAL)` |
+| Exports | undecorated names from the export table | the same C names (`dlsym` without the leading underscore) |
+| Loader | `bcrypt.dll` proxy in the client directory | dylib injected into a host process ([macos-host.md](macos-host.md)) |
+| `HOST_REVISION_*_SIZE` | 96 / 208 on x64 | 96 / 208 (64-bit) |
+
+The structs, constants, error codes and the versioning policy are identical.
 
 ## Security notes
 

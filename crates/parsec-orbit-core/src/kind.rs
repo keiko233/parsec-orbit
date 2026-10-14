@@ -173,7 +173,11 @@ mod tests {
         load_plugin: None,
         unload_plugin: None,
     };
-    static SHORT: ParsecOrbitInterfaceHeader = ParsecOrbitInterfaceHeader::new(8, 1, 0);
+    /// Wrapped like the other test tables: a bare header only has alignment
+    /// 4, and the registry requires `usize` alignment.
+    #[repr(align(8))]
+    struct Aligned(ParsecOrbitInterfaceHeader);
+    static SHORT: Aligned = Aligned(ParsecOrbitInterfaceHeader::new(8, 1, 0));
 
     fn put(kind: &str, table: *const ParsecOrbitInterfaceHeader) {
         assert_eq!(
@@ -253,7 +257,7 @@ mod tests {
     fn handlers_this_loader_cannot_serve_are_unusable_not_missing() {
         put("kt-major", &NEW_MAJOR.header);
         put("kt-noload", &NO_LOAD.header);
-        put("kt-short", &SHORT);
+        put("kt-short", &SHORT.0);
         for (kind, needle) in [
             ("kt-major", "version 2.0"),
             ("kt-noload", "no load_plugin"),

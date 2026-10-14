@@ -1,6 +1,6 @@
 # UI service (`parsec-orbit.ui`)
 
-Status: Draft (version 1.0). Implements [ADR 0007](../design/decisions/0007-orbit-ui-winio.md);
+Status: Draft (version 1.0). Implements [ADR 0016](../design/decisions/0016-orbit-ui-winio.md);
 architectural walkthrough in [design/orbit-ui.md](../design/orbit-ui.md).
 
 The `parsec-orbit.ui` service provides a native, external management window

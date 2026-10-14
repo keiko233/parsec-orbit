@@ -7,6 +7,11 @@
 //!
 //! This plugin patches the in-memory option table behind that dropdown; see
 //! [`legacy`] and `README.md`.
+//!
+//! Windows-only: the patch reads the client's modules (`Toolhelp32`) and
+//! rewrites option-table pages (`VirtualProtect`/`VirtualAlloc`). The macOS
+//! equivalent is per verified build and lands in M2.
+#![cfg(windows)]
 
 pub mod legacy;
 

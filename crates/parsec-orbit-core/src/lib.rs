@@ -25,7 +25,7 @@ use std::path::Path;
 
 use parsec_orbit_plugin_abi::{InitFn, LegacyInitFn, QueryFn, ShutdownFn};
 
-pub use manifest::{read_manifest, Manifest, KIND_DLL, KIND_JS, MANIFEST};
+pub use manifest::{read_manifest, Manifest, KIND_DLL, KIND_DYLIB, KIND_JS, MANIFEST};
 pub use scan::{scan, Scan, Summary};
 
 /// Severity of a log line, in the order the ABI's `LOG_*` values use.
@@ -122,6 +122,12 @@ pub trait Platform {
     /// Maps the library at `path` and resolves the plugin exports. The error
     /// text goes into the log as-is.
     fn load(&self, path: &Path) -> Result<Module, String>;
+
+    /// The native kind of this platform's plugin libraries, i.e. the kind the
+    /// loader maps itself: `"dll"` on Windows, `"dylib"` on macOS. It is the
+    /// default `kind`, the entry-file extension and the kind the loader
+    /// refuses to hand to a `parsec-orbit.kind.<kind>` handler.
+    fn native_kind(&self) -> &'static str;
 }
 
 /// A mapped plugin. Kept so a future version can unload or reload plugins
@@ -141,6 +147,7 @@ pub struct Env<'a> {
     /// Reported to plugins as `ParsecOrbitHost::loader_version`.
     pub loader_version: &'a str,
     /// Parent of the per-plugin data directories
-    /// (`%APPDATA%\ParsecOrbit\data`); `None` when there is no `%APPDATA%`.
+    /// (`%APPDATA%\ParsecOrbit\data` on Windows,
+    /// `<Orbit root>/data` on macOS); `None` when there is none.
     pub data_root: Option<&'a Path>,
 }

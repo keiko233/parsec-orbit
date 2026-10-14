@@ -62,6 +62,7 @@ pub const INTERFACE_HOOKS: &str = "parsec-orbit.hooks";
 pub const INTERFACE_UI: &str = "parsec-orbit.ui";
 pub const INTERFACE_CONFIG: &str = "parsec-orbit.config";
 pub const INTERFACE_MARKET: &str = "parsec-orbit.market";
+pub const INTERFACE_CLIENT: &str = "parsec-orbit.client";
 
 /// Static description of a plugin, returned by [`QueryFn`].
 ///
@@ -363,6 +364,18 @@ pub struct ParsecOrbitKindHandlerV1 {
 /// or a message the page sent. The text is only valid during the call.
 pub type MessageCallback =
     unsafe extern "system" fn(user: *mut c_void, message: *const u8, len: usize);
+
+/// `parsec-orbit.client` 1.0, provided by the loader with client build
+/// information as a JSON object. The callback is invoked on the caller's
+/// thread and the message is valid only for the duration of that call.
+#[repr(C)]
+pub struct ParsecOrbitClientV1 {
+    pub header: ParsecOrbitInterfaceHeader,
+    /// Passes the JSON object to `out`. Returns [`OK`], [`ERR_INVALID`] for a
+    /// null callback, or [`ERR_NOT_READY`] when the client build is unknown.
+    pub info:
+        Option<unsafe extern "system" fn(out: Option<MessageCallback>, user: *mut c_void) -> i32>,
+}
 
 /// `parsec-orbit.webview` 1.0, provided by the webview-bridge plugin: the
 /// client's WebView2 UI. All strings are UTF-8 `(pointer, length)` pairs.

@@ -13,7 +13,8 @@ publish = false
 name = "loader-host"
 path = "src/bin/loader-host.rs"
 
-[dependencies]
+# Windows-only harness; on other targets every target compiles empty.
+[target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = [
     "Win32_Foundation",
     "Win32_System_LibraryLoader",

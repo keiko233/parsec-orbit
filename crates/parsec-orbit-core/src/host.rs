@@ -436,14 +436,27 @@ mod tests {
     use super::*;
     use std::sync::Mutex as StdMutex;
 
-    static HEADER: ParsecOrbitInterfaceHeader = ParsecOrbitInterfaceHeader::new(8, 1, 2);
-    static TINY: ParsecOrbitInterfaceHeader = ParsecOrbitInterfaceHeader {
+    /// The registry contract is that a table is aligned to `usize` (real
+    /// tables hold function pointers). A bare
+    /// `ParsecOrbitInterfaceHeader` static is only 4-byte aligned, and the
+    /// linker may place it at an odd multiple of 4 — on macOS it does — so
+    /// the fixtures are wrapped in an 8-byte-aligned cell.
+    #[repr(align(8))]
+    struct Aligned(ParsecOrbitInterfaceHeader);
+
+    static HEADER: Aligned = Aligned(ParsecOrbitInterfaceHeader::new(8, 1, 2));
+    static TINY: Aligned = Aligned(ParsecOrbitInterfaceHeader {
         size: 4,
         version: 0,
-    };
+    });
+
+    /// The 1.2 test table.
+    fn header() -> &'static ParsecOrbitInterfaceHeader {
+        &HEADER.0
+    }
 
     fn table() -> *const ParsecOrbitInterfaceHeader {
-        &HEADER
+        header()
     }
 
     // ---- names ----
@@ -520,7 +533,7 @@ mod tests {
             ERR_INVALID
         );
         assert_eq!(
-            registry.register("a", "com.example.svc", &TINY),
+            registry.register("a", "com.example.svc", &TINY.0),
             ERR_INVALID
         );
         let misaligned = (table() as usize + 1) as *const ParsecOrbitInterfaceHeader;
@@ -651,7 +664,7 @@ mod tests {
         let other = host_for("1", "com.example.cb-other", Path::new("."), None);
 
         assert_eq!(
-            owner.register(c"com.example.cb.svc", &HEADER),
+            owner.register(c"com.example.cb.svc", header()),
             OK,
             "registration through the SDK helper"
         );
@@ -663,7 +676,7 @@ mod tests {
             "com.example.cb-owner registered interface com.example.cb.svc 1.2"
         ));
 
-        assert_eq!(other.register(c"com.example.cb.svc", &HEADER), ERR_EXISTS);
+        assert_eq!(other.register(c"com.example.cb.svc", header()), ERR_EXISTS);
 
         let unregister = other.unregister_interface.unwrap();
         assert_eq!(

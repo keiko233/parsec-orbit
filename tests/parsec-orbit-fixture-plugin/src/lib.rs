@@ -36,7 +36,12 @@ use parsec_orbit_plugin_sdk::{
     ParsecOrbitPluginLoadInfo, LOG_INFO,
 };
 
-static INTERFACE: ParsecOrbitInterfaceHeader = ParsecOrbitInterfaceHeader::new(8, 1, 2);
+/// The registry requires a table aligned to `usize`; the interface below is
+/// a bare header without pointers, so it only has alignment 4 and is wrapped.
+#[repr(align(8))]
+struct AlignedInterface(ParsecOrbitInterfaceHeader);
+
+static INTERFACE: AlignedInterface = AlignedInterface(ParsecOrbitInterfaceHeader::new(8, 1, 2));
 
 static HANDLER: ParsecOrbitKindHandlerV1 = ParsecOrbitKindHandlerV1 {
     header: ParsecOrbitInterfaceHeader::new(std::mem::size_of::<ParsecOrbitKindHandlerV1>(), 1, 0),
@@ -195,7 +200,7 @@ unsafe extern "system" fn init(host: *const ParsecOrbitHost) -> i32 {
         let name = CString::new(argument).unwrap_or_default();
         match action {
             "register" => {
-                let code = host.register(&name, &INTERFACE);
+                let code = host.register(&name, &INTERFACE.0);
                 say(format!("fixture[{id}]: register {argument} -> {code}"));
             }
             "handler" => {

@@ -10,7 +10,7 @@ Nothing is trusted because of where it came from.
 2. An **index** is trusted if one of the keys in the user's `trusted-keys.txt` signed its exact bytes (ed25519).
 3. **Plugins are native code** in the client process. The signature says who published a package, not that it is harmless; see the [security notes](plugin-abi.md#security-notes).
 
-The key list is `%APPDATA%\ParsecOrbit\market\trusted-keys.txt` (or `--keys`): one `ed25519 <base64 public key> [comment]` per line, `#` for comments. No key is built into the tool; users add the keys of the publishers they trust. With an empty list nothing verifies. `--allow-unsigned` accepts an index whose signature is missing or wrong (and says so); the digests in it are then only as good as the connection it came over.
+The key list is `<Orbit root>/market/trusted-keys.txt` (or `--keys`): one `ed25519 <base64 public key> [comment]` per line, `#` for comments. On Windows, the Orbit root is `%APPDATA%\ParsecOrbit`. On macOS arm64, it is `~/Library/Application Support/ParsecOrbit`, or the directory in `PARSEC_ORBIT_HOME`. No key is built into the tool; users add the keys of the publishers they trust. With an empty list nothing verifies. `--allow-unsigned` accepts an index whose signature is missing or wrong (and says so); the digests in it are then only as good as the connection it came over.
 
 ## The index
 
@@ -29,6 +29,7 @@ The key list is `%APPDATA%\ParsecOrbit\market\trusted-keys.txt` (or `--keys`): o
     "versions": [{
       "version": "0.1.0",
       "api": 1,
+      "platform": "windows-x86_64",
       "url": "parsec-orbit-plugin-hooks.zip",
       "sha256": "<64 lowercase hex digits>",
       "size": 161561,
@@ -39,13 +40,14 @@ The key list is `%APPDATA%\ParsecOrbit\market\trusted-keys.txt` (or `--keys`): o
 ```
 
 * `format` is `1`; anything else is refused.
-* `id` is 1 to 128 of `[A-Za-z0-9._-]`, not only dots: it becomes a folder name. Ids are unique; versions are semantic versions, unique per plugin.
+* `id` is 1 to 128 of `[A-Za-z0-9._-]`, not only dots: it becomes a folder name. Ids are unique; versions are semantic versions, unique per plugin and platform.
 * `url` is absolute or relative to the index; a relative one may not contain `..`.
 * `api` is the loader ABI version the release needs (default 1); releases that need more than the tool's are not offered.
-* `requires` is copied from the plugin's manifest (version constraints dropped); `install --with-deps` installs what the index lists.
+* `platform` is optional. It is `windows-x86_64` when omitted, preserving existing indexes; the other supported value is `macos-arm64`. The tool lists and installs only releases for its host platform. Two packages may use the same plugin version when they target different platforms, but a platform and version pair must be unique. See [macOS platform rules](macos-platform.md#9-marketplace-on-macos) for package format, ad-hoc signing and paths.
+* `requires` is copied from the plugin's manifest (version constraints dropped); `install --with-deps` installs what the index lists for the host platform.
 * `size` is at most 256 MiB.
 
-The newest release that is compatible and not a pre-release is the default; `--version` picks another, pre-releases included.
+The newest release for the host platform that is compatible and not a pre-release is the default; `--version` picks another matching release, pre-releases included. Asking for a version that exists only on another platform is refused.
 
 ## The package
 
@@ -56,18 +58,20 @@ parsec-orbit-plugin-hooks/plugin.toml
 parsec-orbit-plugin-hooks/parsec_orbit_plugin_hooks.dll
 ```
 
+Windows packages use `kind = "dll"` and a `.dll` entry. macOS arm64 packages use `kind = "dylib"` and a `.dylib` entry. A zip still contains exactly one plugin folder.
+
 It is checked before anything is written: names are plain relative paths with `/` and no `..`, drive letters, `:`, reserved Windows names or trailing dots/spaces; no symbolic links; no duplicates (ignoring case); at most 4096 entries, 128 MiB per file and 256 MiB in all, counted as read rather than as the headers claim. `plugin.toml` has to be there, its `id` and `version` have to be the index entry's, and its `entry` has to be in the package.
 
 ## Installing
 
-Plugins go to `%APPDATA%\ParsecOrbit\plugins\<id>\` (or `--plugins-dir`).
+Plugins go to `<Orbit root>/plugins/<id>/` (or `--plugins-dir`).
 
 1. fetch the index and its signature, verify it;
 2. fetch the package, compare size and sha256, check it;
-3. write it to a staging folder next to the target with a `market.json` (id, version, sha256, index, time) and swap it in; the old version is renamed away first and restored if the swap fails, so an install is never half done;
+3. write it to a staging folder next to the target with a `market.json` (id, version, package sha256, index, time). On macOS, sign every staged `.dylib` with `codesign --force --sign -` and verify each signature before the swap. If signing or verification fails, discard the staging folder and leave the installed version in place. The digest in `market.json` remains the digest of the published zip, whose dylib bytes differ from the installed signed files. Then swap the staged folder in; the old version is renamed away first and restored if the swap fails, so an install is never half done;
 4. the plugin loads the next time the client starts.
 
-A plugin that is not in the plugins folder through the market (no `market.json`) is never replaced or removed without `--force`. A plugin whose DLL the running client holds cannot be replaced; the tool says so and asks to close the client.
+A plugin that is not in the plugins folder through the market (no `market.json`) is never replaced or removed without `--force`. On Windows, a plugin DLL held by the running client cannot be replaced; the tool says so and asks to close the client. On macOS, replacing a mapped dylib unlinks the old file while the running process keeps its inode; the new version loads the next time the client starts.
 
 ## Commands
 
@@ -90,6 +94,9 @@ parsec-orbit-market verify-any file [--keys file]
 be an index; the network installer uses it for `release.json`.
 
 ## Publishing
+
+The `index` publisher command marks packages with `kind = "dylib"` as
+`macos-arm64`; other packages retain the `windows-x86_64` default.
 
 `scripts/package.ps1` ships `parsec-orbit-market.exe` with every release,
 builds `index.json` from the zips in `dist`, and writes `release.json` (the

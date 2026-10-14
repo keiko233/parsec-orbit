@@ -196,6 +196,9 @@ mod tests {
         fn load(&self, _path: &Path) -> Result<Module, String> {
             Err("not used".into())
         }
+        fn native_kind(&self) -> &'static str {
+            crate::KIND_DLL
+        }
     }
 
     static ID: &[u8] = b"com.example.fake\0";

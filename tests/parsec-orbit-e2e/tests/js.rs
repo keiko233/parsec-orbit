@@ -1,6 +1,7 @@
 //! JavaScript plugins inside a real process: the runtime plugin loads
 //! `kind = "js"` plugins through the loader's kind-handler mechanism, with
 //! the webview bridge and a fake DevTools endpoint behind them.
+#![cfg(windows)]
 
 mod common;
 

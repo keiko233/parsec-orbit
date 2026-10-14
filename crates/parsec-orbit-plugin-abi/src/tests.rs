@@ -100,6 +100,10 @@ fn service_table_layouts_are_frozen() {
     assert_eq!(offset_of!(ParsecOrbitConfigV1, keys), 32);
     assert_eq!(size_of::<ParsecOrbitConfigV1>(), 40);
 
+    assert_eq!(offset_of!(ParsecOrbitClientV1, header), 0);
+    assert_eq!(offset_of!(ParsecOrbitClientV1, info), 8);
+    assert_eq!(size_of::<ParsecOrbitClientV1>(), 16);
+
     assert_eq!(offset_of!(ParsecOrbitHooksV1, header), 0);
     assert_eq!(offset_of!(ParsecOrbitHooksV1, resolve), 8);
     assert_eq!(offset_of!(ParsecOrbitHooksV1, install), 16);
@@ -157,6 +161,7 @@ fn abi_constants_are_stable() {
         [0, -1, -2, -3, -4, -5, -6]
     );
     assert_eq!(INTERFACE_KIND_PREFIX, "parsec-orbit.kind.");
+    assert_eq!(INTERFACE_CLIENT, "parsec-orbit.client");
 }
 
 /// `docs/spec/plugin-abi.md` is the reference other languages implement against, so
@@ -332,10 +337,19 @@ fn revision_2_fields_are_hidden_from_a_revision_1_loader() {
     assert_eq!(host.plugin_id(), None);
     assert_eq!(host.plugin_dir(), None);
     assert_eq!(host.data_dir(), None);
-    assert_eq!(host.register(c"x.y", &HEADER), ERR_NOT_READY);
+    assert_eq!(host.register(c"x.y", header()), ERR_NOT_READY);
 }
 
-static HEADER: ParsecOrbitInterfaceHeader = ParsecOrbitInterfaceHeader::new(8, 1, 0);
+/// The registry requires a table aligned to `usize`; a bare header only has
+/// alignment 4, so the fixture is wrapped in an 8-byte-aligned cell.
+#[repr(align(8))]
+struct AlignedHeader(ParsecOrbitInterfaceHeader);
+
+static HEADER: AlignedHeader = AlignedHeader(ParsecOrbitInterfaceHeader::new(8, 1, 0));
+
+fn header() -> &'static ParsecOrbitInterfaceHeader {
+    &HEADER.0
+}
 
 static EX_LOGGED: Mutex<Vec<(u32, String, String)>> = Mutex::new(Vec::new());
 
@@ -397,10 +411,10 @@ fn register_passes_the_callers_own_table_and_reports_the_result() {
         register_interface: Some(register_ok),
         ..ParsecOrbitHost::blank()
     };
-    assert_eq!(host.register(c"fresh.name", &HEADER), OK);
-    assert_eq!(host.register(c"taken.name", &HEADER), ERR_EXISTS);
+    assert_eq!(host.register(c"fresh.name", header()), OK);
+    assert_eq!(host.register(c"taken.name", header()), ERR_EXISTS);
     assert_eq!(
-        ParsecOrbitHost::blank().register(c"fresh.name", &HEADER),
+        ParsecOrbitHost::blank().register(c"fresh.name", header()),
         ERR_NOT_READY
     );
 }
@@ -408,7 +422,7 @@ fn register_passes_the_callers_own_table_and_reports_the_result() {
 unsafe extern "system" fn query_known(name: *const u8) -> *mut c_void {
     let name = unsafe { CStr::from_ptr(name as *const _) };
     if name.to_bytes() == b"known.name" {
-        &HEADER as *const ParsecOrbitInterfaceHeader as *mut c_void
+        header() as *const ParsecOrbitInterfaceHeader as *mut c_void
     } else {
         core::ptr::null_mut()
     }

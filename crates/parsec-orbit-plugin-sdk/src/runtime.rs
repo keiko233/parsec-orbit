@@ -7,10 +7,11 @@
 //! * a `#[global_allocator]` on the process heap ([`ProcessHeap`]),
 //! * a `#[panic_handler]` that writes the panic to the loader log through the
 //!   host table and then terminates the process ([`on_panic`]),
-//! * the few C runtime functions the compiler calls (`memcpy`, `memmove`,
-//!   `memset`, `memcmp`, `bcmp`, `strlen`, `__chkstk`, `_fltused`) and the DLL
-//!   entry point, as assembly,
-//! * the linker directive `/NODEFAULTLIB`, so the C runtime is not pulled in.
+//! * on Windows, the few C runtime functions the compiler calls (`memcpy`,
+//!   `memmove`, `memset`, `memcmp`, `bcmp`, `strlen`, `__chkstk`, `_fltused`)
+//!   and the DLL entry point, as assembly, plus the linker directive
+//!   `/NODEFAULTLIB`; on macOS those come from libSystem, so nothing is
+//!   emitted for them.
 //!
 //! The pieces that must be unique in the final binary are expanded in the
 //! plugin crate (not here), and not in its test build, so the crate keeps
@@ -71,7 +72,16 @@ pub fn abort() -> ! {
     unsafe {
         core::arch::asm!("int 0x29", in("ecx") 7u32, options(noreturn, nostack))
     }
-    #[cfg(not(all(target_arch = "x86_64", windows)))]
+    #[cfg(all(target_arch = "aarch64", target_os = "macos"))]
+    // Safety: `brk #0` traps the process like `__builtin_trap`, which is the
+    // macOS counterpart of the Windows fast-fail above.
+    unsafe {
+        core::arch::asm!("brk #0", options(noreturn, nostack))
+    }
+    #[cfg(not(any(
+        all(target_arch = "x86_64", windows),
+        all(target_arch = "aarch64", target_os = "macos")
+    )))]
     loop {
         core::hint::spin_loop();
     }
@@ -165,6 +175,89 @@ mod heap {
 #[cfg(windows)]
 pub use heap::ProcessHeap;
 
+#[cfg(target_os = "macos")]
+mod heap_macos {
+    //! The macOS allocator: libSystem's `malloc` family, which is in every
+    //! process, with `posix_memalign` for over-aligned blocks.
+
+    use core::alloc::{GlobalAlloc, Layout};
+    use core::ffi::{c_int, c_void};
+
+    // `-nodefaultlibs` is passed by the Apple targets for `no_std` crates, so
+    // the plugin must name libSystem itself; this link directive reaches the
+    // final dylib through the rlib's metadata.
+    #[link(name = "System")]
+    extern "C" {
+        fn malloc(size: usize) -> *mut c_void;
+        fn calloc(count: usize, size: usize) -> *mut c_void;
+        fn free(pointer: *mut c_void);
+        fn realloc(pointer: *mut c_void, size: usize) -> *mut c_void;
+        fn posix_memalign(memory: *mut *mut c_void, alignment: usize, size: usize) -> c_int;
+    }
+
+    /// What `malloc` guarantees on arm64.
+    const NATURAL_ALIGN: usize = 16;
+
+    /// The allocator of a `no_std` plugin on macOS.
+    pub struct ProcessHeap;
+
+    impl ProcessHeap {
+        unsafe fn allocate(layout: Layout, zeroed: bool) -> *mut u8 {
+            if layout.align() <= NATURAL_ALIGN {
+                let pointer = if zeroed {
+                    // Safety: a plain C call with the layout's size.
+                    unsafe { calloc(1, layout.size()) }
+                } else {
+                    unsafe { malloc(layout.size()) }
+                };
+                return pointer as *mut u8;
+            }
+            let mut pointer: *mut c_void = core::ptr::null_mut();
+            // Safety: `pointer` is a valid out-parameter.
+            if unsafe { posix_memalign(&mut pointer, layout.align(), layout.size()) } != 0 {
+                return core::ptr::null_mut();
+            }
+            if zeroed {
+                unsafe { core::ptr::write_bytes(pointer as *mut u8, 0, layout.size()) };
+            }
+            pointer as *mut u8
+        }
+    }
+
+    unsafe impl GlobalAlloc for ProcessHeap {
+        unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+            unsafe { Self::allocate(layout, false) }
+        }
+
+        unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
+            unsafe { Self::allocate(layout, true) }
+        }
+
+        unsafe fn dealloc(&self, pointer: *mut u8, _layout: Layout) {
+            unsafe { free(pointer as *mut c_void) };
+        }
+
+        unsafe fn realloc(&self, pointer: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
+            if layout.align() <= NATURAL_ALIGN {
+                // Safety: the pointer comes from `malloc` with this layout.
+                return unsafe { realloc(pointer as *mut c_void, new_size) } as *mut u8;
+            }
+            let new_layout = unsafe { Layout::from_size_align_unchecked(new_size, layout.align()) };
+            let fresh = unsafe { self.alloc(new_layout) };
+            if !fresh.is_null() {
+                unsafe {
+                    core::ptr::copy_nonoverlapping(pointer, fresh, layout.size().min(new_size));
+                    self.dealloc(pointer, layout);
+                }
+            }
+            fresh
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+pub use heap_macos::ProcessHeap;
+
 /// Installs the freestanding runtime in a `#![no_std]` plugin crate.
 ///
 /// Call it once, at the crate root, next to
@@ -182,7 +275,10 @@ pub use heap::ProcessHeap;
 /// Nothing is emitted in the crate's own test build, which links `std`. Not
 /// for plugins that use `std`: they bring their own runtime.
 ///
-/// Only `x86_64-pc-windows-msvc` is supported.
+/// Supported: `x86_64-pc-windows-msvc` and `aarch64-apple-darwin`. On macOS
+/// the allocator is libSystem's `malloc` family and the C runtime functions
+/// (`memcpy`, `memset`, ...) come from libSystem, so a macOS plugin is not
+/// "import-free": it imports libSystem.
 #[macro_export]
 macro_rules! freestanding {
     () => {
@@ -211,6 +307,7 @@ macro_rules! __runtime_support {
         // are assembly rather than Rust so that they are not exported from
         // the DLL and cannot be turned back into calls to themselves by
         // the optimiser.
+        #[cfg(windows)]
         ::core::arch::global_asm!(
             ".text",
             // void *memcpy(void *dst, const void *src, size_t n)
@@ -338,8 +435,18 @@ macro_rules! __runtime_support {
         );
 
         // Leave the C runtime out of the link.
+        #[cfg(windows)]
         #[used]
         #[link_section = ".drectve"]
         static __PARSEC_ORBIT_DIRECTIVES: [u8; 15] = *b" /NODEFAULTLIB ";
+
+        // The precompiled `alloc` of a debug build names the unwinding
+        // personality even though a plugin that aborts on panic never
+        // unwinds. On Windows this resolves through the CRT rules above; on
+        // macOS nothing else provides it, so it is a stub that is never
+        // called (a plugin that builds with `panic = "abort"` cannot unwind).
+        #[cfg(target_os = "macos")]
+        #[no_mangle]
+        pub extern "C" fn rust_eh_personality() {}
     };
 }

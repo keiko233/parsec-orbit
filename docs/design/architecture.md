@@ -3,7 +3,7 @@
 ## Goals
 
 1. A **standard SDK for Rust** (crates.io) and **TypeScript** (npm) so plugins are small, uniform and easy to write.
-2. A loader that stays **tiny and boring**: it sits in front of a foreign process (`bcrypt.dll` proxy) and must not grow into a platform.
+2. A loader that stays **tiny and boring**: it sits in front of a foreign process (`bcrypt.dll` proxy on Windows; a dependency-loaded dylib in a locally patched app on macOS) and must not grow into a platform.
 3. **Plugins do not pay for what they do not use**: no statically linked `std`/async stack by default, no JS engine unless a JS plugin is installed.
 4. Reuse established crates (`tracing`, `serde_json`, Boa, ...) where they pay for themselves - in plugins and tools, not in the loader's hot path.
 
@@ -40,7 +40,25 @@
 * **Plugins** are DLLs speaking the C ABI in [spec/plugin-abi.md](../spec/plugin-abi.md). The same ABI is used for *services*: a plugin can register typed vtables that other plugins query ([spec/services.md](../spec/services.md)).
 * **JS runtime is a plugin** (`kind.js` handler). A JS plugin declares `requires = ["com.parsec-orbit.js-runtime"]`; with the runtime absent (the default install) the loader skips it with a clear message. See [ADR 0003](decisions/0003-js-runtime-is-a-plugin.md).
 * **WebView operations are a plugin too** (`parsec-orbit.webview`), because the DevTools client (HTTP + WebSocket) is not something the bcrypt proxy should carry. The loader keeps only the existing job of opening the DevTools port.
-* **UI operations are a plugin too** (`parsec-orbit.ui`), providing an external native companion window via `winio` on a dedicated thread, driven by a unified declarative schema across the Rust and JS SDKs ([ADR 0007](decisions/0007-orbit-ui-winio.md), [design/orbit-ui.md](orbit-ui.md)). The loader stays light and Win32/GUI-free.
+* **UI operations are a plugin too** (`parsec-orbit.ui`), providing an external native companion window via `winio` on a dedicated thread, driven by a unified declarative schema across the Rust and JS SDKs ([ADR 0016](decisions/0016-orbit-ui-winio.md), [design/orbit-ui.md](orbit-ui.md)). The loader stays light and Win32/GUI-free.
+
+### macOS
+
+The pristine macOS app has no compatible proxy slot. The target is a supported local bootstrap dependency patch, keeping the installed app path/id and loading the Orbit dylib on normal launch ([ADR 0014](decisions/0014-macos-patched-bundle.md), [spec](../spec/macos-host.md)). The disposable-copy PoC passed; original-path identity and distribution remain gates. Loader-as-Host is optional fallback/development mode.
+
+```text
+ /Applications/Parsec.app   (locally patched and re-signed)
+ +-----------------------------------------------------------------------+
+ | parsecd = vendor stub + supported LC_LOAD_DYLIB command                 |
+ |   original instructions: isolated state -> hash -> client -> wx_main   |
+ | libparsec_orbit_loader.dylib (dependency, no DYLD env launcher)         |
+ |   activation/isolation -> Platform/Logger -> core -> native plugins    |
+ +-----------------------------------------------------------------------+
+ HR retained + disable LV; vendor outer signing identity is replaced
+ Orbit state/plugins/backups live outside the bundle in the private root
+```
+
+The shared parts are `parsec-orbit-core` and the plugin ABI; the Win32 `Platform` and the thunks have macOS counterparts in a separate loader crate. The size and concurrency policies below apply to both.
 
 ## Crate graph
 
