@@ -41,10 +41,13 @@ pub struct MetadataSnapshot {
 }
 
 /// Captures supported metadata without following the final symlink component.
+#[cfg(unix)]
 pub(super) fn capture(
     path: &Path,
     metadata: &fs::Metadata,
 ) -> Result<Option<MetadataSnapshot>, String> {
+    #[cfg(not(target_os = "macos"))]
+    let _ = path;
     let mut snapshot = MetadataSnapshot::default();
 
     #[cfg(unix)]
@@ -74,6 +77,14 @@ pub(super) fn capture(
     } else {
         Ok(None)
     }
+}
+
+#[cfg(not(unix))]
+pub(super) fn capture(
+    _path: &Path,
+    _metadata: &fs::Metadata,
+) -> Result<Option<MetadataSnapshot>, String> {
+    Ok(None)
 }
 
 #[cfg(target_os = "macos")]
