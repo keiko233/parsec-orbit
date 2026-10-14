@@ -37,6 +37,18 @@ The end-to-end suite loads these DLLs into a real process and exercises the allo
 
 The migration to `Plugin` / `Context` costs 2.5 to 6 KB each: the log macros, the service lookup and the plugin slot. They are `std` plugins on purpose (threads, sockets, file system); moving them to `no_std` would mean replacing `std::net` and `std::fs`, which is not worth it.
 
+## no_std conversion
+
+`high-bitrate-webview` has no `std` left: its one `std::env::var` is a small environment reader over `GetEnvironmentVariableW` (Windows) and `getenv` (macOS), and the crate builds as `cdylib` only. Release `.dylib` on `aarch64-apple-darwin`, same profile as above, bytes:
+
+| Build | Size |
+| --- | ---: |
+| before (`std`, `cdylib` + `rlib`) | 302,208 |
+| after (`no_std`, `cdylib`) | 50,416 |
+| saved | 251,792 (83 %) |
+
+The Windows size is not measured here (no Windows linker on this machine); the Windows build was only type-checked.
+
 ## Loader
 
 | Point in time | `bcrypt.dll` |

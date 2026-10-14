@@ -7,11 +7,12 @@ license.workspace = true
 repository.workspace = true
 publish = false
 
-# The loader maps the cdylib; the rlib exists so the verification tools can
-# reach the patch script.
+# The loader maps the cdylib. No rlib: a `no_std` plugin expands
+# `freestanding!` here, which would clash with the `std` of any binary that
+# linked it. The tools read `assets/bandwidth.js` directly.
 [lib]
 name = "parsec_orbit_plugin_high_bitrate_webview"
-crate-type = ["cdylib", "rlib"]
+crate-type = ["cdylib"]
 
 [dependencies]
 parsec-orbit-plugin-sdk = { path = "../../crates/parsec-orbit-plugin-sdk" }

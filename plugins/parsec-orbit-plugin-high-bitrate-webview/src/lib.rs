@@ -10,9 +10,16 @@
 //! keeps it installed in the client's WebView2 UI - in the current document and
 //! in every new one - and widens the dropdown to `..500 Mbps`. Without the
 //! bridge, or without a DevTools endpoint, the web UI is left untouched.
+//!
+//! The plugin is `#![no_std]` and installs the SDK's freestanding runtime, as
+//! `examples/parsec-orbit-plugin-hello-nostd` does. It reads its one switch
+//! from the environment without `std`, see the `environment` module.
+#![cfg_attr(not(test), no_std)]
 
 use parsec_orbit_plugin_sdk::prelude::*;
 use parsec_orbit_plugin_sdk::services::WebViewClient;
+
+parsec_orbit_plugin_sdk::freestanding!();
 
 /// Injected into the web UI; see `assets/bandwidth.js`.
 pub const BITRATE_SCRIPT: &str = include_str!("../assets/bandwidth.js");
@@ -20,22 +27,119 @@ pub const BITRATE_SCRIPT: &str = include_str!("../assets/bandwidth.js");
 /// Key of the script in the bridge. The bridge adds the plugin id.
 const SCRIPT_KEY: &str = "bandwidth";
 
-fn env(name: &str) -> Option<String> {
-    std::env::var(name).ok().filter(|value| !value.is_empty())
+/// Reads one environment variable without `std`: `GetEnvironmentVariableW`
+/// from kernel32 on Windows, libc `getenv` on macOS, and "unset" elsewhere.
+mod environment {
+    /// Bytes of a value kept on the stack. The switch words are at most five
+    /// bytes long, so a longer value can never be one of them.
+    const KEEP: usize = 8;
+    /// Room for a variable name and its terminating NUL.
+    const NAME_CAP: usize = 64;
+
+    /// A value copied onto the stack: its length and its first `KEEP` bytes.
+    #[derive(Clone, Copy, Default)]
+    pub struct Value {
+        len: usize,
+        head: [u8; KEEP],
+    }
+
+    impl Value {
+        /// Appends one byte of the value.
+        pub fn push(&mut self, byte: u8) {
+            if self.len < KEEP {
+                self.head[self.len] = byte;
+            }
+            self.len += 1;
+        }
+
+        /// Whether the value is exactly `word`.
+        pub fn is(&self, word: &str) -> bool {
+            self.len == word.len() && self.head.starts_with(word.as_bytes())
+        }
+    }
+
+    #[cfg(windows)]
+    pub fn var(name: &str) -> Option<Value> {
+        #[link(name = "kernel32", kind = "raw-dylib")]
+        extern "system" {
+            fn GetEnvironmentVariableW(name: *const u16, buffer: *mut u16, size: u32) -> u32;
+        }
+
+        // Names are short constants; the byte length bounds the UTF-16 length,
+        // which leaves the NUL in place.
+        assert!(name.len() < NAME_CAP);
+        let mut key = [0u16; NAME_CAP];
+        for (slot, unit) in key.iter_mut().zip(name.encode_utf16()) {
+            *slot = unit;
+        }
+        let mut buffer = [0u16; NAME_CAP];
+        // Safety: both buffers are valid for the sizes passed, and `key` is
+        // NUL-terminated by its zeroed tail.
+        let units = unsafe {
+            GetEnvironmentVariableW(key.as_ptr(), buffer.as_mut_ptr(), buffer.len() as u32)
+        } as usize;
+        // 0 is "unset" or "empty"; both count as the default.
+        if units == 0 {
+            return None;
+        }
+        let mut value = Value::default();
+        if units >= buffer.len() {
+            // Longer than the buffer, which is more than any switch word: the
+            // length alone decides it.
+            value.len = units;
+            return Some(value);
+        }
+        // A non-ASCII unit becomes a byte no switch word contains.
+        for &unit in &buffer[..units] {
+            value.push(u8::try_from(unit).unwrap_or(0xFF));
+        }
+        Some(value)
+    }
+
+    #[cfg(target_os = "macos")]
+    pub fn var(name: &str) -> Option<Value> {
+        use core::ffi::{c_char, CStr};
+
+        #[link(name = "System")]
+        extern "C" {
+            fn getenv(name: *const c_char) -> *const c_char;
+        }
+
+        assert!(name.len() < NAME_CAP);
+        let mut key = [0u8; NAME_CAP];
+        key[..name.len()].copy_from_slice(name.as_bytes());
+        // Safety: `key` is NUL-terminated by its zeroed tail; `getenv` returns
+        // either null or a NUL-terminated string owned by the process.
+        let pointer = unsafe { getenv(key.as_ptr().cast()) };
+        if pointer.is_null() {
+            return None;
+        }
+        let bytes = unsafe { CStr::from_ptr(pointer) }.to_bytes();
+        let mut value = Value::default();
+        for &byte in bytes {
+            value.push(byte);
+        }
+        Some(value)
+    }
+
+    #[cfg(not(any(windows, target_os = "macos")))]
+    pub fn var(_name: &str) -> Option<Value> {
+        None
+    }
 }
 
 /// `PARSEC_ORBIT_PATCHES=0` (or `off`/`false`) keeps the plugin idle. The switch
 /// predates the plugin split, when the patch was compiled into the loader, and
-/// is kept so existing setups keep working.
+/// is kept so existing setups keep working. Unset or empty means enabled.
 fn enabled() -> bool {
-    enabled_with(&env)
+    enabled_with(&environment::var)
 }
 
-fn enabled_with(env: &dyn Fn(&str) -> Option<String>) -> bool {
-    !matches!(
-        env("PARSEC_ORBIT_PATCHES").as_deref(),
-        Some("0") | Some("off") | Some("false")
-    )
+fn enabled_with(env: &dyn Fn(&str) -> Option<environment::Value>) -> bool {
+    match env("PARSEC_ORBIT_PATCHES") {
+        Some(value) => !(value.is("0") || value.is("off") || value.is("false")),
+        None => true,
+    }
 }
 
 #[derive(Default)]
@@ -99,6 +203,7 @@ parsec_orbit_plugin_sdk::declare_plugin! {
 
 #[cfg(test)]
 mod tests {
+    use super::environment::Value;
     use super::*;
     use parsec_orbit_plugin_sdk::{
         ParsecOrbitHost, ParsecOrbitInterfaceHeader, ParsecOrbitWebViewV1, ERR_INVALID, LOG_INFO,
@@ -109,13 +214,25 @@ mod tests {
     use std::ffi::CStr;
     use std::sync::Mutex;
 
-    fn lookup(vars: &[(&str, &str)]) -> impl Fn(&str) -> Option<String> {
+    fn value_of(text: &str) -> Value {
+        let mut value = Value::default();
+        for byte in text.bytes() {
+            value.push(byte);
+        }
+        value
+    }
+
+    fn lookup(vars: &[(&str, &str)]) -> impl Fn(&str) -> Option<Value> {
         let vars: HashMap<String, String> = vars
             .iter()
             .map(|(name, value)| (name.to_string(), value.to_string()))
             .collect();
-        // Same contract as `env`: an empty value counts as unset.
-        move |name| vars.get(name).cloned().filter(|value| !value.is_empty())
+        // Same contract as `environment::var`: an empty value counts as unset.
+        move |name| {
+            vars.get(name)
+                .filter(|value| !value.is_empty())
+                .map(|value| value_of(value))
+        }
     }
 
     // ---- enabled ------------------------------------------------------------
@@ -126,6 +243,12 @@ mod tests {
         assert!(enabled_with(&lookup(&[("PARSEC_ORBIT_PATCHES", "")])));
         assert!(enabled_with(&lookup(&[("PARSEC_ORBIT_PATCHES", "1")])));
         assert!(enabled_with(&lookup(&[("PARSEC_ORBIT_PATCHES", "OFF")])));
+        // Only an exact match switches the plugin off.
+        assert!(enabled_with(&lookup(&[("PARSEC_ORBIT_PATCHES", "0 ")])));
+        assert!(enabled_with(&lookup(&[(
+            "PARSEC_ORBIT_PATCHES",
+            "falseXXXXXXXX"
+        )])));
         for off in ["0", "off", "false"] {
             assert!(
                 !enabled_with(&lookup(&[("PARSEC_ORBIT_PATCHES", off)])),
