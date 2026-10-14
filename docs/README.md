@@ -18,6 +18,7 @@
 | [spec/rust-sdk.md](spec/rust-sdk.md) | Implemented | `parsec-orbit-plugin-abi`, `-sdk` and `-sdk-testing` crates, `freestanding!` runtime, size policy |
 | [spec/js-sdk.md](spec/js-sdk.md) | Implemented | JS plugin model, `@parsec-orbit/sdk` TypeScript API, WebView operations |
 | [spec/marketplace.md](spec/marketplace.md) | Implemented | Plugin index, sha256, signatures, safe installation, `parsec-orbit-market` |
+| [spec/registry.md](spec/registry.md) | Partly implemented | Format-1 index additions (serial, yanked, mirrors, platform), cache, `host.json`, `trusted-keys.toml` |
 | [spec/ui-service.md](spec/ui-service.md) | Draft | Declarative UI service (parsec-orbit.ui), winio companion window, schema, SDK bindings |
 | [spec/macos-host.md](spec/macos-host.md) | Draft | macOS patched-app launch, loader, state isolation, signing and transactional installation |
 | [spec/macos-platform.md](spec/macos-platform.md) | Draft | macOS paths, `dylib` plugins, per-service behaviour, marketplace |

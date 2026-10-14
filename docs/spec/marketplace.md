@@ -1,5 +1,7 @@
 # Marketplace
 
+> Superseded in part by [registry.md](registry.md): the format-1 index fields, mirrors, yanked releases, serial rollback, the cache, `host.json` and `trusted-keys.toml` are specified there.
+
 Status: implemented (`crates/parsec-orbit-registry`, the `parsec-orbit-market` tool). There is no hosted service: a *market* is an index file, the packages it lists, and a signature, served from anywhere (a GitHub release, a static web server, a folder).
 
 ## What is trusted
