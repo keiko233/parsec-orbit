@@ -1305,8 +1305,23 @@ function Invoke-Plugins {
 function Invoke-Ui {
     Write-Log 'opening Parsec Orbit settings window...'
     $sig = @'
+[DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Unicode, EntryPoint = "FindWindowW")]
+private static extern IntPtr FindWindowRaw(IntPtr lpClassName, IntPtr lpWindowName);
+// PowerShell turns $null into an empty string for a string parameter, which no
+// window matches, so the null half of the pair is passed as a real null here.
+public static IntPtr FindWindowByClass(string lpClassName) {
+    IntPtr name = Marshal.StringToHGlobalUni(lpClassName);
+    try { return FindWindowRaw(name, IntPtr.Zero); } finally { Marshal.FreeHGlobal(name); }
+}
+public static IntPtr FindWindowByTitle(string lpWindowName) {
+    IntPtr title = Marshal.StringToHGlobalUni(lpWindowName);
+    try { return FindWindowRaw(IntPtr.Zero, title); } finally { Marshal.FreeHGlobal(title); }
+}
 [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
-public static extern IntPtr FindWindow(string lpClassName, string lpWindowName);
+public static extern uint RegisterWindowMessage(string lpString);
+[DllImport("user32.dll", SetLastError = true)]
+[return: MarshalAs(UnmanagedType.Bool)]
+public static extern bool PostMessage(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
 [DllImport("user32.dll")]
 [return: MarshalAs(UnmanagedType.Bool)]
 public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
@@ -1319,20 +1334,36 @@ public static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPt
     if (-not ('ParsecOrbit.NativeMethods' -as [type])) {
         Add-Type -MemberDefinition $sig -Name 'NativeMethods' -Namespace 'ParsecOrbit'
     }
-    $hwnd = [ParsecOrbit.NativeMethods]::FindWindow($null, 'Parsec Orbit')
+
+    # The plugin's activation window runs the same toggle as the global hotkey,
+    # so this keeps the window's shown/hidden state correct.
+    $activation = [ParsecOrbit.NativeMethods]::FindWindowByClass('ParsecOrbitUiActivation')
+    if ($activation -ne [IntPtr]::Zero) {
+        $message = [ParsecOrbit.NativeMethods]::RegisterWindowMessage('PARSEC_ORBIT_UI_TOGGLE')
+        if ($message -ne 0 -and [ParsecOrbit.NativeMethods]::PostMessage(
+                $activation, $message, [IntPtr]::Zero, [IntPtr]::Zero)) {
+            Write-Log 'asked the running Parsec Orbit plugin to toggle its window'
+            return
+        }
+    }
+
+    # A client that has loaded the plugin already has the window, even hidden.
+    $hwnd = [ParsecOrbit.NativeMethods]::FindWindowByTitle('Parsec Orbit')
     if ($hwnd -ne [IntPtr]::Zero) {
         [ParsecOrbit.NativeMethods]::ShowWindow($hwnd, 9) | Out-Null
         [ParsecOrbit.NativeMethods]::SetForegroundWindow($hwnd) | Out-Null
-        Write-Log 'focused existing Parsec Orbit window'
-    } else {
-        [ParsecOrbit.NativeMethods]::keybd_event(0x11, 0, 0, [UIntPtr]::Zero)
-        [ParsecOrbit.NativeMethods]::keybd_event(0x10, 0, 0, [UIntPtr]::Zero)
-        [ParsecOrbit.NativeMethods]::keybd_event(0x4F, 0, 0, [UIntPtr]::Zero)
-        [ParsecOrbit.NativeMethods]::keybd_event(0x4F, 2, 0, [UIntPtr]::Zero)
-        [ParsecOrbit.NativeMethods]::keybd_event(0x10, 2, 0, [UIntPtr]::Zero)
-        [ParsecOrbit.NativeMethods]::keybd_event(0x11, 2, 0, [UIntPtr]::Zero)
-        Write-Log 'sent Ctrl+Shift+O shortcut to open Parsec Orbit window'
+        Write-Log 'focused the existing Parsec Orbit window'
+        return
     }
+
+    # Last resort: the keystroke a user would press.
+    [ParsecOrbit.NativeMethods]::keybd_event(0x11, 0, 0, [UIntPtr]::Zero)
+    [ParsecOrbit.NativeMethods]::keybd_event(0x12, 0, 0, [UIntPtr]::Zero)
+    [ParsecOrbit.NativeMethods]::keybd_event(0x4F, 0, 0, [UIntPtr]::Zero)
+    [ParsecOrbit.NativeMethods]::keybd_event(0x4F, 2, 0, [UIntPtr]::Zero)
+    [ParsecOrbit.NativeMethods]::keybd_event(0x12, 2, 0, [UIntPtr]::Zero)
+    [ParsecOrbit.NativeMethods]::keybd_event(0x11, 2, 0, [UIntPtr]::Zero)
+    Write-Log 'sent Ctrl+Alt+O; if nothing appears, check that Parsec is running with the Orbit UI plugin installed'
 }
 
 function Main {
