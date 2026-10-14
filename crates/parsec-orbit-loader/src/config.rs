@@ -19,6 +19,12 @@ pub struct Config {
     pub devtools_port: Option<u16>,
     /// Run the full plugin work even when the host is not the client.
     pub any_host: bool,
+    /// Which instances open a console window at start-up and mirror the log
+    /// into it.
+    pub console: parsec_orbit_core::console::Target,
+    /// Parsec's own logs, in priority order, that the console follows
+    /// alongside the loader log; empty without `%APPDATA%`.
+    pub parsec_logs: Vec<PathBuf>,
 }
 
 fn split_paths(value: &str) -> Vec<PathBuf> {
@@ -111,12 +117,25 @@ impl Config {
         let data_root =
             env("APPDATA").map(|appdata| Path::new(&appdata).join("ParsecOrbit").join("data"));
 
+        // Parsec writes its own log into its per-user directory: `log_cl.txt`
+        // for the client the user started, `log.txt` for the instance the
+        // service starts for hosting. The console shows both next to the
+        // loader's lines, which is what makes the window worth having.
+        let mut parsec_logs = Vec::new();
+        if let Some(appdata) = env("APPDATA") {
+            let dir = Path::new(&appdata).join("Parsec");
+            parsec_logs.push(dir.join("log_cl.txt"));
+            parsec_logs.push(dir.join("log.txt"));
+        }
+
         Config {
             log_candidates: unique,
             plugin_dirs: unique_dirs,
             data_root,
             devtools_port,
             any_host: matches!(env("PARSEC_ORBIT_HOST").as_deref(), Some("any")),
+            console: parsec_orbit_core::console::target(env("PARSEC_ORBIT_CONSOLE").as_deref()),
+            parsec_logs,
         }
     }
 }
@@ -124,6 +143,7 @@ impl Config {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use parsec_orbit_core::console::Target;
     use std::collections::HashMap;
 
     fn load(dir: Option<&str>, vars: &[(&str, &str)]) -> Config {
@@ -161,6 +181,8 @@ mod tests {
         assert!(config.plugin_dirs.is_empty());
         assert_eq!(config.devtools_port, Some(DEFAULT_DEVTOOLS_PORT));
         assert!(!config.any_host);
+        assert_eq!(config.console, Target::Off);
+        assert!(config.parsec_logs.is_empty());
     }
 
     #[test]
@@ -289,6 +311,7 @@ mod tests {
                 ("TEMP", ""),
                 ("PARSEC_ORBIT_DEVTOOLS_PORT", ""),
                 ("PARSEC_ORBIT_HOST", ""),
+                ("PARSEC_ORBIT_CONSOLE", ""),
             ],
         );
         assert_eq!(
@@ -298,6 +321,7 @@ mod tests {
         assert_eq!(paths(&config.plugin_dirs), ["C:\\Parsec\\plugins"]);
         assert_eq!(config.devtools_port, Some(DEFAULT_DEVTOOLS_PORT));
         assert!(!config.any_host);
+        assert_eq!(config.console, Target::Off);
     }
 
     #[test]
@@ -354,6 +378,35 @@ mod tests {
                 "PARSEC_ORBIT_HOST={other}"
             );
         }
+    }
+
+    #[test]
+    fn the_console_setting_picks_the_instances() {
+        let console = |value: &str| load(None, &[("PARSEC_ORBIT_CONSOLE", value)]).console;
+        for on in ["1", "on", "true", "yes"] {
+            assert_eq!(console(on), Target::All, "PARSEC_ORBIT_CONSOLE={on}");
+        }
+        assert_eq!(console("client"), Target::Client);
+        assert_eq!(console("host"), Target::Host);
+        for off in ["", "0", "off", "false", "ON", "1 ", "anything"] {
+            assert_eq!(console(off), Target::Off, "PARSEC_ORBIT_CONSOLE={off}");
+        }
+    }
+
+    #[test]
+    fn parsec_logs_are_the_client_and_host_logs_below_appdata() {
+        let config = load(None, &[("APPDATA", "C:\\Roaming")]);
+        assert_eq!(
+            paths(&config.parsec_logs),
+            [
+                "C:\\Roaming\\Parsec\\log_cl.txt",
+                "C:\\Roaming\\Parsec\\log.txt",
+            ],
+            "the client's log first, then the one the service writes"
+        );
+
+        // A service environment has no %APPDATA% and nothing to follow.
+        assert!(load(None, &[]).parsec_logs.is_empty());
     }
 
     #[test]

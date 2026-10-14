@@ -154,6 +154,8 @@ Copy the folder (`plugin.toml` plus the DLL) to `<Parsec client directory>\plugi
 
 To try a plugin without installing it, point `PARSEC_ORBIT_PLUGIN_DIR` at a directory that contains it.
 
+To watch the log while the client starts, set `PARSEC_ORBIT_CONSOLE=1`: the loader opens a console window and mirrors the log into it, next to Parsec's own log lines. The client runs twice (the user's instance and the service's), so `1` opens a window for each; `PARSEC_ORBIT_CONSOLE=client` (or `host`) opens it in one of them.
+
 ## Samples
 
 * [`examples/parsec-orbit-plugin-hello-nostd`](../../examples/parsec-orbit-plugin-hello-nostd) - this guide's plugin.
