@@ -3,8 +3,8 @@
 # The suite covers the SDK, the loader, both official plugins and the example,
 # plus end-to-end tests that build the loader and the plugins and run them in
 # a real process. The Windows job runs the whole suite; the macOS arm64 job
-# runs the portable subset: the core, the macOS loader platform crate and the
-# std/no_std fixtures, with the Windows-only crates compiling empty there.
+# runs the portable suite, installer, marketplace and hardened import-hook
+# fixtures, with unsupported Windows-only backends compiling empty there.
 name: Test
 
 on:
@@ -109,6 +109,7 @@ jobs:
           python3 scripts/test-macos-bootstrap-audit.py
           python3 scripts/test-macos-accept-bootstrap-audit.py
           python3 scripts/test-macos-keychain-canary.py
+          python3 scripts/test-macos-inspect-bitrate.py
 
       # Runs the portable suite, including the macOS loader platform and the
       # std/no_std fixture e2e (`crates/parsec-orbit-loader-macos`).
