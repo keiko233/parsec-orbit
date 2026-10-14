@@ -215,3 +215,8 @@ export default definePlugin({
 2. **IPC for out-of-process companion**: When Orbit runs as an external tool
    rather than an injected DLL, should the UI communicate via named pipes
    with the same JSON action protocol?
+3. **Item types the follow-up work needs**: a read-only multiline view (for a
+   latency table and a log tail) and dropdown options that can change while the
+   window is open. Both are described in
+   [design/orbit-ui.md](../design/orbit-ui.md) section 6 and will change this
+   spec when they land.
