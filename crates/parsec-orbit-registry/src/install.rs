@@ -16,7 +16,7 @@ use std::sync::Arc;
 use semver::Version;
 use serde::{Deserialize, Serialize};
 
-use crate::index::{Index, Platform, Release, MAX_PACKAGE_BYTES};
+use crate::index::{Index, PlatformId, Release, MAX_PACKAGE_BYTES};
 use crate::package::{self, Manifest};
 use crate::source::{resolve, Fetch};
 use crate::trust::{self, TrustedKey};
@@ -137,20 +137,25 @@ pub struct Market<'a> {
     /// Loader ABI version; releases that need more are not offered.
     pub api: u32,
     /// Host platform used to filter the index.
-    pub platform: Platform,
+    pub platform: PlatformId,
     /// Ad-hoc signer for staged macOS dylibs.
     pub code_signer: Arc<dyn DylibSigner>,
 }
 
 impl<'a> Market<'a> {
-    pub fn new(fetch: &'a dyn Fetch, plugins_dir: PathBuf, trusted: Vec<TrustedKey>) -> Market<'a> {
+    pub fn new(
+        fetch: &'a dyn Fetch,
+        plugins_dir: PathBuf,
+        trusted: Vec<TrustedKey>,
+        platform: PlatformId,
+    ) -> Market<'a> {
         Market {
             fetch,
             plugins_dir,
             trusted,
             allow_unsigned: false,
             api: LOADER_API,
-            platform: Platform::current(),
+            platform,
             code_signer: Arc::new(SystemDylibSigner),
         }
     }
@@ -279,7 +284,7 @@ impl<'a> Market<'a> {
             .index
             .plugin(id)
             .ok_or_else(|| Error::NotFound(format!("{id} is not in the index")))?;
-        let release = plugin.select(version, self.api, self.platform)?;
+        let release = plugin.select(version, self.api, &self.platform)?;
         visiting.push(id.to_string());
 
         if options.with_deps {
@@ -333,7 +338,7 @@ impl<'a> Market<'a> {
                 package.manifest.version, release.version
             )));
         }
-        if release.platform == Platform::MacosArm64 {
+        if release.platform == PlatformId::macos_arm64() {
             if package.manifest.kind != "dylib" {
                 return Err(Error::Package(format!(
                     "{} {} targets macos-arm64 but its manifest kind is {:?}, expected \"dylib\"",
@@ -379,7 +384,7 @@ impl<'a> Market<'a> {
         let _ = std::fs::remove_dir_all(&staging);
         let staged = (|| -> Result<(), Error> {
             package::write_to(&package, &staging)?;
-            if release.platform == Platform::MacosArm64 {
+            if release.platform == PlatformId::macos_arm64() {
                 let mut dylibs = 0;
                 for file in package
                     .files
@@ -476,7 +481,7 @@ impl<'a> Market<'a> {
             let Some(plugin) = index.index.plugin(&installed.id) else {
                 continue;
             };
-            let Ok(release) = plugin.select(None, self.api, self.platform) else {
+            let Ok(release) = plugin.select(None, self.api, &self.platform) else {
                 continue;
             };
             let newer = match (
@@ -547,18 +552,18 @@ mod tests {
     const INDEX_URL: &str = "https://market.example/index.json";
 
     fn package_for(id: &str, version: &str, requires: &[&str]) -> Vec<u8> {
-        package_for_platform(id, version, requires, Platform::WindowsX86_64)
+        package_for_platform(id, version, requires, &PlatformId::windows_x86_64())
     }
 
     fn package_for_platform(
         id: &str,
         version: &str,
         requires: &[&str],
-        platform: Platform,
+        platform: &PlatformId,
     ) -> Vec<u8> {
         let requires: Vec<String> = requires.iter().map(|r| format!("\"{r}\"")).collect();
-        match platform {
-            Platform::WindowsX86_64 => {
+        match platform.as_str() {
+            PlatformId::WINDOWS_X86_64 => {
                 let manifest = format!(
                     "id = \"{id}\"\nversion = \"{version}\"\nentry = \"p.dll\"\nrequires = [{}]\n",
                     requires.join(", ")
@@ -571,7 +576,7 @@ mod tests {
                     ),
                 ])
             }
-            Platform::MacosArm64 => {
+            PlatformId::MACOS_ARM64 => {
                 let manifest = format!(
                     "id = \"{id}\"\nversion = \"{version}\"\nkind = \"dylib\"\nentry = \"p.dylib\"\nrequires = [{}]\n",
                     requires.join(", ")
@@ -588,6 +593,7 @@ mod tests {
                     ),
                 ])
             }
+            other => unreachable!("no test package for {other}"),
         }
     }
 
@@ -601,18 +607,18 @@ mod tests {
     fn fixture(releases: &[(&str, &str, &[&str])]) -> Fixture {
         let windows_releases: Vec<_> = releases
             .iter()
-            .map(|(id, version, requires)| (*id, *version, *requires, Platform::WindowsX86_64))
+            .map(|(id, version, requires)| (*id, *version, *requires, PlatformId::windows_x86_64()))
             .collect();
         fixture_with_platform(&windows_releases)
     }
 
-    fn fixture_with_platform(releases: &[(&str, &str, &[&str], Platform)]) -> Fixture {
+    fn fixture_with_platform(releases: &[(&str, &str, &[&str], PlatformId)]) -> Fixture {
         let (secret, public) = trust::generate_keypair().unwrap();
         let key = trust::signing_key(&secret).unwrap();
         let mut memory = Memory::default();
         let mut plugins: Vec<Plugin> = Vec::new();
         for (id, version, requires, platform) in releases {
-            let bytes = package_for_platform(id, version, requires, *platform);
+            let bytes = package_for_platform(id, version, requires, platform);
             let url = format!("{id}-{version}.zip");
             memory
                 .files
@@ -620,7 +626,7 @@ mod tests {
             let release = Release {
                 version: version.to_string(),
                 api: 1,
-                platform: *platform,
+                platform: platform.clone(),
                 url,
                 sha256: trust::sha256_hex(&bytes),
                 size: bytes.len() as u64,
@@ -660,13 +666,16 @@ mod tests {
 
     impl Fixture {
         fn market(&self) -> Market<'_> {
-            self.market_for(Platform::WindowsX86_64)
+            self.market_for(PlatformId::windows_x86_64())
         }
 
-        fn market_for(&self, platform: Platform) -> Market<'_> {
-            let mut market = Market::new(&self.memory, self.dir.0.clone(), self.trusted.clone());
-            market.platform = platform;
-            market
+        fn market_for(&self, platform: PlatformId) -> Market<'_> {
+            Market::new(
+                &self.memory,
+                self.dir.0.clone(),
+                self.trusted.clone(),
+                platform,
+            )
         }
     }
 
@@ -748,10 +757,11 @@ mod tests {
 
     #[test]
     fn macos_install_signs_and_verifies_every_dylib_but_records_package_digest() {
-        let f = fixture_with_platform(&[("com.example.mac", "1.0.0", &[], Platform::MacosArm64)]);
+        let f =
+            fixture_with_platform(&[("com.example.mac", "1.0.0", &[], PlatformId::macos_arm64())]);
         let signer = Arc::new(RecordingSigner::default());
         let market = f
-            .market_for(Platform::MacosArm64)
+            .market_for(PlatformId::macos_arm64())
             .with_code_signer(signer.clone());
         let index = market.load_index(INDEX_URL).unwrap();
         let package_digest = index.index.plugins[0].versions[0].sha256.clone();
@@ -816,12 +826,12 @@ mod tests {
     #[test]
     fn a_macos_signing_failure_keeps_the_previous_installation() {
         let f = fixture_with_platform(&[
-            ("com.example.mac", "1.0.0", &[], Platform::MacosArm64),
-            ("com.example.mac", "2.0.0", &[], Platform::MacosArm64),
+            ("com.example.mac", "1.0.0", &[], PlatformId::macos_arm64()),
+            ("com.example.mac", "2.0.0", &[], PlatformId::macos_arm64()),
         ]);
         let signer = Arc::new(RecordingSigner::default());
         let market = f
-            .market_for(Platform::MacosArm64)
+            .market_for(PlatformId::macos_arm64())
             .with_code_signer(signer.clone());
         let index = market.load_index(INDEX_URL).unwrap();
         market
@@ -932,7 +942,12 @@ mod tests {
         let mut text = String::from_utf8(modified.files[INDEX_URL].clone()).unwrap();
         text = text.replace("\"test\"", "\"tampered\"");
         modified.files.insert(INDEX_URL.into(), text.into_bytes());
-        let market2 = Market::new(&modified, f2.dir.0.clone(), f2.trusted.clone());
+        let market2 = Market::new(
+            &modified,
+            f2.dir.0.clone(),
+            f2.trusted.clone(),
+            PlatformId::windows_x86_64(),
+        );
         assert!(matches!(
             market2.load_index(INDEX_URL),
             Err(Error::Signature(_))

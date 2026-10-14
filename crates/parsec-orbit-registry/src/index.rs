@@ -36,39 +36,88 @@ pub const FORMAT: u32 = 1;
 /// Largest package accepted, in bytes.
 pub const MAX_PACKAGE_BYTES: u64 = 256 * 1024 * 1024;
 
-/// The platform a release package targets.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub enum Platform {
-    #[serde(rename = "windows-x86_64")]
-    #[default]
-    WindowsX86_64,
-    #[serde(rename = "macos-arm64")]
-    MacosArm64,
+/// The platform a release package targets, as `<os>-<arch>`: lowercase letters
+/// and digits for the OS, lowercase letters, digits and `_` for the
+/// architecture (`windows-x86_64`, `macos-arm64`). The set is open: an index may
+/// name a platform this tool does not serve, and its releases are then never
+/// offered here.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(try_from = "String", into = "String")]
+pub struct PlatformId(String);
+
+impl PlatformId {
+    pub const WINDOWS_X86_64: &'static str = "windows-x86_64";
+    pub const MACOS_ARM64: &'static str = "macos-arm64";
+
+    pub fn windows_x86_64() -> Self {
+        Self(Self::WINDOWS_X86_64.to_string())
+    }
+
+    pub fn macos_arm64() -> Self {
+        Self(Self::MACOS_ARM64.to_string())
+    }
+
+    /// Platform this build of the tool serves; `None` on any other OS or
+    /// architecture, which has no packages to install.
+    pub fn current() -> Option<Self> {
+        if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
+            Some(Self::macos_arm64())
+        } else if cfg!(all(target_os = "windows", target_arch = "x86_64")) {
+            Some(Self::windows_x86_64())
+        } else {
+            None
+        }
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    /// Releases without a `platform` key are Windows releases.
+    fn is_default(platform: &Self) -> bool {
+        platform.0 == Self::WINDOWS_X86_64
+    }
 }
 
-impl Platform {
-    /// Platform this build of the tool serves.
-    pub const fn current() -> Self {
-        #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-        {
-            Self::MacosArm64
-        }
-        #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
-        {
-            Self::WindowsX86_64
-        }
+impl Default for PlatformId {
+    fn default() -> Self {
+        Self::windows_x86_64()
     }
+}
 
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::WindowsX86_64 => "windows-x86_64",
-            Self::MacosArm64 => "macos-arm64",
+impl TryFrom<String> for PlatformId {
+    type Error = Error;
+
+    fn try_from(text: String) -> Result<Self, Error> {
+        if valid_platform(&text) {
+            Ok(Self(text))
+        } else {
+            Err(Error::Index(format!(
+                "platform {text:?} is not <os>-<arch> (lowercase letters and digits, then _ or digits in the architecture)"
+            )))
         }
     }
+}
 
-    fn is_default(platform: &Self) -> bool {
-        *platform == Self::WindowsX86_64
+impl From<PlatformId> for String {
+    fn from(platform: PlatformId) -> String {
+        platform.0
     }
+}
+
+/// `^[a-z0-9]+-[a-z0-9_]+$`, checked without a regular expression engine.
+fn valid_platform(text: &str) -> bool {
+    let Some((os, arch)) = text.split_once('-') else {
+        return false;
+    };
+    !os.is_empty()
+        && !arch.is_empty()
+        && os
+            .bytes()
+            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit())
+        && arch
+            .bytes()
+            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_')
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -100,8 +149,8 @@ pub struct Release {
     #[serde(default = "default_api")]
     pub api: u32,
     /// Target platform. Missing values retain the original Windows meaning.
-    #[serde(default, skip_serializing_if = "Platform::is_default")]
-    pub platform: Platform,
+    #[serde(default, skip_serializing_if = "PlatformId::is_default")]
+    pub platform: PlatformId,
     pub url: String,
     pub sha256: String,
     pub size: u64,
@@ -154,7 +203,7 @@ impl Index {
             if plugin.versions.is_empty() {
                 return bad(format!("plugin {} has no versions", plugin.id));
             }
-            let mut versions: Vec<(Version, Platform)> = Vec::new();
+            let mut versions: Vec<(Version, PlatformId)> = Vec::new();
             for release in &plugin.versions {
                 let version = Version::parse(&release.version).map_err(|error| {
                     Error::Index(format!(
@@ -162,14 +211,14 @@ impl Index {
                         plugin.id, release.version
                     ))
                 })?;
-                if versions.contains(&(version.clone(), release.platform)) {
+                if versions.contains(&(version.clone(), release.platform.clone())) {
                     return bad(format!(
                         "{} {version} for {} is listed twice",
                         plugin.id,
                         release.platform.as_str()
                     ));
                 }
-                versions.push((version, release.platform));
+                versions.push((version, release.platform.clone()));
                 if release.sha256.len() != 64
                     || !release
                         .sha256
@@ -217,7 +266,7 @@ impl Plugin {
         &self,
         version: Option<&str>,
         api: u32,
-        platform: Platform,
+        platform: &PlatformId,
     ) -> Result<&Release, Error> {
         if let Some(wanted) = version {
             let wanted = Version::parse(wanted)
@@ -227,7 +276,7 @@ impl Plugin {
                 .iter()
                 .find(|release| {
                     Version::parse(&release.version).ok().as_ref() == Some(&wanted)
-                        && release.platform == platform
+                        && release.platform == *platform
                 })
                 .or_else(|| {
                     self.versions.iter().find(|release| {
@@ -235,7 +284,7 @@ impl Plugin {
                     })
                 })
                 .ok_or_else(|| Error::NotFound(format!("{} has no version {wanted}", self.id)))?;
-            if release.platform != platform {
+            if release.platform != *platform {
                 return Err(Error::Incompatible(format!(
                     "{} {wanted} has no release for platform {}",
                     self.id,
@@ -252,7 +301,7 @@ impl Plugin {
         }
         self.versions
             .iter()
-            .filter(|release| release.platform == platform)
+            .filter(|release| release.platform == *platform)
             .filter(|release| release.api <= api)
             .filter_map(|release| Some((Version::parse(&release.version).ok()?, release)))
             .filter(|(version, _)| version.pre.is_empty())
@@ -282,7 +331,7 @@ mod tests {
         Release {
             version: version.to_string(),
             api,
-            platform: Platform::WindowsX86_64,
+            platform: PlatformId::windows_x86_64(),
             url: format!("p-{version}.zip"),
             sha256: "ab".repeat(32),
             size: 10,
@@ -327,7 +376,7 @@ mod tests {
         assert_eq!(index.plugins[0].versions[0].api, 1);
         assert_eq!(
             index.plugins[0].versions[0].platform,
-            Platform::WindowsX86_64
+            PlatformId::windows_x86_64()
         );
         assert!(index.plugins[0].versions[0].requires.is_empty());
     }
@@ -382,6 +431,75 @@ mod tests {
     }
 
     #[test]
+    fn platform_ids_are_checked_as_os_and_architecture() {
+        for good in [
+            "windows-x86_64",
+            "macos-arm64",
+            "linux-x86_64",
+            "x86-64",
+            "a-b_c1",
+        ] {
+            let parsed = PlatformId::try_from(good.to_string()).unwrap();
+            assert_eq!(parsed.as_str(), good);
+        }
+        for bad in [
+            "",
+            "windows",
+            "-x86_64",
+            "windows-",
+            "Windows-x86_64",
+            "windows-X86_64",
+            "windows-x86-64",
+            "windows_x86_64",
+            "windows x86_64",
+            "../windows-x86_64",
+            "windows-x86_64 ",
+            "windows-x86_64\n",
+        ] {
+            let error = PlatformId::try_from(bad.to_string()).unwrap_err();
+            assert!(matches!(error, Error::Index(_)), "{bad:?}: {error}");
+        }
+    }
+
+    #[test]
+    fn a_missing_platform_is_windows_and_an_invalid_one_refuses_the_index() {
+        assert_eq!(PlatformId::default(), PlatformId::windows_x86_64());
+        let release = |platform: &str| {
+            format!(
+                r#"{{"format":1,"plugins":[{{"id":"a","versions":[{{"version":"1.0.0"{platform},"url":"a.zip","sha256":"{}","size":1}}]}}]}}"#,
+                "0".repeat(64)
+            )
+        };
+        let windows = Index::parse(release("").as_bytes()).unwrap();
+        assert_eq!(
+            windows.plugins[0].versions[0].platform,
+            PlatformId::windows_x86_64()
+        );
+        let refused = Index::parse(release(r#","platform":"Windows""#).as_bytes());
+        assert!(matches!(refused, Err(Error::Index(_))), "{refused:?}");
+    }
+
+    #[test]
+    fn a_platform_this_tool_does_not_serve_is_read_but_never_selected() {
+        let index = Index::parse(
+            format!(
+                r#"{{"format":1,"plugins":[{{"id":"a","versions":[{{"version":"2.0.0","platform":"linux-x86_64","url":"a.zip","sha256":"{0}","size":1}},{{"version":"1.0.0","url":"a.zip","sha256":"{0}","size":1}}]}}]}}"#,
+                "0".repeat(64)
+            )
+            .as_bytes(),
+        )
+        .unwrap();
+        let plugin = &index.plugins[0];
+        let windows = PlatformId::windows_x86_64();
+        assert_eq!(plugin.select(None, 1, &windows).unwrap().version, "1.0.0");
+        assert!(matches!(
+            plugin.select(Some("2.0.0"), 1, &windows),
+            Err(Error::Incompatible(_))
+        ));
+        assert!(index.to_json().contains("\"platform\": \"linux-x86_64\""));
+    }
+
+    #[test]
     fn ids_are_path_safe() {
         for good in ["a", "com.example.p", "A_b-c.1"] {
             assert!(valid_id(good), "{good}");
@@ -401,12 +519,16 @@ mod tests {
             release("1.9.0", 1),
         ]);
         assert_eq!(
-            p.select(None, 1, Platform::WindowsX86_64).unwrap().version,
+            p.select(None, 1, &PlatformId::windows_x86_64())
+                .unwrap()
+                .version,
             "1.10.0",
             "semver, not text order"
         );
         assert_eq!(
-            p.select(None, 2, Platform::WindowsX86_64).unwrap().version,
+            p.select(None, 2, &PlatformId::windows_x86_64())
+                .unwrap()
+                .version,
             "2.0.0"
         );
     }
@@ -414,21 +536,25 @@ mod tests {
     #[test]
     fn mixed_platform_versions_are_filtered_and_old_indexes_stay_windows() {
         let mut windows = release("2.0.0", 1);
-        windows.platform = Platform::WindowsX86_64;
+        windows.platform = PlatformId::windows_x86_64();
         let mut macos = release("1.5.0", 1);
-        macos.platform = Platform::MacosArm64;
+        macos.platform = PlatformId::macos_arm64();
         let p = plugin(vec![windows, macos]);
 
         assert_eq!(
-            p.select(None, 1, Platform::WindowsX86_64).unwrap().version,
+            p.select(None, 1, &PlatformId::windows_x86_64())
+                .unwrap()
+                .version,
             "2.0.0"
         );
         assert_eq!(
-            p.select(None, 1, Platform::MacosArm64).unwrap().version,
+            p.select(None, 1, &PlatformId::macos_arm64())
+                .unwrap()
+                .version,
             "1.5.0"
         );
         assert!(matches!(
-            p.select(Some("2.0.0"), 1, Platform::MacosArm64),
+            p.select(Some("2.0.0"), 1, &PlatformId::macos_arm64()),
             Err(Error::Incompatible(_))
         ));
 
@@ -436,32 +562,35 @@ mod tests {
             br#"{"format":1,"plugins":[{"id":"legacy","versions":[{"version":"1.0.0","url":"p.zip","sha256":"0000000000000000000000000000000000000000000000000000000000000000","size":1}]}]}"#,
         )
         .unwrap();
-        assert_eq!(old.plugins[0].versions[0].platform, Platform::WindowsX86_64);
+        assert_eq!(
+            old.plugins[0].versions[0].platform,
+            PlatformId::windows_x86_64()
+        );
         assert!(!old.to_json().contains("platform"));
     }
 
     #[test]
     fn one_semver_can_have_a_package_for_each_platform() {
         let mut windows = release("1.0.0", 1);
-        windows.platform = Platform::WindowsX86_64;
+        windows.platform = PlatformId::windows_x86_64();
         let mut macos = release("1.0.0", 1);
-        macos.platform = Platform::MacosArm64;
+        macos.platform = PlatformId::macos_arm64();
         let parsed = Index::parse(&index_of(vec![plugin(vec![windows, macos])])).unwrap();
         let plugin = parsed.plugin("com.example.p").unwrap();
 
         assert_eq!(
             plugin
-                .select(Some("1.0.0"), 1, Platform::WindowsX86_64)
+                .select(Some("1.0.0"), 1, &PlatformId::windows_x86_64())
                 .unwrap()
                 .platform,
-            Platform::WindowsX86_64
+            PlatformId::windows_x86_64()
         );
         assert_eq!(
             plugin
-                .select(Some("1.0.0"), 1, Platform::MacosArm64)
+                .select(Some("1.0.0"), 1, &PlatformId::macos_arm64())
                 .unwrap()
                 .platform,
-            Platform::MacosArm64
+            PlatformId::macos_arm64()
         );
     }
 
@@ -473,37 +602,39 @@ mod tests {
             release("3.0.0-rc.1", 1),
         ]);
         assert_eq!(
-            p.select(Some("1.0.0"), 1, Platform::WindowsX86_64)
+            p.select(Some("1.0.0"), 1, &PlatformId::windows_x86_64())
                 .unwrap()
                 .version,
             "1.0.0"
         );
         assert_eq!(
-            p.select(Some("3.0.0-rc.1"), 1, Platform::WindowsX86_64)
+            p.select(Some("3.0.0-rc.1"), 1, &PlatformId::windows_x86_64())
                 .unwrap()
                 .version,
             "3.0.0-rc.1"
         );
         assert!(matches!(
-            p.select(Some("2.0.0"), 1, Platform::WindowsX86_64),
+            p.select(Some("2.0.0"), 1, &PlatformId::windows_x86_64()),
             Err(Error::Incompatible(_))
         ));
         assert!(matches!(
-            p.select(Some("9.9.9"), 1, Platform::WindowsX86_64),
+            p.select(Some("9.9.9"), 1, &PlatformId::windows_x86_64()),
             Err(Error::NotFound(_))
         ));
         assert!(matches!(
-            p.select(Some("nope"), 1, Platform::WindowsX86_64),
+            p.select(Some("nope"), 1, &PlatformId::windows_x86_64()),
             Err(Error::Usage(_))
         ));
         let only_new = plugin(vec![release("2.0.0", 2)]);
         assert!(matches!(
-            only_new.select(None, 1, Platform::WindowsX86_64),
+            only_new.select(None, 1, &PlatformId::windows_x86_64()),
             Err(Error::Incompatible(_))
         ));
         let only_pre = plugin(vec![release("1.0.0-alpha", 1)]);
         assert!(
-            only_pre.select(None, 1, Platform::WindowsX86_64).is_err(),
+            only_pre
+                .select(None, 1, &PlatformId::windows_x86_64())
+                .is_err(),
             "no pre-release by default"
         );
     }

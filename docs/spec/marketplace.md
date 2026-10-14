@@ -43,7 +43,7 @@ The key list is `<Orbit root>/market/trusted-keys.txt` (or `--keys`): one `ed255
 * `id` is 1 to 128 of `[A-Za-z0-9._-]`, not only dots: it becomes a folder name. Ids are unique; versions are semantic versions, unique per plugin and platform.
 * `url` is absolute or relative to the index; a relative one may not contain `..`.
 * `api` is the loader ABI version the release needs (default 1); releases that need more than the tool's are not offered.
-* `platform` is optional. It is `windows-x86_64` when omitted, preserving existing indexes; the other supported value is `macos-arm64`. The tool lists and installs only releases for its host platform. Two packages may use the same plugin version when they target different platforms, but a platform and version pair must be unique. See [macOS platform rules](macos-platform.md#9-marketplace-on-macos) for package format, ad-hoc signing and paths.
+* `platform` is optional. It is `<os>-<arch>`: lowercase letters and digits, a `-`, then lowercase letters, digits and `_` (`windows-x86_64`, `macos-arm64`). It is `windows-x86_64` when omitted, preserving existing indexes. Any other valid value is read, but the tool lists and installs only releases for its own platform, which is `windows-x86_64` or `macos-arm64`; a malformed value refuses the index. Two packages may use the same plugin version when they target different platforms, but a platform and version pair must be unique. See [macOS platform rules](macos-platform.md#9-marketplace-on-macos) for package format, ad-hoc signing and paths.
 * `requires` is copied from the plugin's manifest (version constraints dropped); `install --with-deps` installs what the index lists for the host platform.
 * `size` is at most 256 MiB.
 

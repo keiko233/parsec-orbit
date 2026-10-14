@@ -3,7 +3,7 @@
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use crate::index::{Index, Platform, Plugin, Release, FORMAT};
+use crate::index::{Index, PlatformId, Plugin, Release, FORMAT};
 use crate::install::{InstallOptions, LoadedIndex, Market};
 use crate::package;
 use crate::source::Fetch;
@@ -159,15 +159,26 @@ fn market<'a>(
     options: &Options,
     env: &dyn Environment,
     fetch: &'a dyn Fetch,
-    platform: Platform,
+    platform: Option<PlatformId>,
 ) -> Result<Market<'a>, Error> {
+    let platform = platform.ok_or_else(|| {
+        Error::Usage(format!(
+            "this computer has no plugin packages: the market serves {} and {}",
+            PlatformId::WINDOWS_X86_64,
+            PlatformId::MACOS_ARM64
+        ))
+    })?;
     let plugins_dir = match &options.plugins_dir {
         Some(dir) => PathBuf::from(dir),
         None => appdata(env)?.join("plugins"),
     };
-    let mut market = Market::new(fetch, plugins_dir, read_keys(options, env, fetch)?);
+    let mut market = Market::new(
+        fetch,
+        plugins_dir,
+        read_keys(options, env, fetch)?,
+        platform,
+    );
     market.allow_unsigned = options.allow_unsigned;
-    market.platform = platform;
     Ok(market)
 }
 
@@ -190,15 +201,17 @@ pub fn run(
     fetch: &dyn Fetch,
     out: &mut dyn Write,
 ) -> Result<(), Error> {
-    run_on_platform(args, env, fetch, out, Platform::current())
+    run_on_platform(args, env, fetch, out, PlatformId::current())
 }
 
+/// `platform` is the host's; `None` on a host with no packages. The commands
+/// that work on plugins then fail; the publisher commands still run.
 fn run_on_platform(
     args: &[String],
     env: &dyn Environment,
     fetch: &dyn Fetch,
     out: &mut dyn Write,
-    platform: Platform,
+    platform: Option<PlatformId>,
 ) -> Result<(), Error> {
     let Some((command, rest)) = args.split_first() else {
         return Err(Error::Usage(USAGE.to_string()));
@@ -239,7 +252,7 @@ fn run_on_platform(
                     continue;
                 }
                 let latest = plugin
-                    .select(None, market.api, market.platform)
+                    .select(None, market.api, &market.platform)
                     .map(|r| r.version.clone());
                 let here = installed
                     .iter()
@@ -458,9 +471,9 @@ pub fn build_index(folder: &Path, name: &str) -> Result<Index, Error> {
             version: manifest.version.clone(),
             api: manifest.api,
             platform: if manifest.kind == "dylib" {
-                Platform::MacosArm64
+                PlatformId::macos_arm64()
             } else {
-                Platform::WindowsX86_64
+                PlatformId::windows_x86_64()
             },
             url: path
                 .file_name()
@@ -535,7 +548,13 @@ mod tests {
     fn command(args: &[&str], env: &dyn Environment) -> Result<String, Error> {
         let args: Vec<String> = args.iter().map(|a| a.to_string()).collect();
         let mut out = Vec::new();
-        run_on_platform(&args, env, &Real, &mut out, Platform::WindowsX86_64)?;
+        run_on_platform(
+            &args,
+            env,
+            &Real,
+            &mut out,
+            Some(PlatformId::windows_x86_64()),
+        )?;
         Ok(String::from_utf8(out).unwrap())
     }
 
@@ -632,7 +651,13 @@ mod tests {
         };
         let run_args = |args: Vec<String>| -> Result<String, Error> {
             let mut out = Vec::new();
-            run_on_platform(&args, &no_env, &Real, &mut out, Platform::WindowsX86_64)?;
+            run_on_platform(
+                &args,
+                &no_env,
+                &Real,
+                &mut out,
+                Some(PlatformId::windows_x86_64()),
+            )?;
             Ok(String::from_utf8(out).unwrap())
         };
 
@@ -901,11 +926,11 @@ mod tests {
         let index = build_index(&dir.0, "platforms").unwrap();
         assert_eq!(
             index.plugin("com.example.windows").unwrap().versions[0].platform,
-            Platform::WindowsX86_64
+            PlatformId::windows_x86_64()
         );
         assert_eq!(
             index.plugin("com.example.mac").unwrap().versions[0].platform,
-            Platform::MacosArm64
+            PlatformId::macos_arm64()
         );
     }
 }
