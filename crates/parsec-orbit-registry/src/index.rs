@@ -202,6 +202,14 @@ fn is_false(value: &bool) -> bool {
     !*value
 }
 
+/// Whether `text` is a sha256 digest written as 64 lowercase hex digits.
+pub fn is_sha256_hex(text: &str) -> bool {
+    text.len() == 64
+        && text
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+}
+
 /// Whether `id` is acceptable as a plugin id and as a path component: 1 to 128
 /// of `[A-Za-z0-9._-]`, not made of dots only.
 pub fn valid_id(id: &str) -> bool {
@@ -268,12 +276,7 @@ impl Index {
                     ));
                 }
                 versions.push((version, release.platform.clone()));
-                if release.sha256.len() != 64
-                    || !release
-                        .sha256
-                        .bytes()
-                        .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
-                {
+                if !is_sha256_hex(&release.sha256) {
                     return bad(format!(
                         "{} {}: sha256 must be 64 lowercase hex digits",
                         plugin.id, release.version

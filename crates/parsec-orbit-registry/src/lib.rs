@@ -7,12 +7,15 @@
 //! * [`install`] - installing, updating and removing below a plugins
 //!   directory,
 //! * [`source`] - where bytes come from (files, https),
+//! * [`cache`] - the last verified index of each source,
+//! * [`host`] - the loader and installer of each release (`host.json`),
 //! * [`cli`] - the command line.
 //!
 //! The specification is `docs/spec/marketplace.md`.
 
 pub mod cache;
 pub mod cli;
+pub mod host;
 pub mod index;
 pub mod install;
 pub mod package;
