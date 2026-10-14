@@ -83,6 +83,133 @@ export interface Config {
   set(key: string, value: unknown): Promise<void>;
 }
 
+/** Boolean switch checkbox. Payload shape: `boolean`. */
+export interface ToggleItem {
+  key: string;
+  type: "toggle";
+  label: string;
+  description?: string;
+  default?: boolean;
+}
+
+/** Single-line text input with optional `placeholder`. Payload shape: `string`. */
+export interface TextInputItem {
+  key: string;
+  type: "text_input";
+  label: string;
+  description?: string;
+  placeholder?: string;
+  default?: string;
+}
+
+/** Numeric input with optional `min`, `max`, `step`. Payload shape: `number`. */
+export interface NumberInputItem {
+  key: string;
+  type: "number_input";
+  label: string;
+  description?: string;
+  min?: number;
+  max?: number;
+  step?: number;
+  default?: number;
+}
+
+/** One option of a `select` dropdown. */
+export interface SelectOption {
+  label: string;
+  value: string | number;
+}
+
+/** Dropdown selector. Payload shape: `string` or `number`. */
+export interface SelectItem {
+  key: string;
+  type: "select";
+  label: string;
+  description?: string;
+  options: SelectOption[];
+  default?: string | number;
+}
+
+/** Action button triggering a click event. Payload shape: `null`. */
+export interface ButtonItem {
+  key: string;
+  type: "button";
+  label: string;
+  description?: string;
+}
+
+/** Multiline JSON editor for complex configuration. Payload shape: `object` or `array`. */
+export interface JsonEditorItem {
+  key: string;
+  type: "json_editor";
+  label: string;
+  description?: string;
+  default?: Record<string, unknown> | unknown[];
+}
+
+/** Read-only status value display. Payload shape: `string`. */
+export interface ReadonlyTextItem {
+  key: string;
+  type: "readonly_text";
+  label: string;
+  description?: string;
+  default?: string;
+}
+
+/** One control in a {@link UiSection}, discriminated by `type`. */
+export type UiItem =
+  | ToggleItem
+  | TextInputItem
+  | NumberInputItem
+  | SelectItem
+  | ButtonItem
+  | JsonEditorItem
+  | ReadonlyTextItem;
+
+/** A visual panel or tab registered with the UI service. */
+export interface UiSection {
+  id: string;
+  title: string;
+  description?: string;
+  order?: number;
+  items: UiItem[];
+}
+
+/** A user interaction with a control in the UI window. */
+export interface UiAction {
+  section: string;
+  key: string;
+  type: "change" | "click";
+  value?: unknown;
+}
+
+/** Control values pushed to the rendered UI, by control key. */
+export type UiState = Record<string, unknown>;
+
+/**
+ * Native companion window. Needs `permissions = ["ui"]` in `plugin.toml`;
+ * without it `host.ui` is `undefined`.
+ *
+ * Everything maps onto the `parsec-orbit.ui` service, which has to be
+ * installed (list `com.parsec-orbit.ui` in `requires`).
+ */
+export interface Ui {
+  /** Whether the companion window is currently visible. */
+  isVisible(): Promise<boolean>;
+  /** Shows and brings the companion window to the foreground. */
+  show(): Promise<void>;
+  /** Hides the companion window without stopping its event loop. */
+  hide(): Promise<void>;
+  /** Registers a declarative section schema. */
+  registerSection(section: UiSection): Promise<void>;
+  /** Removes a registered section and unmounts its controls. */
+  unregisterSection(id: string): Promise<void>;
+  /** Pushes updated control values to the rendered UI. */
+  updateState(sectionId: string, state: UiState): Promise<void>;
+  /** Calls `handler` for each user interaction with a control. */
+  onAction(handler: (action: UiAction) => void): Unsubscribe;
+}
+
 /** What `setup` receives. */
 export interface Host {
   readonly plugin: PluginInfo;
@@ -91,6 +218,8 @@ export interface Host {
   readonly config?: Config;
   /** `undefined` without the `webview` permission. */
   readonly webview?: WebView;
+  /** `undefined` without the `ui` permission. */
+  readonly ui?: Ui;
   setTimeout(callback: (...args: any[]) => void, delay?: number, ...args: any[]): number;
   clearTimeout(id: number): void;
   setInterval(callback: (...args: any[]) => void, delay?: number, ...args: any[]): number;

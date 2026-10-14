@@ -20,6 +20,10 @@ import type {
   PluginInfo,
   ScriptHandle,
   ScriptOptions,
+  Ui,
+  UiAction,
+  UiSection,
+  UiState,
   Unsubscribe,
   WebView,
 } from "./index.js";
@@ -43,7 +47,7 @@ export interface MockScript {
 
 export interface MockOptions {
   /** Granted permissions; defaults to `["webview", "config"]`. */
-  permissions?: Array<"webview" | "config">;
+  permissions?: Array<"webview" | "config" | "ui">;
   plugin?: Partial<PluginInfo>;
   /** Contents of files `injectFile` may read, by relative path. */
   files?: Record<string, string>;
@@ -73,6 +77,20 @@ export interface MockPage {
   readonly evaluated: string[];
 }
 
+/** The companion window, as far as the plugin can tell. */
+export interface MockUi extends Ui {
+  /** Whether the window is visible; `show`/`hide` flip it. */
+  visible: boolean;
+  /** Sections by id, as registered. */
+  readonly sections: Map<string, UiSection>;
+  /** Latest state pushed per section id. */
+  readonly states: Map<string, UiState>;
+  /** Handlers added with `onAction`. */
+  readonly subscribers: Set<(action: UiAction) => void>;
+  /** Delivers `action` to every subscriber, as if the user acted. */
+  emitAction(action: UiAction): void;
+}
+
 export interface MockHost {
   readonly host: Host;
   readonly logs: LogLine[];
@@ -80,6 +98,8 @@ export interface MockHost {
   readonly page: MockPage;
   /** Current contents of `host.config`. */
   readonly config: Map<string, unknown>;
+  /** The mock companion window; `host.ui` is set only with the `ui` permission. */
+  readonly ui: MockUi;
   /** Pending timers are cleared; call it at the end of a test. */
   dispose(): void;
 }
@@ -227,6 +247,48 @@ export function createMockHost(options: MockOptions = {}): MockHost {
     },
   };
 
+  // The companion window keeps registered sections, pushed state and action
+  // subscribers in memory, like the UI service keeps them in the window.
+  const sections = new Map<string, UiSection>();
+  const states = new Map<string, UiState>();
+  const subscribers = new Set<(action: UiAction) => void>();
+  const mockUi: MockUi = {
+    visible: false,
+    sections,
+    states,
+    subscribers,
+    isVisible: async () => mockUi.visible,
+    show: async () => {
+      mockUi.visible = true;
+    },
+    hide: async () => {
+      mockUi.visible = false;
+    },
+    registerSection: async (section) => {
+      // A section the plugin reads later must not alias what the UI kept.
+      sections.set(section.id, JSON.parse(JSON.stringify(section)) as UiSection);
+    },
+    unregisterSection: async (id) => {
+      sections.delete(id);
+      states.delete(id);
+    },
+    updateState: async (sectionId, state) => {
+      states.set(sectionId, JSON.parse(JSON.stringify(state)) as UiState);
+    },
+    onAction: (handler): Unsubscribe => {
+      subscribers.add(handler);
+      return () => {
+        subscribers.delete(handler);
+      };
+    },
+    emitAction: (action) => {
+      const delivered = JSON.parse(JSON.stringify(action)) as UiAction;
+      for (const subscriber of [...subscribers]) {
+        subscriber(delivered);
+      }
+    },
+  };
+
   const track =
     (original: typeof setTimeout | typeof setInterval) =>
     (callback: (...args: any[]) => void, delay?: number, ...args: any[]): number => {
@@ -246,6 +308,7 @@ export function createMockHost(options: MockOptions = {}): MockHost {
     log,
     config: (permissions.includes("config") ? config : undefined) as unknown as Config,
     webview: (permissions.includes("webview") ? webview : undefined) as unknown as WebView,
+    ui: (permissions.includes("ui") ? mockUi : undefined) as unknown as Ui,
     setTimeout: track(setTimeout),
     setInterval: track(setInterval),
     clearTimeout: (id) => clear(id, clearTimeout),
@@ -272,6 +335,7 @@ export function createMockHost(options: MockOptions = {}): MockHost {
     scripts,
     page,
     config: store,
+    ui: mockUi,
     dispose() {
       for (const timer of timers.values()) {
         clearTimeout(timer);

@@ -38,7 +38,8 @@ use core::ffi::{c_void, CStr};
 use core::fmt::Write as _;
 
 use crate::abi::{
-    MessageCallback, ParsecOrbitJsV1, ParsecOrbitWebViewV1, ERR_INVALID, ERR_NOT_READY,
+    MessageCallback, ParsecOrbitJsV1, ParsecOrbitUiV1, ParsecOrbitWebViewV1, ERR_INVALID,
+    ERR_NOT_READY,
 };
 use crate::context::{Context, Error, Interface, Result};
 use crate::text::StackBuf;
@@ -411,5 +412,107 @@ impl HooksClient {
     pub fn remove(&self, hook: i64) -> Result {
         let remove = self.table.remove.ok_or(Error::new(ERR_NOT_READY))?;
         code(unsafe { remove(hook) })
+    }
+}
+
+// ---- parsec-orbit.ui ---------------------------------------------------------
+
+/// Binding of `parsec-orbit.ui`, version 1.
+pub struct Ui;
+
+impl Interface for Ui {
+    const NAME: &'static CStr = c"parsec-orbit.ui";
+    const MAJOR: u16 = 1;
+    type Table = ParsecOrbitUiV1;
+
+    fn header(table: &ParsecOrbitUiV1) -> &ParsecOrbitInterfaceHeader {
+        &table.header
+    }
+}
+
+/// Safe calls on `parsec-orbit.ui`.
+#[derive(Clone, Copy)]
+pub struct UiClient {
+    pub(crate) table: &'static ParsecOrbitUiV1,
+}
+
+impl UiClient {
+    /// The service, if the UI plugin is loaded and speaks version 1.
+    pub fn new(cx: &Context) -> Option<UiClient> {
+        cx.service::<Ui>().map(|table| UiClient { table })
+    }
+
+    /// Builds a client directly from a table (for testing or mocks).
+    pub const fn from_table(table: &'static ParsecOrbitUiV1) -> UiClient {
+        UiClient { table }
+    }
+
+    /// Shows and focuses the companion window.
+    pub fn show(&self) -> Result {
+        let show = self.table.show.ok_or(Error::new(ERR_NOT_READY))?;
+        code(unsafe { show() })
+    }
+
+    /// Hides the companion window without stopping the event loop.
+    pub fn hide(&self) -> Result {
+        let hide = self.table.hide.ok_or(Error::new(ERR_NOT_READY))?;
+        code(unsafe { hide() })
+    }
+
+    /// Returns `true` if the window is currently visible.
+    pub fn is_visible(&self) -> Result<bool> {
+        let is_visible = self.table.is_visible.ok_or(Error::new(ERR_NOT_READY))?;
+        let res = unsafe { is_visible() };
+        if res < 0 {
+            Err(Error::new(res))
+        } else {
+            Ok(res != 0)
+        }
+    }
+
+    /// Registers a declarative section schema (JSON text).
+    pub fn register_section(&self, schema_json: &str) -> Result {
+        let register = self.table.register_section.ok_or(Error::new(ERR_NOT_READY))?;
+        code(unsafe { register(schema_json.as_ptr(), schema_json.len()) })
+    }
+
+    /// Unregisters a section by its ID.
+    pub fn unregister_section(&self, section_id: &str) -> Result {
+        let unregister = self.table.unregister_section.ok_or(Error::new(ERR_NOT_READY))?;
+        code(unsafe { unregister(section_id.as_ptr(), section_id.len()) })
+    }
+
+    /// Pushes updated state values (JSON object mapping keys to values) for a section.
+    pub fn update_state(&self, section_id: &str, state_json: &str) -> Result {
+        let update = self.table.update_state.ok_or(Error::new(ERR_NOT_READY))?;
+        code(unsafe {
+            update(
+                section_id.as_ptr(),
+                section_id.len(),
+                state_json.as_ptr(),
+                state_json.len(),
+            )
+        })
+    }
+
+    /// Subscribes to user interactions within the specified section.
+    ///
+    /// # Safety
+    /// `callback` may be called from the UI delivery thread with `user`. Both must
+    /// remain valid until [`UiClient::off_action`].
+    pub unsafe fn on_action(
+        &self,
+        section_id: &str,
+        callback: MessageCallback,
+        user: *mut c_void,
+    ) -> Result<i64> {
+        let on = self.table.on_action.ok_or(Error::new(ERR_NOT_READY))?;
+        id(unsafe { on(section_id.as_ptr(), section_id.len(), Some(callback), user) })
+    }
+
+    /// Cancels an action subscription.
+    pub fn off_action(&self, subscription: i64) -> Result {
+        let off = self.table.off_action.ok_or(Error::new(ERR_NOT_READY))?;
+        code(unsafe { off(subscription) })
     }
 }

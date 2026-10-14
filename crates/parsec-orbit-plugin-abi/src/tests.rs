@@ -107,6 +107,17 @@ fn service_table_layouts_are_frozen() {
     assert_eq!(offset_of!(ParsecOrbitHooksV1, disable), 32);
     assert_eq!(offset_of!(ParsecOrbitHooksV1, remove), 40);
     assert_eq!(size_of::<ParsecOrbitHooksV1>(), 48);
+
+    assert_eq!(offset_of!(ParsecOrbitUiV1, header), 0);
+    assert_eq!(offset_of!(ParsecOrbitUiV1, show), 8);
+    assert_eq!(offset_of!(ParsecOrbitUiV1, hide), 16);
+    assert_eq!(offset_of!(ParsecOrbitUiV1, is_visible), 24);
+    assert_eq!(offset_of!(ParsecOrbitUiV1, register_section), 32);
+    assert_eq!(offset_of!(ParsecOrbitUiV1, unregister_section), 40);
+    assert_eq!(offset_of!(ParsecOrbitUiV1, update_state), 48);
+    assert_eq!(offset_of!(ParsecOrbitUiV1, on_action), 56);
+    assert_eq!(offset_of!(ParsecOrbitUiV1, off_action), 64);
+    assert_eq!(size_of::<ParsecOrbitUiV1>(), 72);
 }
 
 #[test]
@@ -221,11 +232,13 @@ fn abi_document_matches_the_definitions() {
         "ParsecOrbitJsV1",
         "ParsecOrbitConfigV1",
         "ParsecOrbitHooksV1",
+        "ParsecOrbitUiV1",
         "ERR_NOT_FOUND",
         INTERFACE_KIND_PREFIX,
         INTERFACE_WEBVIEW,
         INTERFACE_JS,
         INTERFACE_HOOKS,
+        INTERFACE_UI,
         INTERFACE_CONFIG,
         INTERFACE_MARKET,
     ] {
