@@ -100,6 +100,10 @@ fn service_table_layouts_are_frozen() {
     assert_eq!(offset_of!(ParsecOrbitConfigV1, keys), 32);
     assert_eq!(size_of::<ParsecOrbitConfigV1>(), 40);
 
+    assert_eq!(offset_of!(ParsecOrbitClientV1, header), 0);
+    assert_eq!(offset_of!(ParsecOrbitClientV1, info), 8);
+    assert_eq!(size_of::<ParsecOrbitClientV1>(), 16);
+
     assert_eq!(offset_of!(ParsecOrbitHooksV1, header), 0);
     assert_eq!(offset_of!(ParsecOrbitHooksV1, resolve), 8);
     assert_eq!(offset_of!(ParsecOrbitHooksV1, install), 16);
@@ -146,6 +150,7 @@ fn abi_constants_are_stable() {
         [0, -1, -2, -3, -4, -5, -6]
     );
     assert_eq!(INTERFACE_KIND_PREFIX, "parsec-orbit.kind.");
+    assert_eq!(INTERFACE_CLIENT, "parsec-orbit.client");
 }
 
 /// `docs/spec/plugin-abi.md` is the reference other languages implement against, so

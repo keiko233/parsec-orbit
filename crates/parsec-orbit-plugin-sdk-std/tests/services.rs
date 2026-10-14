@@ -3,7 +3,7 @@
 use std::ffi::c_void;
 use std::sync::Mutex;
 
-use parsec_orbit_plugin_sdk_std::services::{Js, JsClient, WebView, WebViewClient};
+use parsec_orbit_plugin_sdk_std::services::{ClientClient, Js, JsClient, WebView, WebViewClient};
 use parsec_orbit_plugin_sdk_std::testing::MockHost;
 use parsec_orbit_plugin_sdk_std::*;
 
@@ -107,11 +107,72 @@ static WEBVIEW: ParsecOrbitWebViewV1 = ParsecOrbitWebViewV1 {
     post: Some(post),
 };
 
+unsafe extern "system" fn client_info(out: Option<MessageCallback>, user: *mut c_void) -> i32 {
+    let Some(out) = out else {
+        return ERR_INVALID;
+    };
+    let json = r#"{"platform":"macos","arch":"arm64","status":"not-verified"}"#;
+    unsafe { out(user, json.as_ptr(), json.len()) };
+    OK
+}
+
+static CLIENT: ParsecOrbitClientV1 = ParsecOrbitClientV1 {
+    header: ParsecOrbitInterfaceHeader::new(std::mem::size_of::<ParsecOrbitClientV1>(), 1, 0),
+    info: Some(client_info),
+};
+
 #[test]
 fn the_clients_need_their_services() {
     let host = MockHost::new("com.example.js-less");
     assert!(WebViewClient::new(&host.context()).is_none());
     assert!(JsClient::new(&host.context()).is_none());
+    assert!(ClientClient::new(&host.context()).is_none());
+}
+
+#[test]
+fn the_client_binding_rejects_truncated_and_unknown_tables() {
+    static TRUNCATED: ParsecOrbitClientV1 = ParsecOrbitClientV1 {
+        header: ParsecOrbitInterfaceHeader::new(8, 1, 0),
+        info: Some(client_info),
+    };
+    static UNKNOWN_MAJOR: ParsecOrbitClientV1 = ParsecOrbitClientV1 {
+        header: ParsecOrbitInterfaceHeader::new(std::mem::size_of::<ParsecOrbitClientV1>(), 2, 0),
+        info: Some(client_info),
+    };
+
+    let host = MockHost::new("com.example.client-truncated");
+    host.provide("parsec-orbit.client", &TRUNCATED.header);
+    assert!(ClientClient::new(&host.context()).is_none());
+
+    let host = MockHost::new("com.example.client-unknown");
+    host.provide("parsec-orbit.client", &UNKNOWN_MAJOR.header);
+    assert!(ClientClient::new(&host.context()).is_none());
+}
+
+#[test]
+fn the_client_binding_receives_json_from_the_callback() {
+    let host = MockHost::new("com.example.client");
+    host.provide("parsec-orbit.client", &CLIENT.header);
+    let client = ClientClient::new(&host.context()).expect("client service");
+
+    let mut seen = String::new();
+    client.info(|json| seen = json.to_owned()).unwrap();
+    assert_eq!(
+        seen,
+        r#"{"platform":"macos","arch":"arm64","status":"not-verified"}"#
+    );
+}
+
+#[test]
+fn a_missing_client_callback_is_not_ready() {
+    static MISSING_INFO: ParsecOrbitClientV1 = ParsecOrbitClientV1 {
+        header: ParsecOrbitInterfaceHeader::new(std::mem::size_of::<ParsecOrbitClientV1>(), 1, 0),
+        info: None,
+    };
+    let host = MockHost::new("com.example.client-no-info");
+    host.provide("parsec-orbit.client", &MISSING_INFO.header);
+    let client = ClientClient::new(&host.context()).expect("client service table");
+    assert_eq!(client.info(|_| {}).unwrap_err().code(), ERR_NOT_READY);
 }
 
 #[test]

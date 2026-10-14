@@ -18,6 +18,7 @@ use std::io::Read;
 use std::path::Path;
 use std::sync::OnceLock;
 
+pub use parsec_orbit_plugin_abi::ParsecOrbitClientV1;
 use parsec_orbit_plugin_abi::{
     MessageCallback, ParsecOrbitInterfaceHeader, ERR_INVALID, ERR_NOT_READY, OK,
 };
@@ -35,26 +36,9 @@ const OWNER: &str = "com.parsec-orbit.loader-macos";
 /// ~6 MiB; the cap keeps a swapped-in huge file from stalling the worker.
 const MAX_HASH_BYTES: u64 = 64 * 1024 * 1024;
 
-/// `parsec-orbit.client` version 1.0.
-///
-/// ```c
-/// typedef struct ParsecOrbitClientV1 {
-///     ParsecOrbitInterfaceHeader header;
-///     int32_t (*info)(ParsecOrbitMessageCallback out, void *user);
-/// } ParsecOrbitClientV1;
-/// ```
-#[repr(C)]
-pub struct ParsecOrbitClientV1 {
-    pub header: ParsecOrbitInterfaceHeader,
-    /// Passes the build JSON to `out` on the caller's thread before
-    /// returning. The callback is nullable at the ABI level and a null
-    /// callback is reported as an invalid argument instead of crashing.
-    pub info: unsafe extern "system" fn(out: Option<MessageCallback>, user: *mut c_void) -> i32,
-}
-
 static TABLE: ParsecOrbitClientV1 = ParsecOrbitClientV1 {
     header: ParsecOrbitInterfaceHeader::new(std::mem::size_of::<ParsecOrbitClientV1>(), 1, 0),
-    info,
+    info: Some(info),
 };
 
 static INFO_JSON: OnceLock<String> = OnceLock::new();
@@ -163,7 +147,8 @@ mod tests {
         assert!(!table.is_null(), "the service is registered");
         let table = table as *const ParsecOrbitClientV1;
         let mut json = String::new();
-        let code = unsafe { ((*table).info)(Some(capture), (&mut json as *mut String).cast()) };
+        let code =
+            unsafe { ((*table).info.unwrap())(Some(capture), (&mut json as *mut String).cast()) };
         assert_eq!(code, OK);
         let value: serde_json::Value = serde_json::from_str(&json).unwrap();
         assert_eq!(value["platform"], "macos");
@@ -174,7 +159,7 @@ mod tests {
         assert_eq!(value["dylib_sha256"].as_str().unwrap().len(), 64);
         // A null callback is rejected instead of faulting.
         assert_eq!(
-            unsafe { ((*table).info)(None, std::ptr::null_mut()) },
+            unsafe { ((*table).info.unwrap())(None, std::ptr::null_mut()) },
             ERR_INVALID
         );
     }
