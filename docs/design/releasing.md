@@ -6,6 +6,15 @@ Releases are cut by the owner. Nothing in CI publishes to a registry on its own.
 
 Actions -> Publish -> Run workflow with the new version (for example `0.2.0`). The workflow bumps `[workspace.package] version` and the versions of the crates that name each other in `[workspace.dependencies]`, refreshes `Cargo.lock`, commits, tags `v0.2.0` and pushes; the tag triggers the Release workflow, which builds, verifies, packages and publishes the GitHub release.
 
+`package.ps1` also publishes the market tool, a signed `index.json` and a
+signed `release.json` for the [network installer](network-installer.md). Set
+the `MARKET_SIGNING_KEY` action secret to the content of the `.key` file made
+by `parsec-orbit-market keygen`, and put the matching public `ed25519 ...`
+line into the `OfficialEd25519PublicKey` constant in
+`scripts/orbit-manager.ps1` before the release is cut. Releases without the
+secret still build, but their manifests are unsigned and the installer needs
+`-AllowUnsigned`.
+
 ## crates.io (SDK)
 
 After the GitHub release, from a clean checkout of the tag, in this order (each crate must be visible in the index before the next one is published):

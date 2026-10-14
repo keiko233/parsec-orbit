@@ -58,6 +58,20 @@ scripts\package.ps1        # stages dist\ with bcrypt.dll, plugin zips, SHA256SU
 powershell -ExecutionPolicy Bypass -File scripts\install.ps1   # from an elevated prompt
 ```
 
+To install from a GitHub release instead of a checkout:
+
+```powershell
+irm https://github.com/keiko233/parsec-orbit/releases/latest/download/orbit-manager.ps1 -OutFile $env:TEMP\orbit-manager.ps1
+powershell -ExecutionPolicy Bypass -File $env:TEMP\orbit-manager.ps1 install
+```
+
+`install` fetches the signed release manifest, lets you pick optional plugins
+and whether to force the WebView2 UI, and requires an elevated prompt.
+`upgrade` updates an existing install, `uninstall` restores the original
+`bcrypt.dll`, and `plugins list|install|remove|update` manages official
+plugins through the market tool. See
+[docs/design/network-installer.md](docs/design/network-installer.md).
+
 `scripts\install.ps1` stops the Parsec service, backs up the previous
 `bcrypt.dll`, copies the loader and the official plugins into
 `C:\Program Files\Parsec\plugins\` and starts the service again

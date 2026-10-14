@@ -28,6 +28,8 @@ For publishers
   keygen <name>              write <name>.key (the secret) and print the public key
   sign <index.json>          write <index.json>.sig   --key <name.key>
   verify <index.json>        check <index.json>.sig against the trusted keys
+  verify-any <file>          check <file>.sig against the trusted keys
+                             without interpreting the file as an index
 
 Options
   --index <location>         index file or URL (or PARSEC_ORBIT_INDEX)
@@ -359,6 +361,22 @@ pub fn run(
                     which + 1,
                     keys[which].comment,
                     index.plugins.len()
+                ),
+            )
+        }
+        "verify-any" => {
+            let location = one(&options, "file")?;
+            let bytes = fetch.fetch(location, 16 * 1024 * 1024)?;
+            let signature = fetch.fetch(&format!("{location}.sig"), 4096)?;
+            let keys = read_keys(&options, env, fetch)?;
+            let which = trust::verify(&bytes, &String::from_utf8_lossy(&signature), &keys)?;
+            say(
+                out,
+                format!(
+                    "ok: signed by key {} ({}), {} bytes",
+                    which + 1,
+                    keys[which].comment,
+                    bytes.len()
                 ),
             )
         }
@@ -709,6 +727,34 @@ mod tests {
         )
         .unwrap();
         assert!(listed.contains("the signature did not verify"), "{listed}");
+    }
+
+    #[test]
+    fn verify_any_checks_an_arbitrary_signed_file() {
+        // release.json is not an index, so `verify` would refuse it after the
+        // signature check. `verify-any` exists for exactly that case.
+        let publisher = Dir::new("verify-any");
+        let none = Vars(HashMap::new());
+        let key_file = publisher.path("release-key");
+        let generated = command(&["keygen", &key_file], &none).unwrap();
+        let public = generated
+            .lines()
+            .find(|line| line.starts_with("ed25519 "))
+            .unwrap()
+            .to_string();
+        let keys = publisher.path("keys.txt");
+        std::fs::write(&keys, format!("{public}\n")).unwrap();
+
+        let payload = publisher.path("release.json");
+        std::fs::write(&payload, b"{\"format\":1,\"name\":\"release\"}").unwrap();
+        command(
+            &["sign", &payload, "--key", &format!("{key_file}.key")],
+            &none,
+        )
+        .unwrap();
+
+        let verified = command(&["verify-any", &payload, "--keys", &keys], &none).unwrap();
+        assert!(verified.contains("ok: signed by key 1"), "{verified}");
     }
 
     #[test]

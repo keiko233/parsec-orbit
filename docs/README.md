@@ -27,6 +27,7 @@ open questions at the end.
 * [design/roadmap.md](design/roadmap.md) - phases
 * [design/size-report.md](design/size-report.md) - measured sizes: runtime spike, plugins, loader
 * [design/releasing.md](design/releasing.md) - how releases and crate publishing are done
+* [design/network-installer.md](design/network-installer.md) - signed release manifests and the install/upgrade/uninstall script
 * [design/decisions/](design/decisions/) - decision records (`NNNN-title.md`)
 
 ## Related notes outside this repository

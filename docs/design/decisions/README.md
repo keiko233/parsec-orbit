@@ -10,3 +10,4 @@ Format: Context, Decision, Consequences.
 | [0003](0003-js-runtime-is-a-plugin.md) | The JS runtime is a plugin | Accepted |
 | [0004](0004-loader-stays-light.md) | The loader stays light | Accepted |
 | [0005](0005-boa-as-js-engine.md) | Boa as the JS engine | Accepted |
+| [0006](0006-network-installer.md) | Orbit Manager: PowerShell orchestration, Rust verification | Accepted |

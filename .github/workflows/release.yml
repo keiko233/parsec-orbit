@@ -9,10 +9,13 @@
 #   git push origin v0.1.0
 #
 # The tag must match the workspace version in Cargo.toml. The release contains
-# the loader (bcrypt.dll), the official plugins, the example plugin, and
-# checksums. The market tool builds with the workspace but is not shipped yet:
-# package.ps1 leaves it out of dist/ and no index is published. Release notes
-# are built with git-cliff (see cliff.toml).
+# the loader (bcrypt.dll), the official plugins, the example plugin, the
+# market tool, the signed plugin index (index.json) and the signed
+# distribution manifest (release.json), plus checksums. package.ps1 signs the
+# two JSON files when the MARKET_SIGNING_KEY secret is set (the content of a
+# `.key` file made by `parsec-orbit-market keygen`); without it the release is
+# still published but the files are unsigned. Release notes are built with
+# git-cliff (see cliff.toml).
 name: Release
 
 on:
@@ -101,9 +104,23 @@ jobs:
         shell: pwsh
         run: ./scripts/verify.ps1
 
-      - name: Package the release files
+      - name: Package and sign the release files
         shell: pwsh
-        run: ./scripts/package.ps1 -SkipBuild
+        env:
+          MARKET_SIGNING_KEY: ${{ secrets.MARKET_SIGNING_KEY }}
+        run: |
+          if ($env:MARKET_SIGNING_KEY) {
+            $key = Join-Path $env:RUNNER_TEMP 'parsec-orbit-market.key'
+            Set-Content -LiteralPath $key -Value $env:MARKET_SIGNING_KEY -NoNewline -Encoding ascii
+            try {
+              ./scripts/package.ps1 -SkipBuild -SigningKeyFile $key
+            } finally {
+              Remove-Item -LiteralPath $key -Force -ErrorAction SilentlyContinue
+            }
+          } else {
+            Write-Warning 'MARKET_SIGNING_KEY is not set: the manifests will be unsigned'
+            ./scripts/package.ps1 -SkipBuild
+          }
 
       - name: Stage the changelog into dist
         shell: pwsh
