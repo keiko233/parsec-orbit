@@ -16,6 +16,7 @@ pub mod apply;
 pub mod cli;
 pub mod digest;
 pub mod journal;
+pub mod lock;
 pub mod macho;
 pub mod platform;
 pub mod state;

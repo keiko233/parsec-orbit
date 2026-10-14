@@ -1,10 +1,10 @@
 # M1b transactional installer checkpoint
 
 Date: 2026-10-14. Host: macOS 27.0 (26A428), arm64.
-**M1b is implemented and scratch-measured on disposable toy bundles.** The
-installer has never been run against a real vendor `Parsec.app`; original-path
-authorization, full backup-metadata fidelity and the signing/distribution
-gates remain with M1c. The [phase
+**M1b is implemented and scratch-measured.** The initial 2026-10-14
+measurements used toy bundles. The 2026-10-15 follow-up below also applies
+and restores a disposable real vendor copy; the live `/Applications`
+installation remains untouched. The [phase
 exit gate](../macos-phases.md#m1b---transactional-applyrestore) asks for
 scratch apply/re-apply/uninstall and failure/interruption recovery, an exact
 pristine restore and refusals without mutation; the measured evidence below
@@ -174,7 +174,7 @@ after the seed move: **571,472 B**, SHA-256
 `b278d7b8c4b68e720a03d45d54c7c55433e486addbf35e00d6a97ce4d377f5b0`
 (571,504 B / `cbccb4f9...` before the move).
 
-## Explicitly not measured
+## Historical limits of the 2026-10-14 measurement
 
 - No real vendor bundle was applied, and `/Applications/Parsec.app` was not
   selected or mutated. The whitelisted vendor stub hash is measured input
@@ -216,3 +216,60 @@ target/debug/parsec-orbit-installer-macos uninstall /path/to/copy/Parsec.app \
 The installer refuses an unsupported stub, a running app, a stale tree or a
 cross-volume Orbit root without touching the selected bundle; the refusal
 messages name the failing step.
+
+## Follow-up: official universal input and restore metadata (2026-10-15)
+
+The whitelist is the hash of a **universal** official stub, whereas the
+initial parser accepted only thin arm64. The installer now validates a
+FAT32 slice table (extent, alignment, CPU/header agreement, uniqueness and
+non-overlap), inserts the dependency only in arm64 and retains x86_64.
+This is not x86_64 execution support. Ad-hoc `codesign` repacks the slices:
+the official arm64 offset changed from 131072 to 114688 in the measurement.
+Section digests are therefore CPU-bound and slice-relative; every recorded
+file-backed section in both slices is rechecked after signing. FAT64 and
+other unsupported layouts refuse.
+
+Snapshots include the bundle root, Unix uid/gid and nanosecond mtime, macOS
+ACL bytes and xattr name/value bytes (including resource forks and symlink
+attributes without following the link). Old manifests compare only fields
+they recorded. Restore checks are exact. `ditto` resets symlink mtimes on
+this host; staging permits that transformation while preserving the pristine
+rename backup. Post-signing checks permit mtimes only on the root,
+`Contents`, `Contents/Resources`, and `Contents/MacOS` ancestor directories;
+metadata changes elsewhere feed the existing changed-path allowlist.
+Applied snapshots are exact after the swap. Birthtime, atime, inode numbers,
+BSD flags and hardlink relationships are not claimed by this snapshot.
+
+Apply and uninstall hold a private, no-follow `flock` sidecar in the app's
+parent directory. It is keyed by the canonical selected app name, independent
+of Orbit root, and kept after unlock to avoid inode-splitting races. Unknown
+inputs still leave the app/state unchanged but may create this lock file.
+The input tree is rechecked before backup. Recovery/rollback refuses to move
+an occupying tree that does not match the recorded applied snapshot; both
+that replacement and the pristine backup survive. These checks serialize
+cooperating installers and detect the injected replacement cases; they do
+not lock the vendor updater or prove absence of every filesystem race.
+
+Measured tests include the prior eight scenarios, competing apply/uninstall
+using another state root, an external replacement during crash recovery,
+an external replacement before swap, and a real universal toy roundtrip.
+The separate metadata test covers root/directory/file/symlink xattrs, ACLs,
+nanosecond timestamps, `ditto`, rename restoration and tamper detection.
+
+The formal installer also applied the official vendor copy at
+`/private/tmp/orbit-m1c-i30pesbu/Parsec.app`, keeping `tv.parsec.www`, with
+the unchanged shipped stub whitelist. Preseed succeeded. Its first direct
+launch needed **one attempt**, showed a Parsec window, loaded config/Boa/
+fixture plugins (3 loaded, 0 skipped, 0 failed), and reinitialized after
+101a-to-104a self-exec. Launch Services subsequently selected the same copy
+path. Uninstall restored the recorded pristine metadata tree and strict
+signature with no warnings; Orbit data survived. The stricter post-signing
+metadata comparator was then exercised by re-applying the restored copy.
+These are disposable-copy measurements, not existing Dock/Spotlight/TCC or
+the original `/Applications` entry acceptance.
+
+Evidence: `/tmp/orbit-continue-installer-tests.log`,
+`/tmp/orbit-m1c-strict-vendor-apply.json`,
+`/tmp/orbit-m1c-uninstall.json`, and the direct/open acceptance JSON under
+the scratch path. No vendor preinstall, root, Keychain transaction or real
+account operation was performed.

@@ -132,6 +132,12 @@ pub fn uninstall_with(
     options: &UninstallOptions,
     faults: &dyn UninstallFaults,
 ) -> Result<UninstallReport, UninstallFailure> {
+    let _lock = crate::lock::AppLock::acquire(app).map_err(|message| UninstallFailure {
+        step: UninstallStep::Inspect,
+        message,
+        restored: false,
+        warnings: Vec::new(),
+    })?;
     let mut transaction = Transaction {
         faults,
         options,
@@ -331,6 +337,7 @@ impl Transaction<'_> {
     }
 
     fn remove_applied(&mut self) -> Result<(), String> {
+        self.check_applied()?;
         self.removed = self.move_aside()?;
         self.journal().append(
             "applied-removed",
@@ -429,6 +436,17 @@ impl Transaction<'_> {
             return Ok(warnings);
         }
         if fs::symlink_metadata(&self.app).is_ok() {
+            let actual = digest::tree(&self.app)?;
+            let expected = self
+                .manifest
+                .as_ref()
+                .and_then(|record| record.applied_tree.as_ref())
+                .ok_or("occupied app path has no recorded applied snapshot")?;
+            if !digest::differences(expected, &actual).is_empty() {
+                return Err(
+                    "the app path changed externally; preserving it and the pristine backup".into(),
+                );
+            }
             let moved = self.move_aside()?;
             let journal = self.journal();
             let _ = journal.append("moved-aside", Some(serde_json::json!({"path": moved})));

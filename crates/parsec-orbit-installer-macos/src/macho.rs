@@ -38,6 +38,10 @@ const DYLIB_COMMAND_BYTES: usize = 24;
 /// One file-backed section digest taken before mutation.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SectionDigest {
+    /// For universal binaries, offset is relative to this CPU slice. codesign
+    /// may repack slices after replacing their signatures.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cpu_type: Option<u32>,
     pub offset: u64,
     pub size: u64,
     pub sha256: String,
@@ -87,8 +91,8 @@ fn parse(image: &[u8], dependency: &str) -> Result<Parsed, String> {
     if u32_at(image, 0)? != MH_MAGIC_64 {
         return Err("the stub is not a 64-bit little-endian Mach-O image".into());
     }
-    if u32_at(image, 4)? != CPU_TYPE_ARM64 {
-        return Err("the stub is not an arm64 image".into());
+    if !matches!(u32_at(image, 4)?, CPU_TYPE_ARM64 | 0x0100_0007) {
+        return Err("unsupported Mach-O CPU".into());
     }
     if u32_at(image, 12)? != MH_EXECUTE {
         return Err("the stub is not a Mach-O executable".into());
@@ -143,6 +147,7 @@ fn parse(image: &[u8], dependency: &str) -> Result<Parsed, String> {
                     }
                     first_section = first_section.min(start);
                     sections.push(SectionDigest {
+                        cpu_type: None,
                         offset,
                         size,
                         sha256: hex(&Sha256::digest(&image[start..stop])),
@@ -195,6 +200,92 @@ fn parse(image: &[u8], dependency: &str) -> Result<Parsed, String> {
 /// Inserts one `LC_LOAD_DYLIB` for `dependency` into the listed header
 /// padding. Returns the patched image and the pre-patch section digests.
 pub fn patch(image: &[u8], dependency: &str) -> Result<(Vec<u8>, PatchReport), String> {
+    let slices = slices(image)?;
+    let &(offset, size, _) = slices
+        .iter()
+        .find(|(_, _, cpu)| *cpu == CPU_TYPE_ARM64)
+        .ok_or("the stub has no arm64 slice")?;
+    let (arm64, mut report) = patch_thin(&image[offset..offset + size], dependency)?;
+    let mut patched = image.to_vec();
+    patched[offset..offset + size].copy_from_slice(&arm64);
+    report.first_section_offset += offset as u64;
+    let universal = slices.len() > 1 || offset != 0;
+    for section in &mut report.file_backed_sections {
+        section.cpu_type = universal.then_some(CPU_TYPE_ARM64);
+    }
+    // Signatures may be regenerated for both slices. Verify every original
+    // file-backed section, including the untouched x86_64 slice.
+    for (other_offset, other_size, cpu) in slices {
+        if cpu == CPU_TYPE_ARM64 {
+            continue;
+        }
+        let parsed = parse(&image[other_offset..other_offset + other_size], dependency)?;
+        for mut section in parsed.sections {
+            section.cpu_type = Some(cpu);
+            report.file_backed_sections.push(section);
+        }
+    }
+    Ok((patched, report))
+}
+
+/// Validates the complete FAT32 layout before selecting arm64. No slices
+/// are removed or resized; unsupported/overlapping/duplicate slices refuse.
+fn slices(image: &[u8]) -> Result<Vec<(usize, usize, u32)>, String> {
+    if u32_at(image, 0)? == MH_MAGIC_64 {
+        if u32_at(image, 4)? != CPU_TYPE_ARM64 {
+            return Err("the stub is not an arm64 image".into());
+        }
+        return Ok(vec![(0, image.len(), CPU_TYPE_ARM64)]);
+    }
+    let be32 = |offset: usize| -> Result<u32, String> {
+        let bytes = image
+            .get(offset..offset + 4)
+            .ok_or("truncated universal header")?;
+        Ok(u32::from_be_bytes(bytes.try_into().expect("four bytes")))
+    };
+    if be32(0)? != 0xcafe_babe {
+        return Err("unsupported Mach-O container (expected thin arm64 or FAT32)".into());
+    }
+    let count = be32(4)? as usize;
+    if count == 0 || count > 2 {
+        return Err("unsupported universal slice count".into());
+    }
+    let table_end = 8 + count * 20;
+    let mut slices = Vec::new();
+    for index in 0..count {
+        let entry = 8 + index * 20;
+        let cpu = be32(entry)?;
+        let subtype = be32(entry + 4)?;
+        let offset = be32(entry + 8)? as usize;
+        let size = be32(entry + 12)? as usize;
+        let alignment = be32(entry + 16)?;
+        if !matches!(cpu, CPU_TYPE_ARM64 | 0x0100_0007)
+            || alignment > 30
+            || !offset.is_multiple_of(1usize << alignment)
+            || offset < table_end
+            || size < HEADER_BYTES
+            || offset.checked_add(size).is_none_or(|end| end > image.len())
+        {
+            return Err("invalid universal slice extent, alignment or CPU".into());
+        }
+        for &(previous, length, previous_cpu) in &slices {
+            if previous_cpu == cpu || (offset < previous + length && previous < offset + size) {
+                return Err("duplicate CPU or overlapping universal slices".into());
+            }
+        }
+        let slice = &image[offset..offset + size];
+        if u32_at(slice, 0)? != MH_MAGIC_64
+            || u32_at(slice, 4)? != cpu
+            || u32_at(slice, 8)? != subtype
+        {
+            return Err("universal slice header does not match its table".into());
+        }
+        slices.push((offset, size, cpu));
+    }
+    Ok(slices)
+}
+
+fn patch_thin(image: &[u8], dependency: &str) -> Result<(Vec<u8>, PatchReport), String> {
     if dependency.contains('\0') || dependency.is_empty() {
         return Err("the loader dependency must be a nonempty path without NUL".into());
     }
@@ -254,7 +345,12 @@ pub fn patch(image: &[u8], dependency: &str) -> Result<(Vec<u8>, PatchReport), S
 
 /// Requires that `image` carries `dependency` and still parses cleanly.
 pub fn verify_dependency(image: &[u8], dependency: &str) -> Result<(), String> {
-    let parsed = parse(image, dependency)?;
+    let slices = slices(image)?;
+    let &(offset, size, _) = slices
+        .iter()
+        .find(|(_, _, cpu)| *cpu == CPU_TYPE_ARM64)
+        .ok_or("the stub has no arm64 slice")?;
+    let parsed = parse(&image[offset..offset + size], dependency)?;
     if !parsed.dependency_present {
         return Err("the staged stub does not name the loader dependency".into());
     }
@@ -264,9 +360,20 @@ pub fn verify_dependency(image: &[u8], dependency: &str) -> Result<(), String> {
 /// Re-measures the recorded file-backed sections of a signed image.
 pub fn sections_preserved(image: &[u8], sections: &[SectionDigest]) -> Result<(), String> {
     for section in sections {
-        let start = section.offset as usize;
-        let stop = start + section.size as usize;
-        let bytes = image.get(start..stop).ok_or_else(|| {
+        let content = if let Some(cpu) = section.cpu_type {
+            let slices = slices(image)?;
+            let &(offset, size, _) = slices
+                .iter()
+                .find(|(_, _, found)| *found == cpu)
+                .ok_or("a recorded CPU slice disappeared during signing")?;
+            &image[offset..offset + size]
+        } else {
+            image
+        };
+        let start = usize::try_from(section.offset).map_err(|_| "section offset overflows")?;
+        let size = usize::try_from(section.size).map_err(|_| "section size overflows")?;
+        let stop = start.checked_add(size).ok_or("section extent overflows")?;
+        let bytes = content.get(start..stop).ok_or_else(|| {
             format!(
                 "the file-backed section at byte {} no longer fits the stub",
                 section.offset
@@ -344,6 +451,42 @@ mod tests {
             *byte = 0xAB;
         }
         image
+    }
+
+    #[test]
+    fn universal_patch_validates_extents_and_preserves_the_other_slice() {
+        let arm = synthetic(0x200);
+        let mut x86 = arm.clone();
+        put32(&mut x86, 4, 0x0100_0007);
+        let mut image = vec![0u8; 0x2000 + arm.len()];
+        let mut be = |offset: usize, value: u32| {
+            image[offset..offset + 4].copy_from_slice(&value.to_be_bytes());
+        };
+        be(0, 0xcafe_babe);
+        be(4, 2);
+        be(8, 0x0100_0007);
+        be(16, 0x1000);
+        be(20, x86.len() as u32);
+        be(24, 12);
+        be(28, CPU_TYPE_ARM64);
+        be(36, 0x2000);
+        be(40, arm.len() as u32);
+        be(44, 12);
+        image[0x1000..0x1000 + x86.len()].copy_from_slice(&x86);
+        image[0x2000..].copy_from_slice(&arm);
+        let (patched, report) = patch(&image, DEPENDENCY).unwrap();
+        verify_dependency(&patched, DEPENDENCY).unwrap();
+        sections_preserved(&patched, &report.file_backed_sections).unwrap();
+        assert_eq!(report.file_backed_sections.len(), 2);
+        assert_eq!(&patched[0x1000..0x1000 + x86.len()], &x86);
+        assert_eq!(&patched[..0x1000], &image[..0x1000]);
+        assert!(patch(&patched, DEPENDENCY).is_err());
+        let mut bad = image.clone();
+        bad[36..40].copy_from_slice(&0x1000u32.to_be_bytes());
+        assert!(patch(&bad, DEPENDENCY).is_err());
+        let mut bad = image;
+        bad[40..44].copy_from_slice(&u32::MAX.to_be_bytes());
+        assert!(patch(&bad, DEPENDENCY).is_err());
     }
 
     #[test]

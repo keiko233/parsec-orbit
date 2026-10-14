@@ -241,7 +241,11 @@ impl UninstallFaults for UninstallFailAt {
 
 fn assert_only_expected_changes(toy: &Toy) {
     let patched = digest::tree(&toy.app).unwrap();
-    let changed = digest::changed_paths(&toy.tree, &patched);
+    let changed = digest::changed_paths_for_signing(
+        &toy.tree,
+        &patched,
+        &["", "Contents", "Contents/Resources", "Contents/MacOS"],
+    );
     for path in changed.keys() {
         assert!(
             EXPECTED_CHANGES.contains(&path.as_str()),
@@ -450,7 +454,121 @@ fn craft_interruption(toy: &Toy, after_swap: bool) {
     fs::write(install.staged().join("partial"), b"half").unwrap();
     if after_swap {
         fs::rename(install.staged(), &toy.app).unwrap();
+        // A real swap is preceded by a persisted verified-staged snapshot.
+        let mut manifest = manifest;
+        manifest.applied_tree = Some(digest::tree(&toy.app).unwrap());
+        journal::write_manifest(&install, &manifest).unwrap();
     }
+}
+
+#[test]
+fn an_external_bundle_during_recovery_is_preserved() {
+    let toy = build_toy("installer-external-recovery", true);
+    craft_interruption(&toy, false);
+    fs::create_dir(&toy.app).unwrap();
+    fs::write(toy.app.join("vendor-update"), b"new installation").unwrap();
+    let external = digest::tree(&toy.app).unwrap();
+    let failure = apply(&toy.app, &toy.loader, &toy.options()).unwrap_err();
+    assert_eq!(failure.step, Step::Recover);
+    assert!(!failure.rolled_back);
+    assert_eq!(digest::tree(&toy.app).unwrap(), external);
+    assert_eq!(
+        digest::tree(&toy.install_dir().pristine()).unwrap(),
+        toy.tree
+    );
+}
+
+#[test]
+fn a_vendor_replacement_before_swap_is_not_overwritten_by_rollback() {
+    struct ReplaceAtSwap(PathBuf);
+    impl Faults for ReplaceAtSwap {
+        fn check(&self, step: Step) -> Result<(), String> {
+            if step == Step::Swap {
+                fs::create_dir(&self.0).unwrap();
+                fs::write(self.0.join("vendor-update"), b"replacement").unwrap();
+            }
+            Ok(())
+        }
+    }
+    let toy = build_toy("installer-update-at-swap", true);
+    let failure = apply_with(
+        &toy.app,
+        &toy.loader,
+        &toy.options(),
+        &ReplaceAtSwap(toy.app.clone()),
+    )
+    .unwrap_err();
+    assert_eq!(failure.step, Step::Swap);
+    assert!(!failure.rolled_back);
+    assert_eq!(
+        fs::read(toy.app.join("vendor-update")).unwrap(),
+        b"replacement"
+    );
+    assert_eq!(
+        digest::tree(&toy.install_dir().pristine()).unwrap(),
+        toy.tree
+    );
+}
+
+#[test]
+fn competing_apply_and_uninstall_refuse_without_mutating_the_bundle() {
+    let toy = build_toy("installer-concurrent", true);
+    let lock = parsec_orbit_installer::lock::AppLock::acquire(&toy.app).unwrap();
+    let alternate = ApplyOptions::new(toy.scratch.path().join("other-root"))
+        .with_whitelist(toy.whitelist.clone());
+    assert!(apply(&toy.app, &toy.loader, &alternate).is_err());
+    assert!(uninstall(&toy.app, &UninstallOptions::new(&toy.orbit)).is_err());
+    assert_eq!(digest::tree(&toy.app).unwrap(), toy.tree);
+    drop(lock);
+    apply(&toy.app, &toy.loader, &toy.options()).expect("apply after releasing lock");
+}
+
+#[test]
+fn a_universal_stub_keeps_both_slices_and_restores_exactly() {
+    let mut toy = build_toy("installer-universal", true);
+    let sources = toy.scratch.path().join("sources");
+    let x86 = sources.join("parsecd-x86");
+    run(Command::new("clang")
+        .args(["-arch", "x86_64", "-Wl,-headerpad,0x200"])
+        .arg(sources.join("stub.c"))
+        .arg("-o")
+        .arg(&x86));
+    let universal = sources.join("parsecd-universal");
+    run(Command::new("lipo")
+        .arg("-create")
+        .arg(toy.app.join(STUB_RELATIVE))
+        .arg(x86)
+        .arg("-output")
+        .arg(&universal));
+    fs::copy(universal, toy.app.join(STUB_RELATIVE)).unwrap();
+    platform::codesign_sign(&toy.app, None, false).unwrap();
+    toy.stub_sha256 = digest::sha256_file(&toy.app.join(STUB_RELATIVE)).unwrap();
+    toy.whitelist = Whitelist::from_hashes([toy.stub_sha256.clone()]);
+    toy.tree = digest::tree(&toy.app).unwrap();
+    let report = apply(&toy.app, &toy.loader, &toy.options()).expect("universal apply");
+    let stub = fs::read(toy.app.join(STUB_RELATIVE)).unwrap();
+    parsec_orbit_installer::macho::verify_dependency(&stub, LOADER_DEPENDENCY).unwrap();
+    parsec_orbit_installer::macho::sections_preserved(
+        &stub,
+        &report.patch.unwrap().file_backed_sections,
+    )
+    .unwrap();
+    let archs = Command::new("lipo")
+        .arg("-archs")
+        .arg(toy.app.join(STUB_RELATIVE))
+        .output()
+        .unwrap();
+    let archs = String::from_utf8(archs.stdout).unwrap();
+    assert!(
+        archs.contains("arm64") && archs.contains("x86_64"),
+        "{archs}"
+    );
+    assert!(Command::new(toy.app.join(STUB_RELATIVE))
+        .status()
+        .unwrap()
+        .success());
+    uninstall(&toy.app, &UninstallOptions::new(&toy.orbit)).unwrap();
+    assert_eq!(digest::tree(&toy.app).unwrap(), toy.tree);
 }
 
 #[test]

@@ -220,6 +220,12 @@ pub fn apply_with(
     options: &ApplyOptions,
     faults: &dyn Faults,
 ) -> Result<ApplyReport, ApplyFailure> {
+    let _lock = crate::lock::AppLock::acquire(app).map_err(|message| ApplyFailure {
+        step: Step::Inspect,
+        message,
+        rolled_back: false,
+        warnings: Vec::new(),
+    })?;
     let mut transaction = Transaction::new(app, loader, options, faults);
     transaction.run()
 }
@@ -626,6 +632,10 @@ impl<'a> Transaction<'a> {
     }
 
     fn backup(&mut self) -> Result<(), String> {
+        let current = digest::tree(&self.app)?;
+        if !digest::differences(&self.pristine_tree, &current).is_empty() {
+            return Err("the selected bundle changed after inspection; refusing backup".into());
+        }
         // The input must still be a valid, sealed vendor bundle before the
         // first mutation. A bundle with a record is checked by `recover`
         // (tree classification plus signature), which reports the cause.
@@ -726,7 +736,7 @@ impl<'a> Transaction<'a> {
     fn stage(&mut self) -> Result<(), String> {
         platform::ditto(&self.install.pristine(), &self.install.staged())?;
         let staged = digest::tree(&self.install.staged())?;
-        let differences = digest::differences(&self.pristine_tree, &staged);
+        let differences = digest::staged_copy_differences(&self.pristine_tree, &staged);
         if !differences.is_empty() {
             return Err(format!(
                 "the staged copy differs from the pristine snapshot: {}",
@@ -857,7 +867,11 @@ impl<'a> Transaction<'a> {
         verify_record(&staged, &self.executable, &self.orbit_root)?;
 
         let tree = digest::tree(&staged)?;
-        let changed = digest::changed_paths(&self.pristine_tree, &tree);
+        let changed = digest::changed_paths_for_signing(
+            &self.pristine_tree,
+            &tree,
+            &["", "Contents", "Contents/Resources", "Contents/MacOS"],
+        );
         let unexpected: Vec<String> = changed
             .into_iter()
             .filter(|(path, _)| !ALLOWED_STAGED_CHANGES.contains(&path.as_str()))
@@ -1024,6 +1038,16 @@ impl<'a> Transaction<'a> {
 
         if pristine.exists() {
             if app_present {
+                let actual = digest::tree(&self.app)?;
+                let expected = manifest.applied_tree.as_ref().ok_or_else(|| {
+                    "the app path is occupied by an unrecorded bundle; preserving it and the pristine backup".to_string()
+                })?;
+                if !digest::differences(expected, &actual).is_empty() {
+                    return Err(
+                        "the app path changed externally; preserving it and the pristine backup"
+                            .into(),
+                    );
+                }
                 let moved = self.move_aside()?;
                 let _ = self.note("moved-aside", serde_json::json!({"path": moved}));
             }
