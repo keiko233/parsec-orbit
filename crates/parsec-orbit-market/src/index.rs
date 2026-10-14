@@ -36,6 +36,41 @@ pub const FORMAT: u32 = 1;
 /// Largest package accepted, in bytes.
 pub const MAX_PACKAGE_BYTES: u64 = 256 * 1024 * 1024;
 
+/// The platform a release package targets.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Platform {
+    #[serde(rename = "windows-x86_64")]
+    #[default]
+    WindowsX86_64,
+    #[serde(rename = "macos-arm64")]
+    MacosArm64,
+}
+
+impl Platform {
+    /// Platform this build of the tool serves.
+    pub const fn current() -> Self {
+        #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+        {
+            Self::MacosArm64
+        }
+        #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
+        {
+            Self::WindowsX86_64
+        }
+    }
+
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::WindowsX86_64 => "windows-x86_64",
+            Self::MacosArm64 => "macos-arm64",
+        }
+    }
+
+    fn is_default(platform: &Self) -> bool {
+        *platform == Self::WindowsX86_64
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Index {
     pub format: u32,
@@ -64,6 +99,9 @@ pub struct Release {
     /// Loader ABI version the release needs.
     #[serde(default = "default_api")]
     pub api: u32,
+    /// Target platform. Missing values retain the original Windows meaning.
+    #[serde(default, skip_serializing_if = "Platform::is_default")]
+    pub platform: Platform,
     pub url: String,
     pub sha256: String,
     pub size: u64,
@@ -116,7 +154,7 @@ impl Index {
             if plugin.versions.is_empty() {
                 return bad(format!("plugin {} has no versions", plugin.id));
             }
-            let mut versions: Vec<Version> = Vec::new();
+            let mut versions: Vec<(Version, Platform)> = Vec::new();
             for release in &plugin.versions {
                 let version = Version::parse(&release.version).map_err(|error| {
                     Error::Index(format!(
@@ -124,10 +162,14 @@ impl Index {
                         plugin.id, release.version
                     ))
                 })?;
-                if versions.contains(&version) {
-                    return bad(format!("{} {version} is listed twice", plugin.id));
+                if versions.contains(&(version.clone(), release.platform)) {
+                    return bad(format!(
+                        "{} {version} for {} is listed twice",
+                        plugin.id,
+                        release.platform.as_str()
+                    ));
                 }
-                versions.push(version);
+                versions.push((version, release.platform));
                 if release.sha256.len() != 64
                     || !release
                         .sha256
@@ -170,16 +212,36 @@ impl Index {
 
 impl Plugin {
     /// The release to install: `version` if given, else the newest one that
-    /// needs no more than `api` and is not a pre-release.
-    pub fn select(&self, version: Option<&str>, api: u32) -> Result<&Release, Error> {
+    /// matches `platform`, needs no more than `api` and is not a pre-release.
+    pub fn select(
+        &self,
+        version: Option<&str>,
+        api: u32,
+        platform: Platform,
+    ) -> Result<&Release, Error> {
         if let Some(wanted) = version {
             let wanted = Version::parse(wanted)
                 .map_err(|error| Error::Usage(format!("{wanted:?} is not a version: {error}")))?;
             let release = self
                 .versions
                 .iter()
-                .find(|release| Version::parse(&release.version).ok().as_ref() == Some(&wanted))
+                .find(|release| {
+                    Version::parse(&release.version).ok().as_ref() == Some(&wanted)
+                        && release.platform == platform
+                })
+                .or_else(|| {
+                    self.versions.iter().find(|release| {
+                        Version::parse(&release.version).ok().as_ref() == Some(&wanted)
+                    })
+                })
                 .ok_or_else(|| Error::NotFound(format!("{} has no version {wanted}", self.id)))?;
+            if release.platform != platform {
+                return Err(Error::Incompatible(format!(
+                    "{} {wanted} has no release for platform {}",
+                    self.id,
+                    platform.as_str()
+                )));
+            }
             if release.api > api {
                 return Err(Error::Incompatible(format!(
                     "{} {wanted} needs loader API {} but this one implements {api}",
@@ -190,13 +252,18 @@ impl Plugin {
         }
         self.versions
             .iter()
+            .filter(|release| release.platform == platform)
             .filter(|release| release.api <= api)
             .filter_map(|release| Some((Version::parse(&release.version).ok()?, release)))
             .filter(|(version, _)| version.pre.is_empty())
             .max_by(|(a, _), (b, _)| a.cmp(b))
             .map(|(_, release)| release)
             .ok_or_else(|| {
-                Error::Incompatible(format!("{} has no release for loader API {api}", self.id))
+                Error::Incompatible(format!(
+                    "{} has no release for platform {} and loader API {api}",
+                    self.id,
+                    platform.as_str()
+                ))
             })
     }
 }
@@ -215,6 +282,7 @@ mod tests {
         Release {
             version: version.to_string(),
             api,
+            platform: Platform::WindowsX86_64,
             url: format!("p-{version}.zip"),
             sha256: "ab".repeat(32),
             size: 10,
@@ -257,6 +325,10 @@ mod tests {
         let json = r#"{"format":1,"plugins":[{"id":"a","versions":[{"version":"1.0.0","url":"a.zip","sha256":"0000000000000000000000000000000000000000000000000000000000000000","size":1}]}]}"#;
         let index = Index::parse(json.as_bytes()).unwrap();
         assert_eq!(index.plugins[0].versions[0].api, 1);
+        assert_eq!(
+            index.plugins[0].versions[0].platform,
+            Platform::WindowsX86_64
+        );
         assert!(index.plugins[0].versions[0].requires.is_empty());
     }
 
@@ -329,11 +401,68 @@ mod tests {
             release("1.9.0", 1),
         ]);
         assert_eq!(
-            p.select(None, 1).unwrap().version,
+            p.select(None, 1, Platform::WindowsX86_64).unwrap().version,
             "1.10.0",
             "semver, not text order"
         );
-        assert_eq!(p.select(None, 2).unwrap().version, "2.0.0");
+        assert_eq!(
+            p.select(None, 2, Platform::WindowsX86_64).unwrap().version,
+            "2.0.0"
+        );
+    }
+
+    #[test]
+    fn mixed_platform_versions_are_filtered_and_old_indexes_stay_windows() {
+        let mut windows = release("2.0.0", 1);
+        windows.platform = Platform::WindowsX86_64;
+        let mut macos = release("1.5.0", 1);
+        macos.platform = Platform::MacosArm64;
+        let p = plugin(vec![windows, macos]);
+
+        assert_eq!(
+            p.select(None, 1, Platform::WindowsX86_64).unwrap().version,
+            "2.0.0"
+        );
+        assert_eq!(
+            p.select(None, 1, Platform::MacosArm64).unwrap().version,
+            "1.5.0"
+        );
+        assert!(matches!(
+            p.select(Some("2.0.0"), 1, Platform::MacosArm64),
+            Err(Error::Incompatible(_))
+        ));
+
+        let old = Index::parse(
+            br#"{"format":1,"plugins":[{"id":"legacy","versions":[{"version":"1.0.0","url":"p.zip","sha256":"0000000000000000000000000000000000000000000000000000000000000000","size":1}]}]}"#,
+        )
+        .unwrap();
+        assert_eq!(old.plugins[0].versions[0].platform, Platform::WindowsX86_64);
+        assert!(!old.to_json().contains("platform"));
+    }
+
+    #[test]
+    fn one_semver_can_have_a_package_for_each_platform() {
+        let mut windows = release("1.0.0", 1);
+        windows.platform = Platform::WindowsX86_64;
+        let mut macos = release("1.0.0", 1);
+        macos.platform = Platform::MacosArm64;
+        let parsed = Index::parse(&index_of(vec![plugin(vec![windows, macos])])).unwrap();
+        let plugin = parsed.plugin("com.example.p").unwrap();
+
+        assert_eq!(
+            plugin
+                .select(Some("1.0.0"), 1, Platform::WindowsX86_64)
+                .unwrap()
+                .platform,
+            Platform::WindowsX86_64
+        );
+        assert_eq!(
+            plugin
+                .select(Some("1.0.0"), 1, Platform::MacosArm64)
+                .unwrap()
+                .platform,
+            Platform::MacosArm64
+        );
     }
 
     #[test]
@@ -343,28 +472,38 @@ mod tests {
             release("2.0.0", 2),
             release("3.0.0-rc.1", 1),
         ]);
-        assert_eq!(p.select(Some("1.0.0"), 1).unwrap().version, "1.0.0");
         assert_eq!(
-            p.select(Some("3.0.0-rc.1"), 1).unwrap().version,
+            p.select(Some("1.0.0"), 1, Platform::WindowsX86_64)
+                .unwrap()
+                .version,
+            "1.0.0"
+        );
+        assert_eq!(
+            p.select(Some("3.0.0-rc.1"), 1, Platform::WindowsX86_64)
+                .unwrap()
+                .version,
             "3.0.0-rc.1"
         );
         assert!(matches!(
-            p.select(Some("2.0.0"), 1),
+            p.select(Some("2.0.0"), 1, Platform::WindowsX86_64),
             Err(Error::Incompatible(_))
         ));
         assert!(matches!(
-            p.select(Some("9.9.9"), 1),
+            p.select(Some("9.9.9"), 1, Platform::WindowsX86_64),
             Err(Error::NotFound(_))
         ));
-        assert!(matches!(p.select(Some("nope"), 1), Err(Error::Usage(_))));
+        assert!(matches!(
+            p.select(Some("nope"), 1, Platform::WindowsX86_64),
+            Err(Error::Usage(_))
+        ));
         let only_new = plugin(vec![release("2.0.0", 2)]);
         assert!(matches!(
-            only_new.select(None, 1),
+            only_new.select(None, 1, Platform::WindowsX86_64),
             Err(Error::Incompatible(_))
         ));
         let only_pre = plugin(vec![release("1.0.0-alpha", 1)]);
         assert!(
-            only_pre.select(None, 1).is_err(),
+            only_pre.select(None, 1, Platform::WindowsX86_64).is_err(),
             "no pre-release by default"
         );
     }
