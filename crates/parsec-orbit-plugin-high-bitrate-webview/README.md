@@ -64,8 +64,8 @@ same steps against a running client without restarting it.
 The loader log (`%APPDATA%\ParsecOrbit\parsec-orbit.log`) reports the result:
 
 ```
-loaded com.parsec-orbit.webview 0.1.0 (WebView UI Patches) ABI 1 by Parsec Orbit contributors [MIT]
-webview ui patches 0.1.0 starting
+loaded com.parsec-orbit.webview 0.1.1 (WebView UI Patches) ABI 1 by Parsec Orbit contributors [MIT]
+webview ui patches 0.1.1 starting
 webview bandwidth patch handed to the bridge (script 3)
 ```
 

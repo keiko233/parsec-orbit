@@ -92,7 +92,7 @@ impl Plugin for WebViewBridge {
 parsec_orbit_plugin_sdk_std::declare_plugin! {
     id = "com.parsec-orbit.webview-bridge",
     name = "WebView Bridge",
-    version = "0.1.0",
+    version = "0.1.1",
     author = "Parsec Orbit contributors",
     description = "Provides parsec-orbit.webview: scripts, evaluation and messages for the WebView2 UI",
     license = "MIT",
