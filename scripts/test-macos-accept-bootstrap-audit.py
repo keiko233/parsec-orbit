@@ -178,6 +178,13 @@ def test_evidence_complete_passes():
     assert detail["builds"] == ["101a", "104a"]
 
 
+def test_numeric_release_suffix_is_accepted():
+    loader, vendor = healthy_lines()
+    vendor = [line.replace("Parsec release (", "Parsec release17 (") for line in vendor]
+    checks, _ = runner.evaluate_evidence(evidence(loader, vendor))
+    assert not runner.failed_checks(checks)
+
+
 def test_missing_loader_token_fails():
     loader, vendor = healthy_lines()
     vendor = [line.replace("Loader: 14", "Loader: 13") for line in vendor]
@@ -190,6 +197,43 @@ def test_failed_plugin_count_fails():
     loader = [line.replace("0 failed", "1 failed") for line in loader]
     checks, _ = runner.evaluate_evidence(evidence(loader, vendor))
     assert "ready_zero_failed" in runner.failed_checks(checks)
+
+
+def test_a_healthy_ready_line_does_not_hide_a_later_failure():
+    loader, vendor = healthy_lines()
+    loader += [line.replace("0 failed", "1 failed") for line in loader if "ready:" in line]
+    checks, _ = runner.evaluate_evidence(evidence(loader, vendor))
+    assert "ready_zero_failed" in runner.failed_checks(checks)
+
+
+def test_log_cursors_exclude_previous_launches_and_accept_rotation():
+    with tempfile.TemporaryDirectory() as directory:
+        path = Path(directory) / "log.txt"
+        path.write_text("old healthy launch\n")
+        cursor = runner.log_cursor(path)
+        assert runner.read_lines(path, cursor) == []
+        with path.open("a") as stream:
+            stream.write("current launch\n")
+        assert runner.read_lines(path, cursor) == ["current launch"]
+        path.rename(Path(directory) / "old.txt")
+        path.write_text("rotated current launch\n")
+        assert runner.read_lines(path, cursor) == ["rotated current launch"]
+
+
+def test_log_cursor_drops_an_old_partial_line_and_refuses_links():
+    with tempfile.TemporaryDirectory() as directory:
+        path = Path(directory) / "log.txt"
+        path.write_text("old partial")
+        cursor = runner.log_cursor(path)
+        with path.open("a") as stream:
+            stream.write(" continuation\nnew line\n")
+        assert runner.read_lines(path, cursor) == ["new line"]
+        link = Path(directory) / "link.txt"
+        link.symlink_to(path)
+        assert runner.read_lines(link) == []
+        hardlink = Path(directory) / "hard.txt"
+        os.link(path, hardlink)
+        assert runner.read_lines(path) == []
 
 
 def test_missing_query_fails():

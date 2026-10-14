@@ -148,17 +148,28 @@ pub fn client_started(
         let Some(build) = parse_client_name(name) else {
             continue;
         };
-        let announcement = format!("Parsec release ({}-{},", build.version, build.build);
-        if new_log
-            .lines()
-            .any(|line| line.contains(&announcement) && line.contains("Loader: 14)"))
-        {
+        if new_log.lines().any(|line| release_matches(line, &build)) {
             return ProbeState::Ready(build);
         }
     }
     ProbeState::NotYet(
         "waiting for an isolated mapped client and a new LOADER_V14 release announcement".into(),
     )
+}
+
+fn release_matches(line: &str, build: &ClientBuild) -> bool {
+    let Some((_, tail)) = line.split_once("Parsec release") else {
+        return false;
+    };
+    let Some((tag, fields)) = tail.split_once(" (") else {
+        return false;
+    };
+    // The live 2026-10-15 update emits `release17`, including on 104a.
+    // Accept only a bounded numeric tag; preserve the mapped-build/token gate.
+    tag.len() <= 4
+        && tag.bytes().all(|byte| byte.is_ascii_digit())
+        && fields.starts_with(&format!("{}-{},", build.version, build.build))
+        && fields.ends_with("Loader: 14)")
 }
 
 #[cfg(test)]
@@ -170,6 +181,23 @@ mod tests {
         ClientBuild {
             version: version.to_string(),
             build: build.to_string(),
+        }
+    }
+
+    #[test]
+    fn numeric_release_tags_keep_the_mapped_build_and_loader_token_checks() {
+        let current = build("150", "105c");
+        assert!(release_matches(
+            "[D] log: Parsec release17 (150-105c, Service: -1, Loader: 14)",
+            &current
+        ));
+        for line in [
+            "Parsec release17 (150-104a, Service: -1, Loader: 14)",
+            "Parsec release17 (150-105c, Service: -1, Loader: 13)",
+            "Parsec releasex (150-105c, Service: -1, Loader: 14)",
+            "Parsec release12345 (150-105c, Service: -1, Loader: 14)",
+        ] {
+            assert!(!release_matches(line, &current), "{line}");
         }
     }
 

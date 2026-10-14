@@ -20,6 +20,7 @@ from pathlib import Path
 import random
 import re
 import signal
+import stat
 import subprocess
 import time
 
@@ -348,9 +349,44 @@ def launch_open(ctx):
     return pid, matches
 
 
-def read_lines(path):
+def open_owned_log(path):
+    stream = os.fdopen(os.open(path,
+        os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_NONBLOCK), "rb")
+    status = os.fstat(stream.fileno())
+    if (not stat.S_ISREG(status.st_mode) or status.st_uid != os.geteuid()
+            or status.st_nlink != 1):
+        stream.close()
+        raise OSError("log is not a single-link owned regular file")
+    return stream, status
+
+
+def log_cursor(path):
     try:
-        return Path(path).read_text(errors="replace").splitlines()
+        stream, status = open_owned_log(path)
+        with stream:
+            stream.seek(max(0, status.st_size - 1))
+            newline = status.st_size == 0 or stream.read(1) == b"\n"
+        return {"dev": status.st_dev, "ino": status.st_ino,
+            "size": status.st_size, "newline": newline}
+    except OSError:
+        return None
+
+
+def read_lines(path, cursor=None):
+    try:
+        stream, status = open_owned_log(path)
+        with stream:
+            offset = 0
+            partial = False
+            if (cursor and (status.st_dev, status.st_ino) == (cursor["dev"], cursor["ino"])
+                    and status.st_size >= cursor["size"]):
+                offset = cursor["size"]
+                partial = offset > 0 and not cursor["newline"]
+            if status.st_size - offset > 4 * 1024 * 1024:
+                return []
+            stream.seek(offset)
+            lines = stream.read(4 * 1024 * 1024).decode(errors="replace").splitlines()
+            return lines[1:] if partial else lines
     except OSError:
         return []
 
@@ -366,15 +402,15 @@ def collect_evidence(ctx):
             clients = []
     return {"vendor_log": str(state / "log.txt"),
         "loader_log": str(ctx["orbit_root"] / "parsec-orbit.log"),
-        "vendor_lines": read_lines(state / "log.txt"),
-        "loader_lines": read_lines(ctx["orbit_root"] / "parsec-orbit.log"),
+        "vendor_lines": read_lines(state / "log.txt", ctx.get("vendor_cursor")),
+        "loader_lines": read_lines(ctx["orbit_root"] / "parsec-orbit.log", ctx.get("loader_cursor")),
         "state_appdata": (state / "appdata.json").is_file(), "state_clients": clients}
 
 
 def evaluate_evidence(evidence):
     loader = evidence["loader_lines"]
     vendor = evidence["vendor_lines"]
-    release = [line for line in vendor if "Parsec release (" in line]
+    release = [line for line in vendor if re.search(r"Parsec release[0-9]{0,4} \(", line)]
     detections = [line for line in loader if "detected" in line and "client " in line]
     fixtures = [line for line in loader if "fixture[" in line]
     readies = []
@@ -390,7 +426,7 @@ def evaluate_evidence(evidence):
         "client_detected": any(re.search(r"client \d+-[0-9a-z]+ detected", line) for line in detections),
         "fixture_register": any("register com.example.mac-e2e -> 0" in line for line in fixtures),
         "fixture_client_query": any("query parsec-orbit.client -> 1.0" in line for line in fixtures),
-        "ready_zero_failed": any(values[2] == 0 for _, values in readies),
+        "ready_zero_failed": bool(readies) and all(values[2] == 0 for _, values in readies),
         "state_appdata": evidence["state_appdata"],
         "state_client_image": bool(evidence["state_clients"]),
     }
@@ -434,6 +470,8 @@ def run_acceptance(plan, ctx, args):
     run_root = ctx["scratch"] / f"acceptance-{random.getrandbits(32):08x}"
     run_root.mkdir(mode=0o700)
     helper, helper_error = compile_helper(run_root)
+    if helper is None:
+        raise PlanError(f"identity helper unavailable; refusing launch: {helper_error}")
     before_state = real_state_records()
     before_hashes = payload_hashes(ctx, plan)
     deadline = time.monotonic() + args.timeout
@@ -448,6 +486,9 @@ def run_acceptance(plan, ctx, args):
     while True:
         launch_index += 1
         attempt = {"attempt": launch_index, "launch": args.launch}
+        # Repeated validation must not accept a previous launch's healthy log.
+        ctx["vendor_cursor"] = log_cursor(ctx["orbit_root"] / "home/.parsec/log.txt")
+        ctx["loader_cursor"] = log_cursor(ctx["orbit_root"] / "parsec-orbit.log")
         process = None
         pid = None
         identity = None
@@ -519,6 +560,10 @@ def run_acceptance(plan, ctx, args):
     else:
         unmeasured = []
     failures = [f"check {name}" for name in failed_checks(checks)]
+    if not complete:
+        failures.append("current launch did not complete within the observation window")
+    if helper is not None and not windows:
+        failures.append("no window observed for the current launched process")
     if changed_state:
         failures.append("real account state changed: " + ", ".join(changed_state))
     if changed_hashes:

@@ -1,7 +1,8 @@
 # M1c local ad-hoc signing checkpoint
 
 Date: 2026-10-15. Scope: ordinary-user disposable official Parsec bundle;
-the live `/Applications/Parsec.app` and real credentials were not modified.
+a separately authorized original-path trial was restored exactly; no login
+or real credential access was performed.
 
 ## Selected route
 
@@ -69,7 +70,7 @@ strict metadata comparator (`/tmp/orbit-m1c-strict-uninstall.json`).
 
 ## Remaining acceptance
 
-Existing Finder/Dock/Spotlight entries at the developer's actual installation,
+Existing Finder/Dock/Spotlight entries at the actual installation,
 default URI behavior, TCC/camera/microphone and credential effects remain
 unmeasured. An isolated test user/machine is required for that acceptance;
 copy path/id preservation and explicit `open -n` do not close it. The chosen
@@ -79,3 +80,38 @@ behavioral tests. No release-ready or all-M1-gates claim is made.
 The selected launch/restore tool is documented in the
 [installer checkpoint](installer-checkpoint.md). End-user scripts and
 packaging remain deferred rather than being created implicitly.
+
+
+## Original-path activation and exact restore (2026-10-15)
+
+The maintainer authorized one apply/launch/restore trial and executed the
+concrete administrator helper after normal-user backup rename was denied.
+A full candidate was prepared and verified before requesting execution;
+original content/metadata and both universal slices' file-backed sections
+were checked. The temporary helper privileged only the fixed-path renames.
+The user-owned verifier, launch controller and client all ran as UID 501.
+It is a one-run development artifact, not the deferred end-user installer.
+
+Launch Services `open -n /Applications/Parsec.app` selected exactly one
+process at `/Applications/Parsec.app/Contents/MacOS/parsecd`: PID 11169,
+start identity `1791997929/820093`. One launch displayed a Parsec-owned window,
+registered the client and fixture, loaded **6 plugins, 0 skipped, 0 failed**,
+and repeated those results after the isolated 101a-to-104a self-update.
+Config set/get, Boa evaluation, JS kind and the owned import-hook lifecycle
+passed in both initializations. The controller stopped only that verified
+process. Real-state root lstat records and staged payload hashes were
+unchanged; this remains bounded evidence, not a syscall-complete audit.
+
+The EXIT restore moved the candidate aside, renamed the untouched original
+back, and passed full tree equality (including uid/gid, mtime, ACL and xattr)
+and strict signature verification. A controller recheck also passed. The
+original stub is again `785f985d...be76d`; no modified application is left in
+`/Applications`. Evidence:
+`/private/tmp/orbit-original-entry-qgr3nfrg/acceptance-6e0415bb/acceptance-result.json`,
+`candidate-report.json`, `original-source-tree.json`, and the retained
+`applied-removed.app` under that scratch root.
+
+This closes explicit original-path Launch Services activation and restore.
+It does not measure a Dock click, Spotlight/URI routing, TCC or credential
+behavior, quarantined delivery, or a privileged formal-installer invocation.
+Those distinctions remain in the phase matrix.

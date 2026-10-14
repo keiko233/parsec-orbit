@@ -1,0 +1,17 @@
+# macOS arm64 package manifest; install this as plugin.toml.
+# Metadata for the loader. Official plugin that runs JavaScript plugins
+# (kind = "js") on the Boa engine and provides parsec-orbit.js. It is not part
+# of the default install; a JavaScript plugin lists it in `requires`.
+id = "com.parsec-orbit.js-runtime"
+name = "JavaScript Runtime"
+version = "0.1.0"
+kind = "dylib"
+entry = "libparsec_orbit_plugin_js_runtime.dylib"
+author = "Parsec Orbit contributors"
+description = "Runs JavaScript plugins (kind = \"js\") and provides parsec-orbit.js"
+license = "MIT"
+# The webview bridge, when installed, is loaded first so that JavaScript
+# plugins with the `webview` permission find the service.
+optional = ["com.parsec-orbit.webview-bridge"]
+api = 1
+enabled = true

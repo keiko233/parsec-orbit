@@ -36,7 +36,6 @@ Status: **the M0 platform layer is implemented** (`crates/parsec-orbit-loader-ma
 * A native plugin is a directory with `plugin.toml` with `kind = "dylib"` and an `entry` that is a `.dylib` file. The loader maps it with `dlopen(path, RTLD_NOW | RTLD_LOCAL)` and resolves `ParsecOrbitPluginQuery`, `ParsecOrbitPluginInit`, `ParsecOrbitPluginShutdown` and the compatibility export `ParsecPluginInit` with `dlsym`; a failure is reported with the `dlerror` text: `could not load <path> (<dlerror text>)`.
 * The exports are plain C symbols; on Mach-O the compiler prefixes `_` and `dlsym` takes the name without it. The library must export them (for Rust: `#[no_mangle]`, which `declare_plugin!` emits, in a `cdylib`).
 * **Loose libraries are not supported.** A `.dylib` without a manifest is not a plugin (the Windows "loose `*.dll`" layout is a legacy of the first prototype and is not carried to macOS).
-* **Signing.** Apple silicon refuses code without a signature. Every `.dylib` a plugin ships must carry at least an ad-hoc signature at the moment it is loaded. Rust and Apple's linker produce a linker-signed (ad-hoc) binary by default; anything that rewrites or strips the file must re-sign it. The market tool and the installer sign (section 9). The host enforces no team or identity ([macos-host.md](macos-host.md#8-signing-and-entitlements)). An ad-hoc SDK fixture loaded in the HR + disable-LV copy `[measured]` ([PoC](../design/macos/native-dependency-poc.md)); formal dylib discovery, no_std and unsigned/corrupt rejection remain gates (E6). The HR exception is application-wide, not a plugin trust guarantee.
 * **Signing.** Apple silicon refuses code without a signature. Every `.dylib` a plugin ships must carry at least an ad-hoc signature at the moment it is loaded. Rust and Apple's linker produce a linker-signed (ad-hoc) binary by default; anything that rewrites or strips the file must re-sign it. The market tool and the installer sign (section 9). The host enforces no team or identity ([macos-host.md](macos-host.md#8-signing-and-entitlements)). An ad-hoc SDK fixture loaded in the HR + disable-LV copy `[measured]` ([PoC](../design/macos/native-dependency-poc.md)); since M0 the formal loader also maps the std and `no_std` fixtures in a non-Parsec host `[measured]` (`crates/parsec-orbit-loader-macos/tests/fixture_e2e.rs`). Loading inside the hardened bundle is repeated in M1a; unsigned/corrupt rejection remains a gate (E6). The HR exception is application-wide, not a plugin trust guarantee.
 * **Architecture.** The library must contain an `arm64` slice.
 * Keep `kind = "dylib"` out of Windows packages and `kind = "dll"` out of macOS ones: the two are different artifacts (section 9).
@@ -70,14 +69,14 @@ Per-service macOS behaviour. A service that a platform does not provide is absen
 | Service / plugin | macOS status | Where |
 | --- | --- | --- |
 | `parsec-orbit.kind.dylib` | not used; `dylib` is handled by the loader itself | section 3 |
-| `parsec-orbit.config` (`config` plugin) | **supported** in M1; paths in section 2 | |
-| `parsec-orbit.js`, `kind.js` (`js-runtime`) | **supported** in M1 | no platform code |
-| `parsec-orbit.client` | **new, provided by the loader**, M1 | below |
-| marketplace (`parsec-orbit-market`) | **supported** in M1 | section 9 |
+| `parsec-orbit.config` (`config` plugin) | **measured** config set/get in a guarded disposable client; paths in section 2 | |
+| `parsec-orbit.js`, `kind.js` (`js-runtime`) | **measured** Boa evaluation in a guarded disposable client | no JIT entitlement added |
+| `parsec-orbit.client` | **provided by the loader**, shared ABI and SDK binding; current status always `not-verified` | below |
+| marketplace (`parsec-orbit-market`) | **implemented and tested** | section 9 |
 | `parsec-orbit.webview` (`webview-bridge`) | **partial**, M2 | below |
 | `high-bitrate-webview` | **blocked** until the WebView URL and DOM are known, M2 | below |
-| `parsec-orbit.hooks` (`hooks`) | **partial** (imported symbols only), M2 | below |
-| `high-bitrate-native` | **per verified build**, M2 | below |
+| `parsec-orbit.hooks` (`hooks`) | **implemented and measured** for bounded, already-bound classic imports, M2 | below |
+| `high-bitrate-native` | **unavailable**; static candidates only, M2 | below |
 | hosting-related behaviour | out of scope | [ADR 0011](../design/decisions/0011-macos-scope.md) |
 
 ### `parsec-orbit.client`
@@ -90,7 +89,7 @@ typedef struct ParsecOrbitClientV1 {
     ParsecOrbitInterfaceHeader header;
     /* Passes a JSON object to `out` on the caller's thread before returning:
        {"platform":"macos","arch":"arm64","build":"150-104a",
-        "dylib_sha256":"<64 hex>","loader_token":14,"status":"verified"}
+        "dylib_sha256":"<64 hex>","loader_token":14,"status":"not-verified"}
        status is "verified", "not-verified" or "incompatible". */
     int32_t (*info)(ParsecOrbitMessageCallback out, void *user);
 } ParsecOrbitClientV1;
@@ -102,7 +101,7 @@ typedef struct ParsecOrbitClientV1 {
 
 [ADR 0010](../design/decisions/0010-macos-webview-backend.md): the service keeps its name, header and every function of [services.md](services.md#parsec-orbitwebview-provided-by-the-webview-bridge-plugin-version-10); only the backend changes. On Windows the backend is the DevTools protocol over a port; WKWebView has no such port `[static]`, so on macOS the backend runs **inside the host process**:
 
-* The bridge obtains the client's `WKWebView` through the Objective-C runtime (observing the creation of web views and their `WKUserContentController`). Whether the client creates a web view at all in client mode, and when, is `[unverified]`: the client has the code (`evaluateJavaScript:completionHandler:`, `loadRequest:`, `userContentController:didReceiveScriptMessage:`) and rollout flags (`features_webview`, `client_web_ui`) `[static]`; no navigation target URL was found `[static]`. `is_ready()` is `1` only once a web view is attached.
+* The bridge obtains the client's `WKWebView` through the Objective-C runtime (observing the creation of web views and their `WKUserContentController`). The 2026-10-15 signed-out window probe found one native Matoya view and no WKWebView; signed-in client surfaces remain `[unverified]`: the client has the code (`evaluateJavaScript:completionHandler:`, `loadRequest:`, `userContentController:didReceiveScriptMessage:`) and rollout flags (`features_webview`, `client_web_ui`) `[static]`; no navigation target URL was found `[static]`. `is_ready()` is `1` only once a web view is attached.
 * `add_script` maps to `-[WKUserContentController addUserScript:]` (the client itself installs no user scripts `[static]`, so keys are all ours) plus an immediate evaluation in the current document; `evaluate` to `-[WKWebView evaluateJavaScript:completionHandler:]`; `subscribe`/`post` to a `WKScriptMessageHandler` registered under a fixed name and to `window.__orbit` dispatch scripts.
 * WebKit objects are used on the main thread. `evaluate` and `post` called from the main thread return `-4` (not ready) instead of blocking; from any other thread they behave as specified (blocking up to the stated timeouts). The delivery thread rules of the service are unchanged.
 * `window.__orbit.rpc` (the Parsec UI/client envelope on `window.MTY_NativeSendText`) is `[unverified]` on macOS; until the page is known the helper reports it as unavailable and rejects.
@@ -115,14 +114,28 @@ typedef struct ParsecOrbitClientV1 {
 Semantics that differ from the Windows text:
 
 * `resolve(module, symbol)` returns the address from `dlsym` against the images loaded in the process; `module` is an image file name or empty for all images. The client dylib is stripped and exports only `wx_main` `[measured]`/`[static]`, so a plugin can resolve system and library symbols, not client internals.
-* `install(target, detour, &original)` accepts a `target` that is the address of an **imported function** (the address a symbol stub resolves to). It rebinds every lazy and non-lazy pointer bound to that address, in all images, including images loaded later, to `detour`. `*original` receives `target` itself, which stays callable because the function body is not modified. Calls that do not go through an import binding (direct calls inside one image, calls made before the hook was enabled through a cached address) are not intercepted. Any other `target` is rejected with `-4` (`ERR_NOT_READY`, "not supported by this loader"); `-2` if `target` is already hooked.
+* `install(target, detour, &original)` accepts a `target` that is the address of an **imported function** (the address a symbol stub resolves to). It rebinds eligible classic lazy/non-lazy import slots whose current value exactly equals that address. Supported images loaded later receive the same bound-pointer check. Unresolved lazy stubs and chained-fixup images are left untouched; no generic late-lazy coverage is claimed. `*original` receives `target` itself, which stays callable because the function body is not modified. Calls that do not go through an import binding (direct calls inside one image, calls made before the hook was enabled through a cached address) are not intercepted. Any other `target` is rejected with `-4` (`ERR_NOT_READY`, "not supported by this loader"); `-2` if `target` is already hooked.
 * `enable`, `disable` and `remove` set and restore the pointers; `*original` remains valid after `remove`.
-* Writing the pointer pages (`__DATA_CONST`) from inside the process is `[unverified]` (E16 in the phase plan).
+* Import data-page writes and exact protection restoration passed in an owned Hardened Runtime scratch host and for an owned imported function inside disposable 101a/104a/105c client processes `[measured]`. This does not establish hooks on vendor internals. See the [client checkpoint](../design/macos/client-checkpoint.md).
 * Inline hooks, and with them hooks on the client's own functions, are not provided in this phase; a plugin that needs them cannot be supported on macOS yet.
 
 ### `high-bitrate-native`
 
-The twelve-entry `3..50 Mbps` ladder and the `encoder_bitrate` key are present in the macOS client `[static]` (the labels), and the option-record layout and use sites are `[unverified]`. The plugin is supported only for **verified builds**: it reads `parsec-orbit.client`, finds the table by anchoring on the twelve labels in the client dylib's data, and refuses to patch (logging why) when the status is not `verified` or the layout checks fail. Table pages are written with `vm_protect` where the OS allows `[unverified]`; the plugin must not use `mprotect` on `__TEXT`. Details are decided in M2.
+The bounded read-only inspector finds twelve `3..50 Mbps` records with stride
+`0x144` and numeric value at `+0x40`, plus two adjacent arm64 ADRP/ADD candidate
+references, in each inspected 104a/105c image `[static]`. The table candidate
+is in `__TEXT,__const`, not ordinary writable data. Runtime menu/use-site
+semantics and a verified-build patch policy remain `[unverified]`; no macOS
+manifest or mutation backend is shipped. All detected builds still report
+`not-verified`.
+
+An owned signed-HR data canary measured `vm_protect(READ|WRITE|COPY)` and data
+write/restoration on a dedicated `__TEXT,__const` page, while plain write
+permission was rejected `[measured, owned synthetic host only]`. A separate
+cold-function-page experiment ended with SIGBUS during the protection attempt,
+before any write or returned result. Neither experiment establishes safe
+vendor table mutation or execution of modified signed code. See the
+[client checkpoint](../design/macos/client-checkpoint.md).
 
 ### `high-bitrate-webview`
 
@@ -144,20 +157,20 @@ The fix is in M0 and applies to the test: the affected fixtures
 
 ## 9. Marketplace on macOS
 
-**Status: specified, not implemented.** The market crate is portable (M0: `d3294a2`) but still Windows-shaped: no `platform` field, no per-version filtering and no ad-hoc signing. This section is M1 remaining work; the transactional-installer step (M1b) did not implement it.
+**Status: implemented (`37dc0c7`).** Releases have per-version platform filtering, macOS Orbit paths and staged ad-hoc signing. Existing indexes without a platform retain their Windows meaning. The macOS HTTP integration test installs a real arm64 dylib from an Ed25519-signed loopback index and strictly verifies its installed signature.
 
 [marketplace.md](marketplace.md) gains one optional index field, `platform`, per version: `"windows-x86_64"` (the default when absent, so existing indexes keep their meaning) or `"macos-arm64"`. The tool offers only versions whose platform equals the machine's.
 
 * A macOS package is the same zip with one folder; its `plugin.toml` has `kind = "dylib"` and its `entry` is a `.dylib`.
-* After the checks and before the swap-in, the tool **signs every `.dylib` in the staging folder ad-hoc** (`codesign --force --sign -`) and verifies it; a signing failure aborts the install and leaves the old version in place. The sha256 and size in the index are those of the package as published; the installed file is signed and so differs in bytes. `market.json` records the package digest.
+* After the checks and before the swap-in, the tool **checks every staged `.dylib` for an arm64 slice, then signs it ad-hoc** (`codesign --force --sign -`) and verifies it; a signing failure aborts the install and leaves the old version in place. The sha256 and size in the index are those of the package as published; the installed file is signed and so differs in bytes. `market.json` records the package digest.
 * Paths: plugins in `<Orbit root>/plugins/<id>`, keys in `<Orbit root>/market/trusted-keys.txt`.
 * A plugin that the running client holds mapped can be replaced on macOS (the old file is unlinked; the running process keeps its inode), but the new version loads at the next start; the tool does not refuse and says so.
 
 ## 10. Open questions
 
-* **E6**, **E16** (writing `__DATA_CONST` import pointers with `vm_protect`), the WebView questions (client creates a web view in client mode, URL, DOM, `MTY_NativeSendText` on macOS), the `high-bitrate-native` table layout, the size of the `freestanding!` macOS plugin and the loader dylib budget: see [the phase plan](../design/macos-phases.md#evidence-status-and-remaining-questions).
+* **E6**, generic import/chained-fixup coverage beyond the measured classic backend, the WebView questions (client creates a web view in client mode, URL, DOM, `MTY_NativeSendText` on macOS), the `high-bitrate-native` table layout, the size of the `freestanding!` macOS plugin and the loader dylib budget: see [the phase plan](../design/macos-phases.md#evidence-status-and-remaining-questions).
 * Whether `parsec-orbit.client` should be provided on Windows as well.
 * Whether manifests should be able to declare per-platform entries so that one package serves both platforms (`entry.macos = ...`); today a package is per platform.
 * Whether `dlopen` with `RTLD_LOCAL` is enough for plugins that share a dependency on a second library next to them (`@loader_path` handling).
 
-The current host retains Hardened Runtime ([ADR 0014](../design/decisions/0014-macos-patched-bundle.md)); older plain-host executable-memory measurements are not evidence for this policy. Service entries marked supported in M1/M2 are planned support, not completed implementation. JS runtime/JIT and hooks need targeted validation before adding any further signing exceptions.
+The current host retains Hardened Runtime and local ad-hoc signatures ([ADR 0014](../design/decisions/0014-macos-patched-bundle.md)). Config set/get and Boa evaluation passed in a disposable official client without additional entitlements. Account, native UI and WebView evidence still constrain support; older plain-host executable-memory measurements do not justify extra exceptions. Package config and JS runtime with their `plugin.macos.toml` installed as `plugin.toml`; keep Windows manifests separate.
