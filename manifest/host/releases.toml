@@ -1,0 +1,3 @@
+# Loader and installer of each release, one [[release]] per version and
+# platform. Appended by `parsec-orbit-release registry add`; never hand-written.
+# Generated into manifest/host.json by `parsec-orbit-release registry build`.

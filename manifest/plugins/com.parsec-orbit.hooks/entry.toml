@@ -1,0 +1,7 @@
+id = "com.parsec-orbit.hooks"
+group = "Extensions"
+summary = "Provides parsec-orbit.hooks: inline function hooks"
+homepage = "https://github.com/keiko233/parsec-orbit"
+
+[build]
+platforms = ["windows-x86_64", "macos-arm64"]

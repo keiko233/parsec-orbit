@@ -1,0 +1,7 @@
+id = "com.keiko233.stun-swap"
+group = "Extensions"
+summary = "Redirects stun.parsec.app to mainland-China STUN servers"
+homepage = "https://github.com/keiko233/parsec-orbit"
+
+[build]
+platforms = ["windows-x86_64"]

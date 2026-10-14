@@ -1,0 +1,7 @@
+id = "com.parsec-orbit.config"
+group = "Core"
+summary = "Provides parsec-orbit.config: settings that survive restarts"
+homepage = "https://github.com/keiko233/parsec-orbit"
+
+[build]
+platforms = ["windows-x86_64", "macos-arm64"]
