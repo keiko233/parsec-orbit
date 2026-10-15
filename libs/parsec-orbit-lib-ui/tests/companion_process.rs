@@ -59,7 +59,18 @@ unsafe extern "system" fn callback(user: *mut c_void, bytes: *const u8, length: 
 
 fn registry() -> Arc<Registry> {
     let registry = Arc::new(Registry::new());
-    assert_eq!(registry.register_section(r#"{"id":"fixture","title":"Fixture","items":[{"key":"observed","type":"number_input","label":"Observed","default":42}]}"#), 0);
+    registry
+        .register_page(
+            r#"{"schema":2,"id":"fixture","title":"Fixture","blocks":[{"type":"group","settings":[
+                {"key":"observed","label":"Observed","control":{"type":"number","default":42}},
+                {"key":"route","label":"Route","control":{"type":"text"}},
+                {"key":"crash_once","label":"Crash once","control":{"type":"text"}},
+                {"key":"report_hidden","label":"Report hidden","control":{"type":"toggle","default":false}},
+                {"key":"stale_close","label":"Stale close","control":{"type":"toggle","default":false}}
+            ]}]}"#,
+            false,
+        )
+        .unwrap();
     registry
 }
 
@@ -82,8 +93,8 @@ fn crashed_child_restarts_and_replays_registry() {
             .unwrap()
             .as_nanos()
     ));
-    let state = serde_json::json!({"crash_once": marker.to_string_lossy()});
-    assert_eq!(registry.update_state("fixture", &state.to_string()), 0);
+    let state = serde_json::json!({"values": {"crash_once": marker.to_string_lossy()}});
+    registry.update_page("fixture", &state.to_string()).unwrap();
     let (tx, rx) = mpsc::channel();
     let mut sink = Box::new(Sink {
         values: tx,
@@ -102,7 +113,9 @@ fn crashed_child_restarts_and_replays_registry() {
     assert_eq!(event["value"], 42);
     assert!(marker.exists(), "first generation did not crash");
     assert!(visible.load(Ordering::SeqCst));
-    assert_eq!(registry.update_state("fixture", r#"{"observed":99}"#), 0);
+    registry
+        .update_page("fixture", r#"{"values":{"observed":99}}"#)
+        .unwrap();
     companion.refresh();
     wait_until(|| rx.try_recv().is_ok_and(|value| value["value"] == 99));
     assert_eq!(registry.off_action(subscription), 0);
@@ -111,9 +124,52 @@ fn crashed_child_restarts_and_replays_registry() {
 }
 
 #[test]
+fn navigation_reaches_the_renderer_and_is_replayed_after_a_restart() {
+    let registry = registry();
+    let marker = std::env::temp_dir().join(format!(
+        "orbit-ui-navigation-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    // The first generation crashes after its handshake; the selection made
+    // before launch must still reach the second one.
+    let state = serde_json::json!({"values": {"crash_once": marker.to_string_lossy()}});
+    registry.update_page("fixture", &state.to_string()).unwrap();
+    assert_eq!(registry.navigate("fixture"), 0);
+    let (tx, rx) = mpsc::channel();
+    let mut sink = Box::new(Sink {
+        values: tx,
+        gate: None,
+    });
+    let subscription = registry.on_action("fixture", callback, (&mut *sink as *mut Sink).cast());
+    let companion = Companion::start(
+        fixture().clone(),
+        registry.clone(),
+        Arc::new(AtomicBool::new(false)),
+        Arc::new(|_| {}),
+    )
+    .unwrap();
+    wait_until(|| rx.try_recv().is_ok_and(|event| event["key"] == "route"));
+    assert!(marker.exists(), "first generation did not crash");
+
+    // A later selection is delivered to the running renderer.
+    assert_eq!(registry.navigate("fixture"), 0);
+    companion.navigate();
+    wait_until(|| rx.try_recv().is_ok_and(|event| event["key"] == "route"));
+    assert_eq!(registry.off_action(subscription), 0);
+    drop(companion);
+    std::fs::remove_file(marker).unwrap();
+}
+
+#[test]
 fn slow_callback_does_not_block_pipe_events() {
     let registry = registry();
-    registry.update_state("fixture", r#"{"report_hidden":true}"#);
+    registry
+        .update_page("fixture", r#"{"values":{"report_hidden":true}}"#)
+        .unwrap();
     let (tx, rx) = mpsc::channel();
     let (release, gate) = mpsc::channel();
     let mut sink = Box::new(Sink {
@@ -244,7 +300,9 @@ fn incompatible_peer_exhausts_bounded_retries() {
 #[test]
 fn stale_close_does_not_override_a_new_show_request() {
     let registry = registry();
-    registry.update_state("fixture", r#"{"stale_close":true}"#);
+    registry
+        .update_page("fixture", r#"{"values":{"stale_close":true}}"#)
+        .unwrap();
     let (tx, rx) = mpsc::channel();
     let mut sink = Box::new(Sink {
         values: tx,
@@ -262,7 +320,9 @@ fn stale_close_does_not_override_a_new_show_request() {
     companion.set_visible(true);
     rx.recv_timeout(Duration::from_secs(10)).unwrap();
     // A second accepted action proves the reader processed the earlier close.
-    registry.update_state("fixture", r#"{"observed":99}"#);
+    registry
+        .update_page("fixture", r#"{"values":{"observed":99}}"#)
+        .unwrap();
     companion.refresh();
     wait_until(|| rx.try_recv().is_ok_and(|event| event["value"] == 99));
     assert!(visible.load(Ordering::SeqCst));

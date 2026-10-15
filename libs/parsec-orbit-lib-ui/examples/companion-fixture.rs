@@ -10,15 +10,14 @@ fn main() -> io::Result<()> {
     write_message(&mut output, &ChildMessage::Ready { version: VERSION })?;
     while let Some(message) = read_message::<ParentMessage>(&mut input)? {
         if let ParentMessage::Snapshot {
-            sections, revision, ..
+            pages, revision, ..
         } = message
         {
-            for section in sections {
-                if section.schema.id == "fixture" {
+            for page in pages {
+                if page.page.id == "fixture" {
                     let stale_close =
-                        section.values.get("stale_close").and_then(|v| v.as_bool()) == Some(true);
-                    if let Some(marker) = section.values.get("crash_once").and_then(|v| v.as_str())
-                    {
+                        page.values.get("stale_close").and_then(|v| v.as_bool()) == Some(true);
+                    if let Some(marker) = page.values.get("crash_once").and_then(|v| v.as_str()) {
                         if !std::path::Path::new(marker).exists() {
                             std::fs::write(marker, b"crashed")?;
                             std::process::exit(23);
@@ -27,18 +26,14 @@ fn main() -> io::Result<()> {
                     write_message(
                         &mut output,
                         &ChildMessage::Action(UiAction {
-                            section: section.schema.id,
+                            page: page.page.id,
                             key: "observed".into(),
                             action_type: "change".into(),
-                            value: section.values.get("observed").cloned(),
+                            value: page.values.get("observed").cloned(),
                         }),
                     )?;
                     if stale_close
-                        || section
-                            .values
-                            .get("report_hidden")
-                            .and_then(|v| v.as_bool())
-                            == Some(true)
+                        || page.values.get("report_hidden").and_then(|v| v.as_bool()) == Some(true)
                     {
                         write_message(
                             &mut output,
@@ -54,6 +49,17 @@ fn main() -> io::Result<()> {
                     }
                 }
             }
+        } else if let ParentMessage::Navigate { page, .. } = message {
+            // Echo the selection as an ordinary edit so a test can observe it.
+            write_message(
+                &mut output,
+                &ChildMessage::Action(UiAction {
+                    page: "fixture".into(),
+                    key: "route".into(),
+                    action_type: "change".into(),
+                    value: Some(page.into()),
+                }),
+            )?;
         } else if matches!(message, ParentMessage::Shutdown) {
             break;
         }

@@ -163,8 +163,9 @@ cargo run --locked -p parsec-orbit-lib-ui --example service-host -- \
   "$PWD/target/debug"
 ```
 
-This uses `MockHost` with an explicitly selected plugin directory, updates a
-section through the real service methods and exits without loading Parsec.
+This uses `MockHost` with an explicitly selected plugin directory, registers and
+updates a page through the real service methods and exits without loading
+Parsec.
 
 Current measured results and remaining acceptance gates are recorded in the
 [UI companion checkpoint](../design/ui-companion-checkpoint.md).

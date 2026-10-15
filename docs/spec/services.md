@@ -103,11 +103,13 @@ Inline hooks on functions of the client process. (On macOS the interface is back
 
 Reports the client build the host is running and whether it is a verified one. Specified in [macos-platform.md](macos-platform.md#parsec-orbitclient); it does not exist on Windows.
 
-### `parsec-orbit.ui` (draft, provided by the UI service plugin), version 1.0
+### `parsec-orbit.ui` (draft, provided by the UI service plugin), version 2.0
 
-A native external management window powered by `compio-rs/winio`. Plugins
-register declarative JSON schemas for configuration sections and listen for
-action callbacks without bundling GUI runtimes. Specified in detail in
+A native external management window. Plugins register declarative pages of
+settings and listen for action callbacks without bundling GUI runtimes.
+Version 2 replaces version 1 without an adapter
+([ADR 0028](../design/decisions/0028-ui-service-abi-v2.md)); a consumer that
+finds another major version ignores the interface. Specified in detail in
 [ui-service.md](ui-service.md).
 
 | Function | Behaviour |
@@ -115,10 +117,11 @@ action callbacks without bundling GUI runtimes. Specified in detail in
 | `show()` | Queues desired visibility and requests activation; foreground focus is best effort. |
 | `hide()` | Queues hiding the companion window without terminating the event loop. |
 | `is_visible()` | `1` if desired visibility is shown, `0` if hidden, including while the helper reconnects. |
-| `register_section(schema, len)` | Registers a declarative section JSON schema. |
-| `unregister_section(id, len)` | Removes a section and unmounts its controls. |
-| `update_state(id, id_len, state, len)` | Pushes updated control values (JSON object) to the UI. |
-| `on_action(id, id_len, cb, user)` | Subscribes to user interactions within the section. |
+| `navigate(id, len)` | Selects a registered page. |
+| `register_page(page, len)` | Registers a declarative page JSON schema. |
+| `unregister_page(id, len)` | Removes a page and unmounts its controls. |
+| `update_page(id, id_len, patch, len)` | Applies a patch of values, presentation properties and the restart flag. |
+| `on_action(id, id_len, cb, user)` | Subscribes to user interactions within the page. |
 | `off_action(subscription)` | Cancels an action subscription. |
 
 ### Reserved

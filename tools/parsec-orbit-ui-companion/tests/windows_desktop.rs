@@ -3,9 +3,9 @@
 #![cfg(windows)]
 
 use parsec_orbit_ui_protocol::{
-    read_message, write_message, ChildMessage, ParentMessage, SectionState, UiAction, VERSION,
+    read_message, write_message, ChildMessage, PageState, ParentMessage, UiAction, UiPage, UiProps,
+    VERSION,
 };
-use std::collections::HashMap;
 use std::io::BufReader;
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::mpsc::{self, Receiver};
@@ -258,53 +258,64 @@ fn selected_item_name(automation: &IUIAutomation, root: &IUIAutomationElement) -
     Some(unsafe { selected.CurrentName() }.ok()?.to_string())
 }
 
-fn form_section(profile: &str, status: &str) -> SectionState {
-    SectionState {
-        schema: serde_json::from_str(
+fn form_section(profile: &str, status: &str) -> PageState {
+    let mut state = PageState::new(
+        UiPage::parse(
             r#"{
+                "schema":2,
                 "id":"com.parsec-orbit.desktop-test",
                 "title":"Desktop regression",
-                "items":[
-                    {"key":"codec","type":"select","label":"Codec","options":[{"label":"Old","value":"old"}]},
-                    {"key":"profile","type":"text_input","label":"Profile"},
-                    {"key":"status","type":"readonly_text","label":"Status"},
-                    {"key":"apply","type":"button","label":"Run regression action"}
-                ]
+                "blocks":[{"type":"group","settings":[
+                    {"key":"codec","label":"Codec","control":{"type":"select","default":"old","options":[{"label":"Old","value":"old"}]}},
+                    {"key":"profile","label":"Profile","control":{"type":"text"}},
+                    {"key":"status","label":"Status","control":{"type":"value"}},
+                    {"key":"apply","label":"Apply","control":{"type":"button","text":"Run regression action"}}
+                ]}]
             }"#,
+            false,
         )
-        .expect("valid test section"),
-        values: HashMap::from([
-            ("profile".to_string(), serde_json::json!(profile)),
-            (
-                "codec".to_string(),
-                serde_json::json!({"value":"old","options":[{"label":"Old","value":"old"}]}),
-            ),
-            ("status".to_string(), serde_json::json!(status)),
-        ]),
-    }
+        .expect("valid test page"),
+    );
+    state
+        .values
+        .insert("profile".to_string(), serde_json::json!(profile));
+    state
+        .values
+        .insert("status".to_string(), serde_json::json!(status));
+    state
 }
 
-fn multiline_section() -> SectionState {
-    SectionState {
-        schema: serde_json::from_str(
+fn multiline_section() -> PageState {
+    let mut state = PageState::new(
+        UiPage::parse(
             r#"{
+                "schema":2,
                 "id":"com.parsec-orbit.multiline-test",
                 "title":"Multiline controls",
-                "items":[
-                    {"key":"notes","type":"text_input","label":"Notes","multiline":true},
-                    {"key":"log","type":"text_view","label":"Log"}
-                ]
+                "blocks":[{"type":"group","settings":[
+                    {"key":"notes","label":"Notes","control":{"type":"text","multiline":true}},
+                    {"key":"log","label":"Log","control":{"type":"log"}}
+                ]}]
             }"#,
+            false,
         )
-        .expect("valid multiline section"),
-        values: HashMap::from([
-            ("notes".to_string(), serde_json::json!("line one\nline two")),
-            (
-                "log".to_string(),
-                serde_json::json!("log line one\nlog line two"),
-            ),
-        ]),
-    }
+        .expect("valid multiline page"),
+    );
+    state.values.insert(
+        "notes".to_string(),
+        serde_json::json!(
+            "line one
+line two"
+        ),
+    );
+    state.values.insert(
+        "log".to_string(),
+        serde_json::json!(
+            "log line one
+log line two"
+        ),
+    );
+    state
 }
 
 fn wait_until(description: &str, mut condition: impl FnMut() -> bool) {
@@ -370,7 +381,7 @@ fn owned_window_tracks_visibility_close_and_reactivation() {
             .expect("get UIA element for owned companion window");
 
     companion.send(&ParentMessage::Snapshot {
-        sections: vec![
+        pages: vec![
             form_section("profile from snapshot", "ready from snapshot"),
             multiline_section(),
         ],
@@ -446,7 +457,7 @@ fn owned_window_tracks_visibility_close_and_reactivation() {
     assert_eq!(
         companion.receive(),
         ChildMessage::Action(UiAction {
-            section: "com.parsec-orbit.desktop-test".to_string(),
+            page: "com.parsec-orbit.desktop-test".to_string(),
             key: "profile".to_string(),
             action_type: "change".to_string(),
             value: Some(serde_json::json!("edited through UI Automation")),
@@ -454,18 +465,29 @@ fn owned_window_tracks_visibility_close_and_reactivation() {
     );
 
     let mut updated = form_section("updated by snapshot", "updated status");
-    updated.values.insert(
+    updated.props.insert(
         "codec".to_string(),
-        serde_json::json!({
-            "value":"new",
-            "options":[
-                {"label":"Fresh","value":"new"},
-                {"label":"Legacy","value":"legacy"}
-            ]
-        }),
+        UiProps {
+            options: Some(vec![
+                parsec_orbit_ui_protocol::UiOption {
+                    label: "Fresh".into(),
+                    value: serde_json::json!("new"),
+                    description: None,
+                },
+                parsec_orbit_ui_protocol::UiOption {
+                    label: "Legacy".into(),
+                    value: serde_json::json!("legacy"),
+                    description: None,
+                },
+            ]),
+            ..UiProps::default()
+        },
     );
+    updated
+        .values
+        .insert("codec".to_string(), serde_json::json!("new"));
     companion.send(&ParentMessage::Snapshot {
-        sections: vec![updated, multiline_section()],
+        pages: vec![updated, multiline_section()],
         visible: true,
         revision: 2,
     });
@@ -531,14 +553,14 @@ fn owned_window_tracks_visibility_close_and_reactivation() {
     assert_eq!(
         companion.receive(),
         ChildMessage::Action(UiAction {
-            section: "com.parsec-orbit.multiline-test".to_string(),
+            page: "com.parsec-orbit.multiline-test".to_string(),
             key: "notes".to_string(),
             action_type: "change".to_string(),
             value: Some(serde_json::json!("edited multiline\ncontent")),
         })
     );
     companion.send(&ParentMessage::Snapshot {
-        sections: vec![
+        pages: vec![
             form_section("profile from snapshot", "probe updated"),
             multiline_section(),
         ],
@@ -632,7 +654,7 @@ fn owned_window_tracks_visibility_close_and_reactivation() {
     assert_eq!(
         action,
         ChildMessage::Action(UiAction {
-            section: "com.parsec-orbit.desktop-test".to_string(),
+            page: "com.parsec-orbit.desktop-test".to_string(),
             key: "apply".to_string(),
             action_type: "click".to_string(),
             // The wire's JSON null decodes as None for Option<Value>.
@@ -709,22 +731,13 @@ fn registered_overview_replaces_the_builtin_tab() {
     }
     .expect("get UIA element for owned companion window");
 
+    let page = |json: &str| PageState::new(UiPage::parse(json, true).expect("valid test page"));
     companion.send(&ParentMessage::Snapshot {
-        sections: vec![
-            SectionState {
-                schema: serde_json::from_str(
-                    r#"{"id":"orbit.overview","title":"Orbit Overview","items":[{"key":"restart","type":"button","label":"Restart from Overview"}]}"#,
-                )
-                .expect("valid overview section"),
-                values: HashMap::new(),
-            },
-            SectionState {
-                schema: serde_json::from_str(
-                    r#"{"id":"com.example.settings","title":"Plugin settings","items":[]}"#,
-                )
-                .expect("valid plugin section"),
-                values: HashMap::new(),
-            },
+        pages: vec![
+            page(
+                r#"{"schema":2,"id":"orbit.overview","title":"Orbit Overview","group":"orbit","blocks":[{"type":"group","settings":[{"key":"restart","label":"Restart from Overview","control":{"type":"button","text":"Restart from Overview"}}]}]}"#,
+            ),
+            page(r#"{"schema":2,"id":"com.example.settings","title":"Plugin settings","blocks":[]}"#),
         ],
         visible: true,
         revision: 1,
@@ -766,7 +779,7 @@ fn registered_overview_replaces_the_builtin_tab() {
     assert_eq!(
         companion.receive(),
         ChildMessage::Action(UiAction {
-            section: "orbit.overview".to_string(),
+            page: "orbit.overview".to_string(),
             key: "restart".to_string(),
             action_type: "click".to_string(),
             value: None,

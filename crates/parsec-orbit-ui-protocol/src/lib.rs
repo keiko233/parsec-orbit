@@ -1,31 +1,24 @@
 //! Private, versioned pipe protocol. No plugin pointers cross this boundary.
 
 pub mod schema;
-pub use schema::{UiAction, UiItem, UiOption, UiSection};
+pub mod state;
+pub use schema::{UiAction, UiBlock, UiControl, UiOption, UiPage, UiSetting};
+pub use state::{PageState, UiPatch, UiProps, UiStatus};
 
-use serde::{Deserialize, Serialize};
-use serde_json::Value;
-use std::collections::HashMap;
+use serde::Serialize;
 use std::io::{self, BufRead, Write};
 
 /// Both bundled artifacts must speak this protocol version.
-pub const VERSION: u32 = 1;
+pub const VERSION: u32 = 2;
 /// Maximum encoded frame, excluding the terminating newline.
 pub const MAX_FRAME_BYTES: usize = 4 * 1024 * 1024;
 
-/// A section and its authoritative values in the plugin process.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct SectionState {
-    pub schema: UiSection,
-    pub values: HashMap<String, Value>,
-}
-
 /// Commands from the service plugin to its owned child process.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, serde::Deserialize)]
 #[serde(tag = "type", content = "payload", rename_all = "snake_case")]
 pub enum ParentMessage {
     Snapshot {
-        sections: Vec<SectionState>,
+        pages: Vec<PageState>,
         visible: bool,
         revision: u64,
     },
@@ -33,11 +26,16 @@ pub enum ParentMessage {
         visible: bool,
         revision: u64,
     },
+    /// Selects a page without changing visibility.
+    Navigate {
+        page: String,
+        revision: u64,
+    },
     Shutdown,
 }
 
 /// Events from the UI process; callbacks remain in the plugin process.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, serde::Deserialize)]
 #[serde(tag = "type", content = "payload", rename_all = "snake_case")]
 pub enum ChildMessage {
     Ready { version: u32 },
@@ -101,12 +99,13 @@ pub fn write_message(writer: &mut impl Write, message: &impl Serialize) -> io::R
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::Value;
     use std::io::{BufReader, Cursor};
 
     #[test]
     fn escaped_newlines_unicode_and_multiple_frames_round_trip() {
         let action = ChildMessage::Action(UiAction {
-            section: "中文\nsection".into(),
+            page: "中文\npage".into(),
             key: "x".into(),
             action_type: "change".into(),
             value: Some(Value::String("line1\nline2".into())),
@@ -152,7 +151,7 @@ mod tests {
     #[test]
     fn oversized_output_is_rejected_before_any_write() {
         let action = ChildMessage::Action(UiAction {
-            section: "s".into(),
+            page: "s".into(),
             key: "x".into(),
             action_type: "change".into(),
             value: Some(Value::String("x".repeat(MAX_FRAME_BYTES))),

@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex, Weak};
 use std::thread;
 
 use parsec_orbit_ui_protocol::{
-    read_message, write_message, ChildMessage, ParentMessage, SectionState,
+    read_message, write_message, ChildMessage, PageState, ParentMessage,
 };
 use winio::prelude::*;
 
@@ -35,8 +35,9 @@ struct UiConnection {
 #[derive(Default)]
 struct PendingInput {
     sequence: u64,
-    snapshot: Option<(u64, Vec<SectionState>, bool, u64)>,
+    snapshot: Option<(u64, Vec<PageState>, bool, u64)>,
     visibility: Option<(u64, bool, u64)>,
+    navigation: Option<(u64, String, u64)>,
     exit: bool,
 }
 
@@ -44,12 +45,16 @@ impl PendingInput {
     fn push(&mut self, message: Inbound) {
         match message {
             Inbound::Frame(ParentMessage::Snapshot {
-                sections,
+                pages,
                 visible,
                 revision,
             }) => {
                 self.sequence = self.sequence.wrapping_add(1);
-                self.snapshot = Some((self.sequence, sections, visible, revision));
+                self.snapshot = Some((self.sequence, pages, visible, revision));
+            }
+            Inbound::Frame(ParentMessage::Navigate { page, revision }) => {
+                self.sequence = self.sequence.wrapping_add(1);
+                self.navigation = Some((self.sequence, page, revision));
             }
             Inbound::Frame(ParentMessage::Visibility { visible, revision }) => {
                 self.sequence = self.sequence.wrapping_add(1);
@@ -65,9 +70,9 @@ impl PendingInput {
         }
         let mut messages = Vec::with_capacity(2);
         let snapshot_order = self.snapshot.as_ref().map(|snapshot| snapshot.0);
-        if let Some((_, sections, visible, revision)) = self.snapshot {
+        if let Some((_, pages, visible, revision)) = self.snapshot {
             messages.push(Inbound::Frame(ParentMessage::Snapshot {
-                sections,
+                pages,
                 visible,
                 revision,
             }));
@@ -78,6 +83,11 @@ impl PendingInput {
                     visible,
                     revision,
                 }));
+            }
+        }
+        if let Some((order, page, revision)) = self.navigation {
+            if snapshot_order.is_none_or(|snapshot| order > snapshot) {
+                messages.push(Inbound::Frame(ParentMessage::Navigate { page, revision }));
             }
         }
         messages
@@ -270,7 +280,7 @@ mod tests {
         let mut pending = PendingInput::default();
         for revision in 0..100 {
             pending.push(Inbound::Frame(ParentMessage::Snapshot {
-                sections: vec![],
+                pages: vec![],
                 visible: false,
                 revision,
             }));
@@ -298,7 +308,7 @@ mod tests {
     fn eof_takes_priority_over_pending_render_work() {
         let mut pending = PendingInput::default();
         pending.push(Inbound::Frame(ParentMessage::Snapshot {
-            sections: vec![],
+            pages: vec![],
             visible: true,
             revision: 1,
         }));
