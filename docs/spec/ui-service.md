@@ -375,7 +375,7 @@ export default definePlugin({
       }],
     });
 
-    ui.onAction((action) => {
+    ui.onAction(host.plugin.id, (action) => {
       host.log.info("user modified UI:", action.key, action.value);
     });
 

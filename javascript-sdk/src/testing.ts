@@ -22,8 +22,9 @@ import type {
   ScriptOptions,
   Ui,
   UiAction,
-  UiSection,
-  UiState,
+  UiPage,
+  UiPatch,
+  UiProps,
   Unsubscribe,
   WebView,
 } from "./index.js";
@@ -81,13 +82,19 @@ export interface MockPage {
 export interface MockUi extends Ui {
   /** Whether the window is visible; `show`/`hide` flip it. */
   visible: boolean;
-  /** Sections by id, as registered. */
-  readonly sections: Map<string, UiSection>;
-  /** Latest state pushed per section id. */
-  readonly states: Map<string, UiState>;
-  /** Handlers added with `onAction`. */
-  readonly subscribers: Set<(action: UiAction) => void>;
-  /** Delivers `action` to every subscriber, as if the user acted. */
+  /** Pages by id, as registered. */
+  readonly pages: Map<string, UiPage>;
+  /** Values set by `updatePage`, merged per page id. */
+  readonly values: Map<string, Record<string, unknown>>;
+  /** Presentation props set by `updatePage`, merged per page and element key. */
+  readonly props: Map<string, Record<string, UiProps>>;
+  /** Whether each page has changes that need a restart, by page id. */
+  readonly restartRequired: Map<string, boolean>;
+  /** The page last selected with `navigate`. */
+  navigated?: string;
+  /** Handlers added with `onAction`, by page id. */
+  readonly subscribers: Map<string, Set<(action: UiAction) => void>>;
+  /** Delivers `action` to the subscribers of its page, as if the user acted. */
   emitAction(action: UiAction): void;
 }
 
@@ -247,15 +254,19 @@ export function createMockHost(options: MockOptions = {}): MockHost {
     },
   };
 
-  // The companion window keeps registered sections, pushed state and action
+  // The companion window keeps registered pages, patched state and action
   // subscribers in memory, like the UI service keeps them in the window.
-  const sections = new Map<string, UiSection>();
-  const states = new Map<string, UiState>();
-  const subscribers = new Set<(action: UiAction) => void>();
+  const pages = new Map<string, UiPage>();
+  const values = new Map<string, Record<string, unknown>>();
+  const props = new Map<string, Record<string, UiProps>>();
+  const restartRequired = new Map<string, boolean>();
+  const subscribers = new Map<string, Set<(action: UiAction) => void>>();
   const mockUi: MockUi = {
     visible: false,
-    sections,
-    states,
+    pages,
+    values,
+    props,
+    restartRequired,
     subscribers,
     isVisible: async () => mockUi.visible,
     show: async () => {
@@ -264,26 +275,46 @@ export function createMockHost(options: MockOptions = {}): MockHost {
     hide: async () => {
       mockUi.visible = false;
     },
-    registerSection: async (section) => {
-      // A section the plugin reads later must not alias what the UI kept.
-      sections.set(section.id, JSON.parse(JSON.stringify(section)) as UiSection);
+    navigate: async (pageId) => {
+      mockUi.navigated = pageId;
     },
-    unregisterSection: async (id) => {
-      sections.delete(id);
-      states.delete(id);
+    registerPage: async (page) => {
+      // A page the plugin reads later must not alias what the UI kept.
+      pages.set(page.id, JSON.parse(JSON.stringify(page)) as UiPage);
     },
-    updateState: async (sectionId, state) => {
-      states.set(sectionId, JSON.parse(JSON.stringify(state)) as UiState);
+    unregisterPage: async (id) => {
+      pages.delete(id);
+      values.delete(id);
+      props.delete(id);
+      restartRequired.delete(id);
     },
-    onAction: (handler): Unsubscribe => {
-      subscribers.add(handler);
+    updatePage: async (pageId, patch: UiPatch) => {
+      const copy = JSON.parse(JSON.stringify(patch)) as UiPatch;
+      if (copy.values) {
+        values.set(pageId, { ...values.get(pageId), ...copy.values });
+      }
+      if (copy.props) {
+        const merged = { ...props.get(pageId) };
+        for (const [key, change] of Object.entries(copy.props)) {
+          merged[key] = { ...merged[key], ...change };
+        }
+        props.set(pageId, merged);
+      }
+      if (copy.restart_required !== undefined) {
+        restartRequired.set(pageId, copy.restart_required);
+      }
+    },
+    onAction: (pageId, handler): Unsubscribe => {
+      const handlers = subscribers.get(pageId) ?? new Set();
+      handlers.add(handler);
+      subscribers.set(pageId, handlers);
       return () => {
-        subscribers.delete(handler);
+        handlers.delete(handler);
       };
     },
     emitAction: (action) => {
       const delivered = JSON.parse(JSON.stringify(action)) as UiAction;
-      for (const subscriber of [...subscribers]) {
+      for (const subscriber of [...(subscribers.get(action.page) ?? [])]) {
         subscriber(delivered);
       }
     },

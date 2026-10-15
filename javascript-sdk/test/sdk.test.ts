@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { definePlugin } from "../src/index.js";
-import type { SelectState } from "../src/index.js";
+import type { UiPage } from "../src/index.js";
 import { createMockHost, loadPlugin } from "../src/testing.js";
 import { orbit, rpc } from "../src/ui.js";
 
@@ -175,7 +175,7 @@ test("timers can be disposed", async () => {
 
 // ---- the companion window (ui) ------------------------------------------------------
 
-test("ui toggles visibility, registers sections, and manages state", async () => {
+test("ui toggles visibility, registers pages, and manages state", async () => {
   const mock = createMockHost({ permissions: ["ui"] });
   const ui = granted(mock.host.ui);
 
@@ -187,32 +187,56 @@ test("ui toggles visibility, registers sections, and manages state", async () =>
   assert.equal(await ui.isVisible(), false);
   assert.equal(mock.ui.visible, false);
 
-  const section = {
+  const page: UiPage = {
+    schema: 2,
     id: "com.example.tuning",
     title: "Tuning",
-    items: [
-      { key: "boost", type: "toggle" as const, label: "Boost", default: true },
-      { key: "rate", type: "number_input" as const, label: "Rate", min: 10, max: 200, default: 50 },
-      { key: "notes", type: "text_input" as const, label: "Notes", multiline: true },
-      { key: "log", type: "text_view" as const, label: "Log" },
+    blocks: [
+      {
+        type: "group",
+        settings: [
+          { key: "boost", label: "Boost", control: { type: "toggle", default: true } },
+          {
+            key: "rate",
+            label: "Rate",
+            control: { type: "number", min: 10, max: 200, unit: "Mbps", integer: true, default: 50 },
+          },
+          {
+            key: "codec",
+            label: "Codec",
+            control: {
+              type: "select",
+              default: "av1",
+              options: [
+                { label: "AV1", value: "av1" },
+                { label: "HEVC", value: "hevc" },
+              ],
+            },
+          },
+        ],
+      },
     ],
   };
-  await ui.registerSection(section);
-  assert.deepEqual(mock.ui.sections.get("com.example.tuning"), section);
+  await ui.registerPage(page);
+  assert.deepEqual(mock.ui.pages.get("com.example.tuning"), page);
 
-  const codec: SelectState = {
-    value: "av1",
-    options: [
-      { label: "AV1", value: "av1" },
-      { label: "HEVC", value: "hevc" },
-    ],
-  };
-  await ui.updateState("com.example.tuning", { boost: false, rate: 120, codec });
-  assert.deepEqual(mock.ui.states.get("com.example.tuning"), { boost: false, rate: 120, codec });
+  await ui.navigate("com.example.tuning");
+  assert.equal(mock.ui.navigated, "com.example.tuning");
 
-  await ui.unregisterSection("com.example.tuning");
-  assert.equal(mock.ui.sections.has("com.example.tuning"), false);
-  assert.equal(mock.ui.states.has("com.example.tuning"), false);
+  const status = { severity: "success" as const, text: "Applied." };
+  await ui.updatePage("com.example.tuning", {
+    values: { boost: false, rate: 120 },
+    props: { rate: { status } },
+    restart_required: true,
+  });
+  assert.deepEqual(mock.ui.values.get("com.example.tuning"), { boost: false, rate: 120 });
+  assert.deepEqual(mock.ui.props.get("com.example.tuning"), { rate: { status } });
+  assert.equal(mock.ui.restartRequired.get("com.example.tuning"), true);
+
+  await ui.unregisterPage("com.example.tuning");
+  assert.equal(mock.ui.pages.has("com.example.tuning"), false);
+  assert.equal(mock.ui.values.has("com.example.tuning"), false);
+  assert.equal(mock.ui.restartRequired.has("com.example.tuning"), false);
 });
 
 test("ui delivers actions to subscribers until unsubscribed", async () => {
@@ -220,17 +244,21 @@ test("ui delivers actions to subscribers until unsubscribed", async () => {
   const ui = granted(mock.host.ui);
 
   const actions: unknown[] = [];
-  const unsubscribe = ui.onAction((action) => actions.push(action));
+  const unsubscribe = ui.onAction("com.example.tuning", (action) => actions.push(action));
+
+  // Another page's actions do not reach this subscriber.
+  mock.ui.emitAction({ page: "com.example.other", key: "boost", type: "change", value: 1 });
+  assert.deepEqual(actions, []);
 
   mock.ui.emitAction({
-    section: "com.example.tuning",
+    page: "com.example.tuning",
     key: "boost",
     type: "change",
     value: true,
   });
   assert.deepEqual(actions, [
     {
-      section: "com.example.tuning",
+      page: "com.example.tuning",
       key: "boost",
       type: "change",
       value: true,
@@ -239,7 +267,7 @@ test("ui delivers actions to subscribers until unsubscribed", async () => {
 
   unsubscribe();
   mock.ui.emitAction({
-    section: "com.example.tuning",
+    page: "com.example.tuning",
     key: "apply",
     type: "click",
   });
