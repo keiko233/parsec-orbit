@@ -2,12 +2,14 @@
 //! and signs the registry in `manifest/`. The design is in
 //! `docs/design/restructure.md` (sections 4.3 and 5).
 
+mod add;
 mod args;
 mod check;
 mod manifest;
 mod stage;
 #[cfg(test)]
 mod testing;
+mod time;
 mod version;
 
 use std::io::Write;
@@ -30,6 +32,8 @@ Packaging (after cargo build --release)
 
 Registry (manifest/)
   registry check [--manifest DIR]     validate the sources offline; exit 1 on any problem
+  registry add --tag vX.Y.Z --assets DIR [--manifest DIR] [--repo owner/name]
+                                      append the release blocks of a tag; refuses a release already listed
 
 Signing (the parsec-orbit-market implementation)
   keygen <name>                       write <name>.key (the secret), print the public key
@@ -61,6 +65,7 @@ fn registry(args: &[String], out: &mut dyn Write) -> Result<(), Error> {
     };
     match command.as_str() {
         "check" => check::run(rest, out),
+        "add" => add::run(rest, out),
         other => Err(args::usage(format!("unknown registry command {other:?}"))),
     }
 }
