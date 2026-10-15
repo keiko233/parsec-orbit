@@ -286,3 +286,16 @@ calls, so the 2.9 MB source file is not what the executable costs. The native pl
 +10,240 B is the page, the status handling and the list parser; the STUN and market
 plugins changed by under 4 KB.
 
+
+## macOS companion with the AppKit shell (macOS arm64, 2026-10-16)
+
+Release profile, `aarch64-apple-darwin`, built against the macOS 27 SDK with the
+deployment target left at 11.0: `parsec-orbit-ui-companion` is 656,976 B
+(SHA-256 `7606c85f355698be0ec4045ffaed459536c34d2e9241c697d08983c6f7cf14c8`),
+ad-hoc linker-signed, and passes `codesign --verify --strict`. The previous
+macOS renderer was not measured, so no change is stated. The binary links the
+system AppKit, Foundation and Core frameworks and nothing else of its own; the
+loader, `parsec-orbit-core` and the service plugin are unchanged
+([ADR 0030](decisions/0030-macos-appkit-split-view-shell.md)). This is a
+development measurement, not a release artifact: macOS packaging and notarization
+remain out of scope.
