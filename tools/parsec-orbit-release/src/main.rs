@@ -4,6 +4,7 @@
 
 mod add;
 mod args;
+mod build;
 mod check;
 mod manifest;
 mod stage;
@@ -34,6 +35,9 @@ Registry (manifest/)
   registry check [--manifest DIR]     validate the sources offline; exit 1 on any problem
   registry add --tag vX.Y.Z --assets DIR [--manifest DIR] [--repo owner/name]
                                       append the release blocks of a tag; refuses a release already listed
+  registry build [--manifest DIR] [--sign KEYFILE] [--dist DIR]
+                                      write index.json and host.json (signed with --sign);
+                                      --dist reads the packages from a folder instead of the network
 
 Signing (the parsec-orbit-market implementation)
   keygen <name>                       write <name>.key (the secret), print the public key
@@ -66,6 +70,7 @@ fn registry(args: &[String], out: &mut dyn Write) -> Result<(), Error> {
     match command.as_str() {
         "check" => check::run(rest, out),
         "add" => add::run(rest, out),
+        "build" => build::run(rest, out),
         other => Err(args::usage(format!("unknown registry command {other:?}"))),
     }
 }

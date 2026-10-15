@@ -4,7 +4,7 @@
 //! (`add.rs`), so hand-written content is never re-serialised.
 
 use std::io::ErrorKind;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use parsec_orbit_registry::index::{is_sha256_hex, PlatformId, MAX_PACKAGE_BYTES};
 use parsec_orbit_registry::Error;
@@ -22,6 +22,10 @@ pub const SUMMARY_LIMIT: usize = 120;
 #[derive(Debug, Deserialize)]
 pub struct Entry {
     pub id: String,
+    #[serde(default)]
+    pub default: bool,
+    pub group: Option<String>,
+    pub category: Option<String>,
     pub summary: Option<String>,
     pub homepage: Option<String>,
     pub build: Option<Build>,
@@ -49,6 +53,8 @@ pub struct PluginRelease {
     pub mirrors: Vec<String>,
     pub sha256: String,
     pub published: Option<Datetime>,
+    #[serde(default)]
+    pub yanked: bool,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -72,6 +78,27 @@ pub struct Artifact {
     pub url: String,
     pub sha256: String,
     pub size: u64,
+}
+
+/// The subfolders of `dir` that are not hidden, sorted; none when `dir` does
+/// not exist.
+pub fn sorted_dirs(dir: &Path) -> Result<Vec<PathBuf>, Error> {
+    let entries = match std::fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => return Err(Error::Io(format!("{}: {error}", dir.display()))),
+    };
+    let mut paths = entries
+        .map(|entry| entry.map(|entry| entry.path()))
+        .collect::<Result<Vec<_>, _>>()?;
+    paths.retain(|path| {
+        let hidden = path
+            .file_name()
+            .is_some_and(|name| name.to_string_lossy().starts_with('.'));
+        path.is_dir() && !hidden
+    });
+    paths.sort();
+    Ok(paths)
 }
 
 /// Reads a TOML file; `None` when it does not exist.

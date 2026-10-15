@@ -2003,6 +2003,7 @@ dependencies = [
  "parsec-orbit-registry",
  "semver",
  "serde",
+ "serde_json",
  "toml",
 ]
 

@@ -38,12 +38,26 @@ pub fn date_of(unix: i64) -> String {
     format!("{year:04}-{month:02}-{day:02}")
 }
 
+/// The UTC time of a Unix time, as RFC 3339: `YYYY-MM-DDThh:mm:ssZ`.
+pub fn rfc3339_of(unix: i64) -> String {
+    let seconds = unix.rem_euclid(DAY);
+    format!(
+        "{}T{:02}:{:02}:{:02}Z",
+        date_of(unix),
+        seconds / 3600,
+        seconds % 3600 / 60,
+        seconds % 60
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn known_instants_are_formatted() {
+        assert_eq!(rfc3339_of(0), "1970-01-01T00:00:00Z");
+        assert_eq!(rfc3339_of(1_700_000_000), "2023-11-14T22:13:20Z");
         assert_eq!(date_of(-1), "1969-12-31");
     }
 

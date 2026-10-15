@@ -15,7 +15,7 @@ use parsec_orbit_registry::{package, trust, Error};
 use serde::Deserialize;
 
 use crate::args::{usage, Args};
-use crate::manifest::{read_optional, Entry};
+use crate::manifest::{read_optional, sorted_dirs, Entry};
 use crate::version;
 
 /// What a platform's packages and loader look like.
@@ -195,26 +195,6 @@ fn discover(workspace: &Path) -> Result<BTreeMap<String, PathBuf>, Error> {
         }
     }
     Ok(found)
-}
-
-/// The subfolders of `dir`, sorted; none when `dir` does not exist.
-fn sorted_dirs(dir: &Path) -> Result<Vec<PathBuf>, Error> {
-    let entries = match std::fs::read_dir(dir) {
-        Ok(entries) => entries,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
-        Err(error) => return Err(Error::Io(format!("{}: {error}", dir.display()))),
-    };
-    let mut paths = entries
-        .map(|entry| entry.map(|entry| entry.path()))
-        .collect::<Result<Vec<_>, _>>()?;
-    paths.retain(|path| {
-        let hidden = path
-            .file_name()
-            .is_some_and(|name| name.to_string_lossy().starts_with('.'));
-        path.is_dir() && !hidden
-    });
-    paths.sort();
-    Ok(paths)
 }
 
 fn read_toml<T: serde::de::DeserializeOwned>(path: &Path) -> Result<T, Error> {
