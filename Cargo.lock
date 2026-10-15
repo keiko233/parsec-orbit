@@ -2037,10 +2037,14 @@ dependencies = [
  "objc2-core-foundation",
  "objc2-foundation",
  "parsec-orbit-ui-protocol",
+ "parsec-orbit-winui-bindings",
  "serde_json",
  "windows",
+ "windows-collections",
+ "windows-core",
  "windows-sys 0.61.2",
  "winio",
+ "winio-winui3",
 ]
 
 [[package]]

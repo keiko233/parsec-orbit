@@ -260,3 +260,29 @@ The same-session host/hotkey fix (ADR 0026) takes the UI service to 640,512 B
 (+1,024 B): it checks the process token and reports activation registration
 failures. It adds only Win32 security bindings, with no third-party dependency
 or loader change.
+
+## UI service 2.0 and the Fluent companion (Windows x64, 2026-10-16)
+
+Release profile, same workspace settings as above.
+
+| Artifact | Bytes | Previous | Change |
+| --- | ---: | ---: | ---: |
+| loader `bcrypt.dll` | 401,408 | 401,408 | 0 |
+| UI service `parsec_orbit_lib_ui.dll` | 787,456 | 640,512 | +146,944 |
+| companion `parsec-orbit-ui-companion.exe` | 653,824 | 571,392 | +82,432 |
+| STUN plugin | 394,752 | 393,728 | +1,024 |
+| native High Bitrate plugin | 293,376 | 283,136 | +10,240 |
+| market plugin | 1,972,224 | 1,968,640 | +3,584 |
+
+The loader is unchanged ([ADR 0004](decisions/0004-loader-stays-light.md)). The UI
+service grew because the page schema, its validation, the state patches and the
+action checks ([ADR 0028](decisions/0028-ui-service-abi-v2.md)) now live in the shared
+protocol crate it links; the plugins gained only the small page and patch builders.
+
+The companion carries the generated WinUI bindings (about 82,000 lines of source,
+[ADR 0027](decisions/0027-windows-fluent-xaml-shell.md)), the XAML templates and the
+renderer, for +82,432 B in total. The linker keeps only the wrappers the renderer
+calls, so the 2.9 MB source file is not what the executable costs. The native plugin's
++10,240 B is the page, the status handling and the list parser; the STUN and market
+plugins changed by under 4 KB.
+

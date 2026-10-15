@@ -185,7 +185,21 @@ cargo run --locked -p parsec-orbit-lib-ui --example service-host -- \
 
 This uses `MockHost` with an explicitly selected plugin directory, registers and
 updates a page through the real service methods and exits without loading
-Parsec.
+Parsec. The directory also gets a `data` folder for the built-in pages. Set
+`ORBIT_UI_PROBE_SECONDS=60` to keep the window up for a minute and look at the
+built-in Overview and Log beside the probe page.
+
+`companion-host` does the same without the service plugin: it registers one page
+with a control of every kind, so it is the quickest way to see the Windows
+renderer. The tests that drive the real window through UI Automation need an
+interactive desktop and run on request:
+
+```powershell
+cargo test -p parsec-orbit-ui-companion --test windows_desktop -- --ignored --test-threads=1
+```
+
+Controls carry their page key as the UI Automation id, and a setting's label is
+its accessible name, except for read-only text, which keeps its own text.
 
 Current measured results and remaining acceptance gates are recorded in the
 [UI companion checkpoint](../design/ui-companion-checkpoint.md).
