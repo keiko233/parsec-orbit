@@ -174,3 +174,19 @@ of its console environment to real clients, and real streaming/full-screen
 interaction remain manual acceptance gates. The restart action is implemented
 for Windows service installations only. STUN custom endpoints currently require
 port 3478 because the DNS hook preserves the requested service port.
+
+### Same-session host activation fix
+
+Read-only diagnostics found the service's System host and its user client in
+session 1, each owning an activation window. The host log identified itself as
+`host` and repeatedly reported `UI pipe closed`; the user's companion was
+running but hidden. Posting activation directly to the user client's window
+showed it successfully. A nonzero session alone therefore does not establish
+UI ownership.
+
+ADR 0026 requires a readable non-System token as well as a nonzero session.
+The regression first failed with the old session-only decision and then passed
+with the identity guard. The UI library's 17 unit and four process tests pass;
+the release service DLL builds at 640,512 B. Installed files and running Parsec
+processes were not replaced or restarted during verification. Applying this
+fix requires restarting the old host to release its hotkey registrations.

@@ -23,6 +23,7 @@ parsec-orbit-log-tail = { path = "../../crates/parsec-orbit-log-tail" }
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61.2", features = [
     "Win32_Foundation",
+    "Win32_Security",
     "Win32_System_LibraryLoader",
     "Win32_System_RemoteDesktop",
     "Win32_System_Threading",

@@ -255,3 +255,8 @@ bounded log tail and clipboard/file actions, dynamic and multiline controls,
 and the independent Windows restart helper. The service adds only the shared
 layout/follower crates, with no third-party or GUI dependency; WinUI remains
 confined to the companion. The loader measurement above remains 401,408 B.
+
+The same-session host/hotkey fix (ADR 0026) takes the UI service to 640,512 B
+(+1,024 B): it checks the process token and reports activation registration
+failures. It adds only Win32 security bindings, with no third-party dependency
+or loader change.

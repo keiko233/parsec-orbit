@@ -28,12 +28,17 @@ Interface name: `parsec-orbit.ui`.
 Version: 1.0 (`(1 << 16) | 0`).
 
 The helper runs only for the interactive client instance. On Windows, the
-process session ID determines this: session 0 and an unreadable session register
-only the service table, without launching a helper or registering desktop
-hotkeys. This does not depend on the service account's identity. Existing
+process must have a known nonzero session and a readable process token that
+does not belong to LocalSystem. Session 0, unknown identity/session, and a
+LocalSystem host running in the user's session register only the service table,
+without launching a helper or registering desktop hotkeys. Existing
 hotkeys and CLI activation belong to the interactive instance. That instance
 launches the helper hidden and returns from plugin `init` without waiting for
 its window.
+
+Failures to create the activation window or register either shortcut are
+reported through the Orbit logger, including the Windows error code. One
+unavailable shortcut does not disable the other shortcut or CLI activation.
 
 ```c
 typedef struct ParsecOrbitUiV1 {

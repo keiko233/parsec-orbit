@@ -59,7 +59,11 @@ impl Plugin for OrbitUiPlugin {
             }
             std::thread::Builder::new()
                 .name(format!("{}:hotkey", cx.plugin_id()))
-                .spawn(|| hotkey::run(service::toggle))?;
+                .spawn(move || {
+                    hotkey::run(service::toggle, move |message| {
+                        warn!(cx, "orbit ui: {}", message)
+                    })
+                })?;
         }
 
         #[cfg(all(target_os = "macos", not(test)))]

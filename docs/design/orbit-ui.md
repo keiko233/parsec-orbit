@@ -182,7 +182,9 @@ owns the native window and main-thread `winio` event loop.
     parent pipe lets the helper exit.
   * On Windows, the session-0 service instance keeps the service table without
     desktop hotkeys or a renderer. Only an instance with a known nonzero process
-    session starts the helper and the hotkey/CLI activation channel.
+    session and a readable non-LocalSystem process token starts the helper and
+    the hotkey/CLI activation channel. The System host can also run in the
+    user's session and must not claim that user's shortcuts (ADR 0026).
 * **Styling**:
   * Styled with a dark theme consistent with Parsec (background `#18181b`,
     surface `#27272a`, border `#3f3f46`, text `#f4f4f5`, accent `#8b5cf6` or
