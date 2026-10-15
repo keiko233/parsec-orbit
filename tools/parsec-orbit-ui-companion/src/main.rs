@@ -1,5 +1,6 @@
 mod maintenance;
 mod platform;
+mod rows;
 mod window;
 
 use std::io::{self, BufReader, BufWriter};
