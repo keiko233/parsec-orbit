@@ -9,6 +9,7 @@ use std::collections::HashMap;
 use std::io::BufReader;
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::mpsc::{self, Receiver};
+use std::sync::Mutex;
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 use windows::core::Interface;
@@ -17,10 +18,11 @@ use windows::Win32::System::Com::{
 };
 use windows::Win32::UI::Accessibility::{
     CUIAutomation8, IUIAutomation, IUIAutomation2, IUIAutomationElement,
-    IUIAutomationInvokePattern, IUIAutomationSelectionItemPattern, IUIAutomationValuePattern,
-    TreeScope_Descendants, UIA_ButtonControlTypeId, UIA_EditControlTypeId, UIA_InvokePatternId,
-    UIA_SelectionItemPatternId, UIA_TabItemControlTypeId, UIA_TextControlTypeId,
-    UIA_ValuePatternId,
+    IUIAutomationInvokePattern, IUIAutomationSelectionItemPattern, IUIAutomationSelectionPattern,
+    IUIAutomationValuePattern, TreeScope_Descendants, UIA_ButtonControlTypeId,
+    UIA_ComboBoxControlTypeId, UIA_EditControlTypeId, UIA_InvokePatternId,
+    UIA_SelectionItemPatternId, UIA_SelectionPatternId, UIA_TabItemControlTypeId,
+    UIA_TextControlTypeId, UIA_ValuePatternId,
 };
 use windows_sys::Win32::Foundation::{HWND, LPARAM};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
@@ -29,6 +31,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 };
 
 const WAIT: Duration = Duration::from_secs(5);
+static DESKTOP_TEST_LOCK: Mutex<()> = Mutex::new(());
 
 struct Companion {
     child: Child,
@@ -176,9 +179,9 @@ fn find_element(
         .expect("enumerate owned UIA descendants");
     let length = unsafe { elements.Length() }.expect("read UIA element count");
     (0..length).find_map(|index| {
-        let element = unsafe { elements.GetElement(index) }.expect("read UIA element");
-        let kind = unsafe { element.CurrentControlType() }.expect("read UIA control type");
-        let element_name = unsafe { element.CurrentName() }.expect("read UIA name");
+        let element = unsafe { elements.GetElement(index) }.ok()?;
+        let kind = unsafe { element.CurrentControlType() }.ok()?;
+        let element_name = unsafe { element.CurrentName() }.ok()?;
         (kind.0 == control_type && name.is_none_or(|name| element_name == name)).then_some(element)
     })
 }
@@ -194,8 +197,8 @@ fn find_tab(
         .expect("enumerate owned UIA descendants");
     let length = unsafe { elements.Length() }.expect("read UIA element count");
     (0..length).find_map(|index| {
-        let element = unsafe { elements.GetElement(index) }.expect("read UIA element");
-        let kind = unsafe { element.CurrentControlType() }.expect("read UIA control type");
+        let element = unsafe { elements.GetElement(index) }.ok()?;
+        let kind = unsafe { element.CurrentControlType() }.ok()?;
         (kind == UIA_TabItemControlTypeId
             && find_element(automation, &element, UIA_TextControlTypeId.0, Some(title)).is_some())
         .then_some(element)
@@ -212,6 +215,49 @@ fn value(element: &IUIAutomationElement) -> String {
         .to_string()
 }
 
+fn find_edit_with_value(
+    automation: &IUIAutomation,
+    root: &IUIAutomationElement,
+    expected: &str,
+) -> Option<IUIAutomationElement> {
+    let condition = unsafe { automation.CreateTrueCondition() }.expect("create UIA condition");
+    let elements = unsafe { root.FindAll(TreeScope_Descendants, &condition) }
+        .expect("enumerate owned UIA descendants");
+    let length = unsafe { elements.Length() }.expect("read UIA element count");
+    (0..length).find_map(|index| {
+        let element = unsafe { elements.GetElement(index) }.ok()?;
+        let kind = unsafe { element.CurrentControlType() }.ok()?;
+        if kind != UIA_EditControlTypeId {
+            return None;
+        }
+        // Elements can disappear between FindAll and reading their pattern.
+        let pattern =
+            unsafe { element.GetCurrentPatternAs::<IUIAutomationValuePattern>(UIA_ValuePatternId) }
+                .ok()?;
+        let current = unsafe { pattern.CurrentValue() }.ok()?.to_string();
+        (current.replace('\r', "\n") == expected.replace('\r', "\n")).then_some(element)
+    })
+}
+
+fn selected_item_name(automation: &IUIAutomation, root: &IUIAutomationElement) -> Option<String> {
+    let combo = find_element(automation, root, UIA_ComboBoxControlTypeId.0, None)?;
+    // SAFETY: the found combo box is a live descendant of the owned window.
+    let selection = unsafe {
+        combo.GetCurrentPatternAs::<IUIAutomationSelectionPattern>(UIA_SelectionPatternId)
+    }
+    .ok()?;
+    // SAFETY: the selection pattern was queried from the live combo box.
+    let selected = unsafe { selection.GetCurrentSelection() }.ok()?;
+    // SAFETY: the returned selection array belongs to this UI Automation client.
+    if unsafe { selected.Length() }.ok()? == 0 {
+        return None;
+    }
+    // SAFETY: element zero exists because Length returned a positive count.
+    let selected = unsafe { selected.GetElement(0) }.ok()?;
+    // SAFETY: the selected element is owned by the companion window tree.
+    Some(unsafe { selected.CurrentName() }.ok()?.to_string())
+}
+
 fn form_section(profile: &str, status: &str) -> SectionState {
     SectionState {
         schema: serde_json::from_str(
@@ -219,6 +265,7 @@ fn form_section(profile: &str, status: &str) -> SectionState {
                 "id":"com.parsec-orbit.desktop-test",
                 "title":"Desktop regression",
                 "items":[
+                    {"key":"codec","type":"select","label":"Codec","options":[{"label":"Old","value":"old"}]},
                     {"key":"profile","type":"text_input","label":"Profile"},
                     {"key":"status","type":"readonly_text","label":"Status"},
                     {"key":"apply","type":"button","label":"Run regression action"}
@@ -228,7 +275,34 @@ fn form_section(profile: &str, status: &str) -> SectionState {
         .expect("valid test section"),
         values: HashMap::from([
             ("profile".to_string(), serde_json::json!(profile)),
+            (
+                "codec".to_string(),
+                serde_json::json!({"value":"old","options":[{"label":"Old","value":"old"}]}),
+            ),
             ("status".to_string(), serde_json::json!(status)),
+        ]),
+    }
+}
+
+fn multiline_section() -> SectionState {
+    SectionState {
+        schema: serde_json::from_str(
+            r#"{
+                "id":"com.parsec-orbit.multiline-test",
+                "title":"Multiline controls",
+                "items":[
+                    {"key":"notes","type":"text_input","label":"Notes","multiline":true},
+                    {"key":"log","type":"text_view","label":"Log"}
+                ]
+            }"#,
+        )
+        .expect("valid multiline section"),
+        values: HashMap::from([
+            ("notes".to_string(), serde_json::json!("line one\nline two")),
+            (
+                "log".to_string(),
+                serde_json::json!("log line one\nlog line two"),
+            ),
         ]),
     }
 }
@@ -270,6 +344,9 @@ fn send_shutdown_and_wait(companion: &mut Companion) {
 #[test]
 #[ignore = "requires an interactive Windows desktop session"]
 fn owned_window_tracks_visibility_close_and_reactivation() {
+    let _desktop = DESKTOP_TEST_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let _com = ComApartment::initialize();
     let automation = automation();
     let mut companion = Companion::launch();
@@ -293,14 +370,28 @@ fn owned_window_tracks_visibility_close_and_reactivation() {
             .expect("get UIA element for owned companion window");
 
     companion.send(&ParentMessage::Snapshot {
-        sections: vec![form_section("profile from snapshot", "ready from snapshot")],
+        sections: vec![
+            form_section("profile from snapshot", "ready from snapshot"),
+            multiline_section(),
+        ],
         visible: true,
         revision: 1,
     });
+    if let Some(restart) = find_element(
+        &automation,
+        &window_element,
+        UIA_ButtonControlTypeId.0,
+        Some("Restart and apply"),
+    ) {
+        // SAFETY: the matched button, if present in the UIA tree, belongs to this window.
+        assert!(unsafe { restart.CurrentIsOffscreen() }
+            .expect("hidden restart button state")
+            .as_bool());
+    }
     let mut section = None;
     wait_until("snapshot controls to appear", || {
         section = find_tab(&automation, &window_element, "Desktop regression");
-        section.is_some()
+        section.is_some() && find_tab(&automation, &window_element, "Overview").is_some()
     });
     let section = section.expect("owned section tab");
     let selection = unsafe {
@@ -362,8 +453,19 @@ fn owned_window_tracks_visibility_close_and_reactivation() {
         })
     );
 
+    let mut updated = form_section("updated by snapshot", "updated status");
+    updated.values.insert(
+        "codec".to_string(),
+        serde_json::json!({
+            "value":"new",
+            "options":[
+                {"label":"Fresh","value":"new"},
+                {"label":"Legacy","value":"legacy"}
+            ]
+        }),
+    );
     companion.send(&ParentMessage::Snapshot {
-        sections: vec![form_section("updated by snapshot", "updated status")],
+        sections: vec![updated, multiline_section()],
         visible: true,
         revision: 2,
     });
@@ -377,6 +479,142 @@ fn owned_window_tracks_visibility_close_and_reactivation() {
                     .is_ok_and(|name| name == "updated status")
             })
     });
+    wait_until("dynamic select options and value to update", || {
+        selected_item_name(&automation, &window_element).as_deref() == Some("Fresh")
+    });
+    assert!(matches!(
+        companion.output.recv_timeout(Duration::from_millis(100)),
+        Err(mpsc::RecvTimeoutError::Timeout)
+    ));
+
+    let multiline_tab = find_tab(&automation, &window_element, "Multiline controls")
+        .expect("multiline section tab");
+    // SAFETY: the selected tab belongs to the companion's live window tree.
+    let multiline_selection = unsafe {
+        multiline_tab
+            .GetCurrentPatternAs::<IUIAutomationSelectionItemPattern>(UIA_SelectionItemPatternId)
+    }
+    .expect("multiline tab exposes SelectionItem pattern");
+    // SAFETY: the tab exposes the queried SelectionItem pattern.
+    unsafe { multiline_selection.Select() }.expect("select multiline section tab");
+    let mut notes = None;
+    let mut log = None;
+    wait_until("multiline controls to appear", || {
+        notes = find_edit_with_value(&automation, &window_element, "line one\nline two");
+        log = find_edit_with_value(&automation, &window_element, "log line one\nlog line two");
+        notes.is_some() && log.is_some()
+    });
+    for control in [notes.as_ref().unwrap(), log.as_ref().unwrap()] {
+        // SAFETY: both controls were found beneath the selected companion tab.
+        let bounds =
+            unsafe { control.CurrentBoundingRectangle() }.expect("read multiline control bounds");
+        assert!(
+            bounds.bottom - bounds.top >= 100,
+            "multiline control has row height"
+        );
+    }
+    // SAFETY: the notes edit was found beneath the selected companion tab.
+    let notes_value = unsafe {
+        notes
+            .as_ref()
+            .unwrap()
+            .GetCurrentPatternAs::<IUIAutomationValuePattern>(UIA_ValuePatternId)
+    }
+    .expect("multiline input exposes Value pattern");
+    // SAFETY: the Value pattern was queried from the live multiline edit.
+    assert!(!unsafe { notes_value.CurrentIsReadOnly() }
+        .expect("editable multiline input")
+        .as_bool());
+    // SAFETY: the Value pattern belongs to the owned multiline edit.
+    unsafe { notes_value.SetValue(&windows::core::BSTR::from("edited multiline\ncontent")) }
+        .expect("edit multiline input");
+    assert_eq!(
+        companion.receive(),
+        ChildMessage::Action(UiAction {
+            section: "com.parsec-orbit.multiline-test".to_string(),
+            key: "notes".to_string(),
+            action_type: "change".to_string(),
+            value: Some(serde_json::json!("edited multiline\ncontent")),
+        })
+    );
+    companion.send(&ParentMessage::Snapshot {
+        sections: vec![
+            form_section("profile from snapshot", "probe updated"),
+            multiline_section(),
+        ],
+        visible: true,
+        revision: 3,
+    });
+    let form_tab = find_tab(&automation, &window_element, "Desktop regression")
+        .expect("regression tab after status snapshot");
+    // SAFETY: the tab belongs to the companion's live window tree.
+    let form_selection = unsafe {
+        form_tab
+            .GetCurrentPatternAs::<IUIAutomationSelectionItemPattern>(UIA_SelectionItemPatternId)
+    }
+    .expect("regression tab exposes SelectionItem pattern");
+    // SAFETY: the tab exposes the queried SelectionItem pattern.
+    unsafe { form_selection.Select() }.expect("select regression tab to observe status update");
+    wait_until("unrelated status snapshot to update", || {
+        find_element(
+            &automation,
+            &window_element,
+            UIA_TextControlTypeId.0,
+            Some("probe updated"),
+        )
+        .is_some()
+    });
+    let multiline_tab = find_tab(&automation, &window_element, "Multiline controls")
+        .expect("multiline tab after status snapshot");
+    // SAFETY: the tab belongs to the companion's live window tree.
+    let multiline_selection = unsafe {
+        multiline_tab
+            .GetCurrentPatternAs::<IUIAutomationSelectionItemPattern>(UIA_SelectionItemPatternId)
+    }
+    .expect("multiline tab exposes SelectionItem pattern");
+    // SAFETY: the tab exposes the queried SelectionItem pattern.
+    unsafe { multiline_selection.Select() }.expect("return to multiline tab after snapshot");
+    let notes = find_edit_with_value(&automation, &window_element, "edited multiline\ncontent");
+    assert_eq!(
+        notes
+            .as_ref()
+            .map(value)
+            .map(|text| text.replace("\r\n", "\n").replace('\r', "\n"))
+            .as_deref(),
+        Some("edited multiline\ncontent"),
+        "a snapshot that does not echo the draft must preserve the local edit"
+    );
+    assert!(matches!(
+        companion.output.recv_timeout(Duration::from_millis(100)),
+        Err(mpsc::RecvTimeoutError::Timeout)
+    ));
+    // SAFETY: the log edit was found beneath the selected companion tab.
+    let log_value = unsafe {
+        log.as_ref()
+            .unwrap()
+            .GetCurrentPatternAs::<IUIAutomationValuePattern>(UIA_ValuePatternId)
+    }
+    .expect("text view exposes Value pattern");
+    // SAFETY: the Value pattern was queried from the live read-only text view.
+    assert!(unsafe { log_value.CurrentIsReadOnly() }
+        .expect("read-only text view")
+        .as_bool());
+    // SAFETY: the Value pattern belongs to the owned read-only text view.
+    assert!(unsafe { log_value.SetValue(&windows::core::BSTR::from("forbidden edit")) }.is_err());
+    assert!(matches!(
+        companion.output.recv_timeout(Duration::from_millis(100)),
+        Err(mpsc::RecvTimeoutError::Timeout)
+    ));
+
+    let section = find_tab(&automation, &window_element, "Desktop regression")
+        .expect("regression section tab");
+    // SAFETY: the regression tab belongs to the companion's live window tree.
+    let selection = unsafe {
+        section.GetCurrentPatternAs::<IUIAutomationSelectionItemPattern>(UIA_SelectionItemPatternId)
+    }
+    .expect("section tab exposes SelectionItem pattern");
+    // SAFETY: the tab exposes the queried SelectionItem pattern.
+    unsafe { selection.Select() }.expect("return to test section tab");
 
     companion.send(&ParentMessage::Visibility {
         visible: true,
@@ -440,5 +678,100 @@ fn owned_window_tracks_visibility_close_and_reactivation() {
         revision: 6,
     });
     wait_until("protocol show after close", || is_visible(window));
+    send_shutdown_and_wait(&mut companion);
+}
+
+#[test]
+#[ignore = "requires an interactive Windows desktop session"]
+fn registered_overview_replaces_the_builtin_tab() {
+    let _desktop = DESKTOP_TEST_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let _com = ComApartment::initialize();
+    let automation = automation();
+    let mut companion = Companion::launch();
+    assert_eq!(
+        companion.receive(),
+        ChildMessage::Ready { version: VERSION }
+    );
+
+    let process_id = companion.child.id();
+    let mut window = None;
+    wait_until("the companion HWND", || {
+        window = find_window(process_id);
+        window.is_some()
+    });
+    // SAFETY: this HWND belongs to the launched companion process.
+    let window_element = unsafe {
+        automation.ElementFromHandle(windows::Win32::Foundation::HWND(
+            window.expect("companion window found"),
+        ))
+    }
+    .expect("get UIA element for owned companion window");
+
+    companion.send(&ParentMessage::Snapshot {
+        sections: vec![
+            SectionState {
+                schema: serde_json::from_str(
+                    r#"{"id":"orbit.overview","title":"Orbit Overview","items":[{"key":"restart","type":"button","label":"Restart from Overview"}]}"#,
+                )
+                .expect("valid overview section"),
+                values: HashMap::new(),
+            },
+            SectionState {
+                schema: serde_json::from_str(
+                    r#"{"id":"com.example.settings","title":"Plugin settings","items":[]}"#,
+                )
+                .expect("valid plugin section"),
+                values: HashMap::new(),
+            },
+        ],
+        visible: true,
+        revision: 1,
+    });
+    wait_until("registered overview tab to appear", || {
+        find_tab(&automation, &window_element, "Orbit Overview").is_some()
+    });
+    assert!(find_tab(&automation, &window_element, "Overview").is_none());
+    let plugin_tab =
+        find_tab(&automation, &window_element, "Plugin settings").expect("plugin settings tab");
+    // SAFETY: the tab is a live descendant of the companion window.
+    let plugin_selection = unsafe {
+        plugin_tab
+            .GetCurrentPatternAs::<IUIAutomationSelectionItemPattern>(UIA_SelectionItemPatternId)
+    }
+    .expect("plugin tab exposes SelectionItem pattern");
+    // SAFETY: the tab exposes the queried SelectionItem pattern.
+    unsafe { plugin_selection.Select() }.expect("select plugin tab before restart");
+    let restart = find_element(
+        &automation,
+        &window_element,
+        UIA_ButtonControlTypeId.0,
+        Some("Restart and apply"),
+    )
+    .expect("shared restart button appears with registered overview");
+    assert!(find_element(
+        &automation,
+        &window_element,
+        UIA_ButtonControlTypeId.0,
+        Some("Restart from Overview"),
+    )
+    .is_none());
+    // SAFETY: the matched button is a live descendant of the companion window.
+    let invoke =
+        unsafe { restart.GetCurrentPatternAs::<IUIAutomationInvokePattern>(UIA_InvokePatternId) }
+            .expect("shared restart button exposes Invoke pattern");
+    // SAFETY: the button exposes the queried Invoke pattern.
+    unsafe { invoke.Invoke() }.expect("invoke shared restart button");
+    assert_eq!(
+        companion.receive(),
+        ChildMessage::Action(UiAction {
+            section: "orbit.overview".to_string(),
+            key: "restart".to_string(),
+            action_type: "click".to_string(),
+            value: None,
+        })
+    );
+
     send_shutdown_and_wait(&mut companion);
 }

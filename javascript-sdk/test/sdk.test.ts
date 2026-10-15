@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { definePlugin } from "../src/index.js";
+import type { SelectState } from "../src/index.js";
 import { createMockHost, loadPlugin } from "../src/testing.js";
 import { orbit, rpc } from "../src/ui.js";
 
@@ -192,13 +193,22 @@ test("ui toggles visibility, registers sections, and manages state", async () =>
     items: [
       { key: "boost", type: "toggle" as const, label: "Boost", default: true },
       { key: "rate", type: "number_input" as const, label: "Rate", min: 10, max: 200, default: 50 },
+      { key: "notes", type: "text_input" as const, label: "Notes", multiline: true },
+      { key: "log", type: "text_view" as const, label: "Log" },
     ],
   };
   await ui.registerSection(section);
   assert.deepEqual(mock.ui.sections.get("com.example.tuning"), section);
 
-  await ui.updateState("com.example.tuning", { boost: false, rate: 120 });
-  assert.deepEqual(mock.ui.states.get("com.example.tuning"), { boost: false, rate: 120 });
+  const codec: SelectState = {
+    value: "av1",
+    options: [
+      { label: "AV1", value: "av1" },
+      { label: "HEVC", value: "hevc" },
+    ],
+  };
+  await ui.updateState("com.example.tuning", { boost: false, rate: 120, codec });
+  assert.deepEqual(mock.ui.states.get("com.example.tuning"), { boost: false, rate: 120, codec });
 
   await ui.unregisterSection("com.example.tuning");
   assert.equal(mock.ui.sections.has("com.example.tuning"), false);
