@@ -21,7 +21,8 @@ use boa_engine::{
     js_string, Context as JsContext, JsArgs, JsError, JsNativeError, JsResult, JsString, JsValue,
     NativeFunction,
 };
-use parsec_orbit_plugin_sdk::services::{UiClient, WebViewClient};
+use parsec_orbit_plugin_sdk::services::ui::UiClient;
+use parsec_orbit_plugin_sdk::services::WebViewClient;
 use parsec_orbit_plugin_sdk::Level;
 use serde_json::Value;
 
@@ -829,66 +830,72 @@ fn ui_is_visible(_: &JsValue, _: &[JsValue], context: &mut JsContext) -> JsResul
     }
 }
 
-fn ui_register_section(
-    _: &JsValue,
-    args: &[JsValue],
-    context: &mut JsContext,
-) -> JsResult<JsValue> {
+fn ui_navigate(_: &JsValue, args: &[JsValue], context: &mut JsContext) -> JsResult<JsValue> {
+    let Some(ui) = ui_client() else {
+        return rejected(NO_UI, context);
+    };
+    let Some(page_id) = args.get_or_undefined(0).as_string() else {
+        return rejected("navigate needs a page id as a string", context);
+    };
+    let page_id = page_id.to_std_string_escaped();
+    match ui.navigate(&page_id) {
+        Ok(()) => resolved(JsValue::undefined(), context),
+        Err(error) => rejected(format!("navigate failed (code {})", error.code()), context),
+    }
+}
+
+fn ui_register_page(_: &JsValue, args: &[JsValue], context: &mut JsContext) -> JsResult<JsValue> {
     let Some(ui) = ui_client() else {
         return rejected(NO_UI, context);
     };
     let schema_json = match args.get_or_undefined(0).to_json(context) {
         Ok(Some(val)) => val.to_string(),
-        Ok(None) => return rejected("registerSection needs a schema object", context),
+        Ok(None) => return rejected("registerPage needs a page object", context),
         Err(error) => return rejected(describe(&error, context), context),
     };
-    match ui.register_section(&schema_json) {
+    match ui.register_page(&schema_json) {
         Ok(()) => resolved(JsValue::undefined(), context),
         Err(error) => rejected(
-            format!("registerSection failed (code {})", error.code()),
+            format!("registerPage failed (code {})", error.code()),
             context,
         ),
     }
 }
 
-fn ui_unregister_section(
-    _: &JsValue,
-    args: &[JsValue],
-    context: &mut JsContext,
-) -> JsResult<JsValue> {
+fn ui_unregister_page(_: &JsValue, args: &[JsValue], context: &mut JsContext) -> JsResult<JsValue> {
     let Some(ui) = ui_client() else {
         return rejected(NO_UI, context);
     };
-    let Some(section_id) = args.get_or_undefined(0).as_string() else {
-        return rejected("unregisterSection needs a section id as a string", context);
+    let Some(page_id) = args.get_or_undefined(0).as_string() else {
+        return rejected("unregisterPage needs a page id as a string", context);
     };
-    let section_id = section_id.to_std_string_escaped();
-    match ui.unregister_section(&section_id) {
+    let page_id = page_id.to_std_string_escaped();
+    match ui.unregister_page(&page_id) {
         Ok(()) => resolved(JsValue::undefined(), context),
         Err(error) => rejected(
-            format!("unregisterSection failed (code {})", error.code()),
+            format!("unregisterPage failed (code {})", error.code()),
             context,
         ),
     }
 }
 
-fn ui_update_state(_: &JsValue, args: &[JsValue], context: &mut JsContext) -> JsResult<JsValue> {
+fn ui_update_page(_: &JsValue, args: &[JsValue], context: &mut JsContext) -> JsResult<JsValue> {
     let Some(ui) = ui_client() else {
         return rejected(NO_UI, context);
     };
-    let Some(section_id) = args.get_or_undefined(0).as_string() else {
-        return rejected("updateState needs a section id as a string", context);
+    let Some(page_id) = args.get_or_undefined(0).as_string() else {
+        return rejected("updatePage needs a page id as a string", context);
     };
-    let section_id = section_id.to_std_string_escaped();
-    let state_json = match args.get_or_undefined(1).to_json(context) {
+    let page_id = page_id.to_std_string_escaped();
+    let patch_json = match args.get_or_undefined(1).to_json(context) {
         Ok(Some(val)) => val.to_string(),
-        Ok(None) => return rejected("updateState needs a state object", context),
+        Ok(None) => return rejected("updatePage needs a patch object", context),
         Err(error) => return rejected(describe(&error, context), context),
     };
-    match ui.update_state(&section_id, &state_json) {
+    match ui.update_page(&page_id, &patch_json) {
         Ok(()) => resolved(JsValue::undefined(), context),
         Err(error) => rejected(
-            format!("updateState failed (code {})", error.code()),
+            format!("updatePage failed (code {})", error.code()),
             context,
         ),
     }
@@ -896,7 +903,7 @@ fn ui_update_state(_: &JsValue, args: &[JsValue], context: &mut JsContext) -> Js
 
 pub(crate) struct UiSubscriber {
     pub(crate) tx: Sender<Command>,
-    pub(crate) section_id: String,
+    pub(crate) page_id: String,
 }
 
 unsafe extern "system" fn on_ui_action_message(user: *mut c_void, message: *const u8, len: usize) {
@@ -904,7 +911,7 @@ unsafe extern "system" fn on_ui_action_message(user: *mut c_void, message: *cons
     let action_json =
         String::from_utf8_lossy(unsafe { std::slice::from_raw_parts(message, len) }).into_owned();
     let _ = subscriber.tx.send(Command::UiAction {
-        section_id: subscriber.section_id.clone(),
+        page_id: subscriber.page_id.clone(),
         action_json,
     });
 }
@@ -917,10 +924,10 @@ fn ui_unsubscribed(ui: &UiClient, subscription_id: i64) -> bool {
 }
 
 fn ui_on_action(_: &JsValue, args: &[JsValue], context: &mut JsContext) -> JsResult<JsValue> {
-    let section_id = args
+    let page_id = args
         .get_or_undefined(0)
         .as_string()
-        .ok_or_else(|| type_error("onAction needs a section id as a string"))?
+        .ok_or_else(|| type_error("onAction needs a page id as a string"))?
         .to_std_string_escaped();
     let handler = args
         .get_or_undefined(1)
@@ -933,15 +940,14 @@ fn ui_on_action(_: &JsValue, args: &[JsValue], context: &mut JsContext) -> JsRes
         state.next_ui_handler += 1;
         state.next_ui_handler
     });
-    let known = with_state(|state| state.ui_sections.contains_key(&section_id));
+    let known = with_state(|state| state.ui_pages.contains_key(&page_id));
     if !known {
         let tx = with_state(|state| state.tx.clone());
         let user = Box::into_raw(Box::new(UiSubscriber {
             tx,
-            section_id: section_id.clone(),
+            page_id: page_id.clone(),
         })) as *mut c_void;
-        let subscription_id = match unsafe { ui.on_action(&section_id, on_ui_action_message, user) }
-        {
+        let subscription_id = match unsafe { ui.on_action(&page_id, on_ui_action_message, user) } {
             Ok(sub_id) => sub_id,
             Err(error) => {
                 drop(unsafe { Box::from_raw(user as *mut UiSubscriber) });
@@ -952,9 +958,9 @@ fn ui_on_action(_: &JsValue, args: &[JsValue], context: &mut JsContext) -> JsRes
             }
         };
         with_state(|state| {
-            state.ui_sections.insert(
-                section_id.clone(),
-                crate::engine::UiSectionChannel {
+            state.ui_pages.insert(
+                page_id.clone(),
+                crate::engine::UiPageChannel {
                     subscription_id,
                     handlers: Vec::new(),
                     subscriber: user as *mut UiSubscriber,
@@ -963,7 +969,7 @@ fn ui_on_action(_: &JsValue, args: &[JsValue], context: &mut JsContext) -> JsRes
         });
     }
     with_state(|state| {
-        if let Some(entry) = state.ui_sections.get_mut(&section_id) {
+        if let Some(entry) = state.ui_pages.get_mut(&page_id) {
             entry.handlers.push((local, handler));
         }
     });
@@ -973,7 +979,7 @@ fn ui_on_action(_: &JsValue, args: &[JsValue], context: &mut JsContext) -> JsRes
             remove_ui_handler(&sec.to_std_string_escaped(), *local as u64);
             Ok(JsValue::undefined())
         },
-        (JsString::from(section_id.as_str()), local as f64),
+        (JsString::from(page_id.as_str()), local as f64),
     );
 
     let obj = ObjectInitializer::new(context)
@@ -983,9 +989,9 @@ fn ui_on_action(_: &JsValue, args: &[JsValue], context: &mut JsContext) -> JsRes
     Ok(obj.into())
 }
 
-fn remove_ui_handler(section_id: &str, local: u64) {
+fn remove_ui_handler(page_id: &str, local: u64) {
     let (last, subscription_id, subscriber) = with_state(|state| {
-        let Some(entry) = state.ui_sections.get_mut(section_id) else {
+        let Some(entry) = state.ui_pages.get_mut(page_id) else {
             return (false, 0, std::ptr::null_mut());
         };
         entry.handlers.retain(|(id, _)| *id != local);
@@ -993,7 +999,7 @@ fn remove_ui_handler(section_id: &str, local: u64) {
         let subscription_id = entry.subscription_id;
         let subscriber = entry.subscriber;
         if last {
-            state.ui_sections.remove(section_id);
+            state.ui_pages.remove(page_id);
         }
         (last, subscription_id, subscriber)
     });
@@ -1005,11 +1011,11 @@ fn remove_ui_handler(section_id: &str, local: u64) {
     }
 }
 
-pub fn deliver_ui_action(context: &mut JsContext, section_id: &str, action_json: &str) {
+pub fn deliver_ui_action(context: &mut JsContext, page_id: &str, action_json: &str) {
     let handlers: Vec<JsFunction> = with_state(|state| {
         state
-            .ui_sections
-            .get(section_id)
+            .ui_pages
+            .get(page_id)
             .map(|entry| {
                 entry
                     .handlers
@@ -1033,7 +1039,7 @@ pub fn deliver_ui_action(context: &mut JsContext, section_id: &str, action_json:
             let text = describe(&error, context);
             log(
                 Level::Error,
-                &format!("a UI action handler for \"{section_id}\" threw: {text}"),
+                &format!("a UI action handler for \"{page_id}\" threw: {text}"),
             );
         }
     }
@@ -1042,11 +1048,11 @@ pub fn deliver_ui_action(context: &mut JsContext, section_id: &str, action_json:
 pub fn unsubscribe_ui_all() {
     let (ui, subscriptions) = with_state(|state| {
         let subscriptions: Vec<(i64, *mut UiSubscriber)> = state
-            .ui_sections
+            .ui_pages
             .values()
             .map(|entry| (entry.subscription_id, entry.subscriber))
             .collect();
-        state.ui_sections.clear();
+        state.ui_pages.clear();
         (state.spec.ui, subscriptions)
     });
     for (subscription_id, subscriber) in subscriptions {
@@ -1062,17 +1068,14 @@ fn ui_object(context: &mut JsContext) -> JsObject {
         .function(function(ui_show), js_string!("show"), 0)
         .function(function(ui_hide), js_string!("hide"), 0)
         .function(function(ui_is_visible), js_string!("isVisible"), 0)
+        .function(function(ui_navigate), js_string!("navigate"), 1)
+        .function(function(ui_register_page), js_string!("registerPage"), 1)
         .function(
-            function(ui_register_section),
-            js_string!("registerSection"),
+            function(ui_unregister_page),
+            js_string!("unregisterPage"),
             1,
         )
-        .function(
-            function(ui_unregister_section),
-            js_string!("unregisterSection"),
-            1,
-        )
-        .function(function(ui_update_state), js_string!("updateState"), 2)
+        .function(function(ui_update_page), js_string!("updatePage"), 2)
         .function(function(ui_on_action), js_string!("onAction"), 2)
         .build()
 }

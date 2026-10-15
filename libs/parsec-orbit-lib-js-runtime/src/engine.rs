@@ -24,7 +24,8 @@ use boa_engine::context::{ContextBuilder, HostHooks};
 use boa_engine::object::builtins::{JsFunction, JsPromise};
 use boa_engine::object::JsObject;
 use boa_engine::{Context as JsContext, JsError, JsResult, JsValue, Module, Source};
-use parsec_orbit_plugin_sdk::services::{ConfigClient, UiClient, WebViewClient};
+use parsec_orbit_plugin_sdk::services::ui::UiClient;
+use parsec_orbit_plugin_sdk::services::{ConfigClient, WebViewClient};
 use parsec_orbit_plugin_sdk::{Level, ERR_EXCEPTION, ERR_TIMEOUT};
 
 /// Where a context reports what happens in it.
@@ -122,9 +123,9 @@ pub enum Command {
         channel: String,
         payload: String,
     },
-    /// An action event delivered from the UI service for a registered section.
+    /// An action event delivered from the UI service for a registered page.
     UiAction {
-        section_id: String,
+        page_id: String,
         action_json: String,
     },
     Stop,
@@ -196,8 +197,8 @@ pub(crate) struct Channel {
     pub subscriber: *mut crate::host::Subscriber,
 }
 
-/// A subscription to actions of a UI section through parsec-orbit.ui.
-pub(crate) struct UiSectionChannel {
+/// A subscription to actions of a UI page through parsec-orbit.ui.
+pub(crate) struct UiPageChannel {
     pub subscription_id: i64,
     pub handlers: Vec<(u64, JsFunction)>,
     pub subscriber: *mut crate::host::UiSubscriber,
@@ -216,7 +217,7 @@ pub(crate) struct State {
     pub next_pending: u64,
     pub channels: HashMap<String, Channel>,
     pub next_handler: u64,
-    pub ui_sections: HashMap<String, UiSectionChannel>,
+    pub ui_pages: HashMap<String, UiPageChannel>,
     pub next_ui_handler: u64,
     /// Rejections nobody handled (yet), reported after the jobs ran.
     pub rejected: Vec<JsObject<boa_engine::builtins::promise::Promise>>,
@@ -378,7 +379,7 @@ fn run(spec: Spec, tx: Sender<Command>, inbox: Receiver<Command>) {
             next_pending: 0,
             channels: HashMap::new(),
             next_handler: 0,
-            ui_sections: HashMap::new(),
+            ui_pages: HashMap::new(),
             next_ui_handler: 0,
             rejected: Vec::new(),
             ready: None,
@@ -429,10 +430,10 @@ fn run(spec: Spec, tx: Sender<Command>, inbox: Receiver<Command>) {
                 crate::host::deliver(&mut context, &channel, &payload);
             }
             Ok(Command::UiAction {
-                section_id,
+                page_id,
                 action_json,
             }) => {
-                crate::host::deliver_ui_action(&mut context, &section_id, &action_json);
+                crate::host::deliver_ui_action(&mut context, &page_id, &action_json);
             }
             Err(RecvTimeoutError::Timeout) => {}
         }
