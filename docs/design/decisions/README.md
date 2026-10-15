@@ -39,3 +39,4 @@ accepted records retain their original names; use the full link to distinguish t
 | [0027](0027-windows-fluent-xaml-shell.md) | Render the Windows companion as a Fluent XAML shell over winio | Accepted |
 | [0028](0028-ui-service-abi-v2.md) | Describe UI by pages, groups and settings in service version 2 | Accepted |
 | [0029](0029-native-design-language.md) | Follow each platform's design language and system appearance | Accepted |
+| [0030](0030-macos-appkit-split-view-shell.md) | Render the macOS companion as an AppKit split view below winio | Accepted |

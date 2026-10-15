@@ -402,3 +402,13 @@ settings ([ADR 0029](../design/decisions/0029-native-design-language.md)). They
 define their own metrics, but must support light, dark and high-contrast
 appearances, keyboard operation, and the platform's accessibility tree, exposing
 each setting's `key` as its automation identifier where the platform has one.
+
+On macOS the window is a sidebar and a detail pane
+([ADR 0030](../design/decisions/0030-macos-appkit-split-view-shell.md)). The
+sidebar lists the `orbit` pages, a separator, a "Plugins" heading and the plugin
+pages. The detail shows the selected page in a column of at most 760 pt. Settings
+use the standard AppKit controls; a `value` is selectable text, and a
+`copyable` one has a copy button. The window title is the selected page's title.
+The restart notice floats over the bottom of the detail pane and leaves room
+under the last row. Closing the window hides it; showing it restores a
+minimized window and activates the application.
