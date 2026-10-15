@@ -65,6 +65,11 @@ const TYPES: &[&str] = &[
     "Microsoft.UI.Xaml.Controls.Expander",
     "Microsoft.UI.Xaml.Controls.TextBlock",
     "Microsoft.UI.Xaml.Controls.StackPanel",
+    "Microsoft.UI.Xaml.Controls.ScrollViewer",
+    "Microsoft.UI.Xaml.Controls.InfoBarSeverity",
+    "Microsoft.UI.Xaml.Controls.UIElementCollection",
+    "Microsoft.UI.Xaml.Visibility",
+    "Microsoft.UI.Xaml.Automation.AutomationProperties",
     // Events and loading.
     "Microsoft.UI.Xaml.RoutedEventHandler",
     "Microsoft.UI.Xaml.RoutedEventArgs",
