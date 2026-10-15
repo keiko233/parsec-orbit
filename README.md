@@ -70,6 +70,13 @@ libraries), `libs/` (service providers such as `config`, `hooks`, `js-runtime`,
 * `examples/parsec-orbit-plugin-hello/` - the same idea with `std`.
 * `tools/parsec-orbit-verify/` - verification tools for the loader and the
   WebView patch delivery.
+* `tools/parsec-orbit-release/` - the release tool: packages the official
+  modules, checks, builds and signs the registry, and prints the workspace
+  version; see [Registry](docs/spec/registry.md#publishing-parsec-orbit-release).
+* `manifest/` - the official registry sources on `main`: one `entry.toml` and
+  `releases.toml` per module and `host/releases.toml`. The generated, signed
+  `index.json` and `host.json` are built from them; see
+  [manifest/README.md](manifest/README.md).
 * `tests/parsec-orbit-e2e/` - end-to-end tests that run the built loader and
   plugins inside a real process; see [Tests](#tests).
 

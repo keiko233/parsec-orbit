@@ -1,6 +1,6 @@
 # Registry
 
-Status: partly implemented. The library (`crates/parsec-orbit-registry`) reads, checks and keeps the format-1 index fields below, the cache, `trusted-keys.toml` and the `host.json` model. The `index` publisher command does not set the new fields yet. Not yet implemented: the `manifest/` source tree and the release job that generates `index.json` and `host.json` from it (see [restructure.md](../design/restructure.md#43-the-official-registry-manifest-on-main)). The base rules, the package format and installation are in [marketplace.md](marketplace.md).
+Status: partly implemented. The library (`crates/parsec-orbit-registry`) reads, checks and keeps the format-1 index fields below, the cache, `trusted-keys.toml` and the `host.json` model. The `manifest/` source tree and the release tool (`tools/parsec-orbit-release`) exist; the tool's `registry` commands produce the generated files. Not yet implemented: the CI release job that runs them; `scripts/` and `.github/` still produce `release.json` and the `parsec-orbit-market index` output until that cutover. The base rules, the package format and installation are in [marketplace.md](marketplace.md).
 
 Conventions: a document has an integer `format` (1); readers ignore unknown keys; an unknown `format` is refused. Locations are `https://` or relative to the document, without `..`. Hashes are lowercase hex sha256.
 
@@ -91,3 +91,16 @@ comment = "the maintainers"   # optional
 * Unknown keys are ignored. An unknown `algorithm`, a key that is not a valid base64 ed25519 public key, or malformed TOML refuses the list.
 * A `--keys` file whose name ends in `.toml` is read this way. Any other `--keys` file is read in the older line format, `ed25519 <base64 public key> [comment]`, one per line.
 * When `trusted-keys.toml` does not exist but `trusted-keys.txt` does, the text list is converted once: the TOML file is written beside it and the text file is left as it was. After that the text file is not read; edits to it have no effect.
+
+## Publishing: `parsec-orbit-release`
+
+The tool reads and writes the sources in `manifest/` ([manifest/README.md](../../manifest/README.md)) and the release assets. Exit status: 0 success, 1 error (a `registry check` that finds problems is an error), 2 usage.
+
+| Command | Does |
+| --- | --- |
+| `version [--workspace DIR]` | Prints `[workspace.package] version` of the workspace. |
+| `package --platform ID --out DIR [--workspace DIR] [--target-dir DIR]` | Zips each official module whose `[build]` lists the platform as `<crate package name>-<platform>.zip`, with one top folder named by the id. The staged `plugin.toml` gets the workspace `version` and the platform's `kind` (`dll` or `dylib`) and `entry`; other lines are kept. Copies `README*.md`, the loader if it is built (`bcrypt.dll`, `libparsec_orbit_loader.dylib`) and writes `SHA256SUMS.txt`. The libraries come from `cargo build --release`; a missing one is named. |
+| `registry check [--manifest DIR]` | Validates the sources offline, reporting each problem with its file. |
+| `registry add --tag vX.Y.Z --assets DIR [--manifest DIR] [--repo owner/name]` | Appends a `[[release]]` to `plugins/<id>/releases.toml` for each plugin zip (URL `https://github.com/<repo>/releases/download/<tag>/<file>`, platform from the file name, `published` today) and to `host/releases.toml` for each loader with its installer. A host release needs both files; a loader alone adds nothing. A release already listed is refused, and nothing is written if any check fails. |
+| `registry build [--manifest DIR] [--sign KEYFILE] [--dist DIR]` | Fetches every release, checks its size, sha256 and manifest (`id`, `version`, `kind` against the platform), and writes `index.json` and `host.json` in the format of this document. `serial` rises by one only when the content changes; an unchanged build leaves both files untouched. `--sign` writes `*.sig` over the exact bytes; `--dist DIR` reads each release from the file of its last URL name. A signature left from an older file is removed when the file changes unsigned. |
+| `keygen`, `sign`, `verify`, `verify-any` | Forwarded to the `parsec-orbit-market` implementation in `parsec-orbit-registry`, so both tools sign and verify the same way. |
