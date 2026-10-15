@@ -164,7 +164,7 @@ fn main() {
     }
 }
 
-fn run() -> Result<(), String> {
+fn run() -> std::result::Result<(), String> {
     let (writer, output) = mpsc::sync_channel(64);
     let shared = Arc::new(Shared::new(writer));
     let writer_context = Arc::downgrade(&shared);

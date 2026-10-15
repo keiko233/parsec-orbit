@@ -78,7 +78,8 @@ after 60 seconds and reaps its helper; set `ORBIT_UI_PROBE_SECONDS` to change th
 probe duration. This demonstrates the renderer and pipes in an owned host, not
 compatibility with a real signed-in client or the production sandbox.
 
-The real event-loop regression requires a macOS desktop session and is explicit:
+The real event-loop regression requires an interactive Windows or macOS desktop
+session and is explicit:
 
 ```sh
 cargo test --locked -p parsec-orbit-ui-companion --test pipe_lifecycle -- --ignored

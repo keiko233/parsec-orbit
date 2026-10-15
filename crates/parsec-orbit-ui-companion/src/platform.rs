@@ -1,10 +1,10 @@
 use winio::handle::AsWindow;
-use winio::prelude::{Child, Size, Window};
+use winio::prelude::{Child, Window};
 
 #[cfg(target_os = "macos")]
 use winio::handle::AsWidget;
 #[cfg(target_os = "macos")]
-use winio::prelude::{ScrollView, TabView};
+use winio::prelude::{ScrollView, Size, TabView};
 
 pub enum WakeTarget {
     #[cfg(windows)]

@@ -1,6 +1,6 @@
-//! Real AppKit-loop regression. Requires a macOS WindowServer session.
+//! Real native event-loop regression. Requires an interactive desktop session.
 //! Run explicitly: cargo test -p parsec-orbit-ui-companion --test pipe_lifecycle -- --ignored
-#![cfg(target_os = "macos")]
+#![cfg(any(windows, target_os = "macos"))]
 
 use parsec_orbit_ui_protocol::{read_message, write_message, ChildMessage, ParentMessage, VERSION};
 use std::io::BufReader;
@@ -58,7 +58,7 @@ fn exited(child: &mut OwnedChild) {
 }
 
 #[test]
-#[ignore = "requires a macOS desktop session"]
+#[ignore = "requires an interactive desktop session"]
 fn idle_run_loop_handles_shutdown_and_parent_eof() {
     for shutdown in [true, false] {
         let mut child = launch();
