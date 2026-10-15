@@ -189,7 +189,7 @@ valid one level down, and the crate directory still equals the package name.
 | --- | --- | --- |
 | `abi` | nothing | anything |
 | `sdk` | `abi` | `std` (ADR 0002) |
-| `core` | `abi`, `layout` | serde, async, `sdk`, `registry` (ADR 0004) |
+| `core` | `abi`, `layout`, `log-tail` | serde, async, `sdk`, `registry` (ADR 0004) |
 | `loader-<os>` | `core`, `layout`, `abi`, OS crate | `registry`, `sdk` |
 | `libs/*` | `sdk` (+ `sdk-testing` as dev-dependency), `shared` | other `libs/*`, `plugins/*`, `core`, loaders |
 | `plugins/*` | `sdk` (+ `sdk-testing` as dev-dependency); `plugin-market` also `registry`, `layout` | `libs/*`, other plugins, `core`, loaders |

@@ -58,6 +58,11 @@ The loader logs `ready: N loaded, M skipped, K failed` and, per decision, one li
 
 ## 6. Debug console
 
+Console file following is shared through `parsec-orbit-log-tail`. Each poll
+reads at most 64 KiB including the rotation anchor; larger appends are consumed
+over successive polls. This bounds each allocation while preserving partial
+lines and truncation/replacement detection.
+
 `PARSEC_ORBIT_CONSOLE` makes the loader open a console window on its worker
 thread before the first line is logged and mirror every line of the loader log
 into it, unchanged and in the same order. It picks which instances do that:

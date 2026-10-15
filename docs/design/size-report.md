@@ -218,3 +218,13 @@ digests and validation limits are recorded in the
 the native Windows build in its
 [Windows follow-up](ui-companion-checkpoint.md#windows-follow-up-2026-10-15).
 GUI dependencies belong only to the helper; the loader and core are unchanged.
+
+## Shared bounded log follower (Windows x64, 2026-10-15)
+
+Extracting the existing follower into the zero-dependency `parsec-orbit-log-tail`
+crate and limiting reads to 64 KiB changes the current release `bcrypt.dll`
+from 400,896 to 401,408 B (+512 B), measured with the same checkout toolchain
+and workspace release profile. This small cost bounds allocations when a log
+grows quickly and lets the UI reuse the console's rotation handling without
+linking core. No GUI or third-party dependency is added to the loader. The
+existing loader baseline already exceeds the historical 360 KiB budget.
