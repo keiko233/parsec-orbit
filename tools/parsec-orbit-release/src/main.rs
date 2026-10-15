@@ -3,6 +3,8 @@
 //! `docs/design/restructure.md` (sections 4.3 and 5).
 
 mod args;
+mod check;
+mod manifest;
 #[cfg(test)]
 mod testing;
 mod version;
@@ -21,6 +23,9 @@ Usage: parsec-orbit-release <command> [options]
 
   version [--workspace DIR]           print [workspace.package] version (default: .)
 
+Registry (manifest/)
+  registry check [--manifest DIR]     validate the sources offline; exit 1 on any problem
+
 Signing (the parsec-orbit-market implementation)
   keygen <name>                       write <name>.key (the secret), print the public key
   sign <index.json> --key <name.key>  write <index.json>.sig
@@ -37,8 +42,20 @@ fn run(args: &[String], out: &mut dyn Write) -> Result<(), Error> {
     match command.as_str() {
         "help" | "--help" | "-h" => Ok(write!(out, "{USAGE}")?),
         "version" => version::run(rest, out),
+        "registry" => registry(rest, out),
         "keygen" | "sign" | "verify" | "verify-any" => signing(command, rest, out),
         other => Err(args::usage(format!("unknown command {other:?}"))),
+    }
+}
+
+/// `registry <command>`: the official manifest in `manifest/`.
+fn registry(args: &[String], out: &mut dyn Write) -> Result<(), Error> {
+    let Some((command, rest)) = args.split_first() else {
+        return Err(args::usage("registry needs a command: check"));
+    };
+    match command.as_str() {
+        "check" => check::run(rest, out),
+        other => Err(args::usage(format!("unknown registry command {other:?}"))),
     }
 }
 
