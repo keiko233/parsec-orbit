@@ -466,17 +466,21 @@ keys, so the format number stays `1` for `index.json`.
 
 #### Fetch and update (clients)
 
-Source list: `<root>/market/sources.toml`; absent file = the official source:
+Source list: `<root>/market/sources.toml`, one `[[source]]` per registry with a
+`name` and the `location` of its `index.json` (implemented as
+`parsec_orbit_registry::sources`, see [registry.md](../spec/registry.md#sourcestoml)):
 
 ```toml
 [[source]]
-name = "official"
-urls = [
-  "https://raw.githubusercontent.com/keiko233/parsec-orbit/main/manifest/",
-  # optional mirror; safe because every byte is signature-checked
-  "https://cdn.jsdelivr.net/gh/keiko233/parsec-orbit@main/manifest/",
-]
+name = "Parsec Orbit"
+location = "https://raw.githubusercontent.com/keiko233/parsec-orbit/main/manifest/index.json"
 ```
+
+A mirror of the same registry is a second source or, better, a `mirrors` entry
+of each release in the signed index (implemented); either is safe because every
+byte is signature-checked. A missing file is an empty list today; making the
+official location the built-in default is a hand-off item (the URL is not
+fixed in code yet).
 
 1. `GET index.json.sig` with `If-None-Match`. The signature is 88 bytes and
    changes whenever the index does, so an unchanged `ETag` or content means
@@ -930,7 +934,8 @@ in an isolated worktree with the target-clone policy of
 | 6 | `no_std` conversion | `high-bitrate-webview` to `no_std` (`cdylib` only, `verify-webview-inject` reads the asset); then measure and decide `high-bitrate-native`; guide updated. | Size recorded in the size report; e2e suite loads the converted plugin. Independent of phases 3 to 5. |
 | 7 | Cutover (0.2.0) | Release workflow publishes through `parsec-orbit-release`; enable the signing secret and bot commits; delete `install.ps1`, `orbit-manager*`, `set-web-ui.ps1`, `package*.{ps1,py}` internals, `install-macos.sh`, `console-macos.*` and their tests; move research scripts; remove `parsec-orbit-market` from the release; replace the `Select-String` version reads in the workflows with `parsec-orbit-release version`; update `AGENTS.md` §8 and the guides below; mark ADR 0006 superseded; README install section. | Fresh install and in-place upgrade from a 0.1.x install on both OSes before tagging. |
 
-Phases 4, 5 and 6 depend only on 3 (6 only on 1) and may run in parallel.
+Status of each phase (done on macOS, left for Windows, not started) is in
+[restructure-handoff.md](restructure-handoff.md). Phases 4, 5 and 6 depend only on 3 (6 only on 1) and may run in parallel.
 Phase 1 is the largest diff and the lowest risk (moves and renames); it goes
 first so every later change lands in the final layout.
 
@@ -958,9 +963,9 @@ script re-bootstrap with `get-orbit`; the release notes say so.
 | 0017 | One SDK package, no features; `sdk-std` dissolved into `sdk` + `sdk-testing`; crate-split criteria. **Written, accepted.** | amends 0002 |
 | 0018 | Crate roles and directory layout (`lib`, `plugin`, `tool`, dependency law). **Written, accepted.** | none |
 | 0019 | `layout` crate and shared loader glue (`format_line`, `Session`). **Written, accepted.** Per-plugin backends are the pattern `hooks` already uses. | none |
-| 0020 | The market is a plugin over the `registry` library | marketplace spec sections on the CLI |
+| 0020 | The market is a plugin over the `registry` library. **Written.** | marketplace spec sections on the CLI |
 | 0021 | The installer and release tooling are Rust | 0006; `AGENTS.md` §8 |
-| 0022 | The official registry is `manifest/` on `main`, signed by CI | marketplace spec "Publishing" |
+| 0022 | The official registry is `manifest/` on `main`, signed by CI. **Written.** | marketplace spec "Publishing" |
 | 0023 | Pending-update promotion in `core`. **Written, accepted, implemented.** | none |
 | 0024 | `no_std` policy: plugins by measurement, no SDK feature switch, loader spike gate | none |
 | 0025 | File formats: TOML for edited files, JSON for exchanged ones, one source per fact | none |
