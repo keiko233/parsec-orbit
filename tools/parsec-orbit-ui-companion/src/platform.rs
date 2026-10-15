@@ -1,11 +1,6 @@
 use winio::handle::AsWindow;
 use winio::prelude::{Child, Window};
 
-#[cfg(target_os = "macos")]
-use winio::handle::AsWidget;
-#[cfg(target_os = "macos")]
-use winio::prelude::{ScrollView, Size, TabView};
-
 pub enum WakeTarget {
     #[cfg(windows)]
     Windows(windows_sys::Win32::Foundation::HWND),
@@ -75,40 +70,6 @@ pub fn finish_launching() {
     edit_item.setTitle(&edit_title);
     edit_item.setSubmenu(Some(&edit_menu));
     main_menu.addItem(&edit_item);
-}
-
-#[cfg(target_os = "macos")]
-pub fn tab_content_size(tabs: &Child<TabView>) -> winio::Result<Size> {
-    use objc2_app_kit::NSTabView;
-
-    let view = tabs
-        .as_widget()
-        .as_app_kit()
-        .downcast_ref::<NSTabView>()
-        .expect("winio TabView has the expected AppKit class");
-    let content = view.contentRect().size;
-    Ok(Size::new(content.width, content.height))
-}
-
-#[cfg(target_os = "macos")]
-pub fn scroll_to_top(scroll: &Child<ScrollView>) {
-    use objc2_app_kit::NSScrollView;
-
-    let view = scroll
-        .as_widget()
-        .as_app_kit()
-        .downcast_ref::<NSScrollView>()
-        .expect("winio ScrollView has the expected AppKit class");
-    let clip = view.contentView();
-    if let Some(document) = view.documentView() {
-        let bounds = clip.bounds();
-        let document_frame = document.frame();
-        let mut origin = bounds.origin;
-        origin.y = (document_frame.origin.y + document_frame.size.height - bounds.size.height)
-            .max(document_frame.origin.y);
-        clip.scrollToPoint(origin);
-        view.reflectScrolledClipView(&clip);
-    }
 }
 
 #[cfg(target_os = "macos")]

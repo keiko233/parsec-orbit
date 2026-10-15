@@ -7,9 +7,6 @@ mod maintenance;
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 mod model;
 mod platform;
-// Only the macOS renderer draws rows; the tests of the reduction run everywhere.
-#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
-mod rows;
 
 use std::io::{self, BufReader, BufWriter};
 use std::sync::mpsc::{self, SyncSender, TrySendError};
