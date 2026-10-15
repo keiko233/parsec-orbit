@@ -552,7 +552,7 @@ pub struct ParsecOrbitHooksV1 {
     pub remove: Option<unsafe extern "system" fn(hook: i64) -> i32>,
 }
 
-/// `parsec-orbit.ui` 1.0, provided by the UI service plugin: a native
+/// `parsec-orbit.ui` 1.0 (superseded by [`ParsecOrbitUiV2`]), provided by the UI service plugin: a native
 /// external management window powered by `winio`.
 ///
 /// Plugins register declarative sections and controls, listen for user
@@ -590,6 +590,54 @@ pub struct ParsecOrbitUiV1 {
     pub on_action: Option<
         unsafe extern "system" fn(
             section_id: *const u8,
+            id_len: usize,
+            cb: Option<MessageCallback>,
+            user: *mut c_void,
+        ) -> i64,
+    >,
+    /// Cancels an action subscription. Returns 0 or a negative error.
+    pub off_action: Option<unsafe extern "system" fn(subscription: i64) -> i32>,
+}
+
+/// `parsec-orbit.ui` 2.0, provided by the UI service plugin: a native
+/// external management window.
+///
+/// Plugins register declarative pages of settings, push state patches, listen
+/// for user action callbacks, and query or control window visibility without
+/// bundling GUI runtimes. See `docs/spec/ui-service.md`.
+#[repr(C)]
+pub struct ParsecOrbitUiV2 {
+    pub header: ParsecOrbitInterfaceHeader,
+    /// Shows and focuses the companion window. Returns 0 when accepted.
+    pub show: Option<unsafe extern "system" fn() -> i32>,
+    /// Hides the companion window without stopping the event loop.
+    pub hide: Option<unsafe extern "system" fn() -> i32>,
+    /// Returns 1 if visible, 0 if hidden.
+    pub is_visible: Option<unsafe extern "system" fn() -> i32>,
+    /// Selects a registered page (UTF-8 page id). Returns 0, or a negative error.
+    pub navigate: Option<unsafe extern "system" fn(page_id: *const u8, id_len: usize) -> i32>,
+    /// Registers a declarative page (UTF-8 JSON text).
+    /// Returns 0 on success, or a negative error.
+    pub register_page:
+        Option<unsafe extern "system" fn(page_json: *const u8, page_len: usize) -> i32>,
+    /// Unregisters a page by its ID (UTF-8 string).
+    pub unregister_page:
+        Option<unsafe extern "system" fn(page_id: *const u8, id_len: usize) -> i32>,
+    /// Applies a state patch (UTF-8 JSON object with `values`, `props` and
+    /// `restart_required`) to a page. Returns 0 on success, or a negative error.
+    pub update_page: Option<
+        unsafe extern "system" fn(
+            page_id: *const u8,
+            id_len: usize,
+            patch_json: *const u8,
+            patch_len: usize,
+        ) -> i32,
+    >,
+    /// Subscribes to user interactions within the specified page. Returns
+    /// a subscription id greater than zero, or a negative error.
+    pub on_action: Option<
+        unsafe extern "system" fn(
+            page_id: *const u8,
             id_len: usize,
             cb: Option<MessageCallback>,
             user: *mut c_void,

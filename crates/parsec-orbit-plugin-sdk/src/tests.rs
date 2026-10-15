@@ -271,3 +271,57 @@ fn ui_client_forwards_calls() {
         Some(r#"{"id":"test"}"#)
     );
 }
+
+// ---- UiClient, version 2 -----------------------------------------------------------------
+
+static UI2_SHOW_CALLED: Mutex<bool> = Mutex::new(false);
+static UI2_HIDE_CALLED: Mutex<bool> = Mutex::new(false);
+static UI2_LAST_PAGE: Mutex<Option<std::string::String>> = Mutex::new(None);
+
+unsafe extern "system" fn fake_ui2_show() -> i32 {
+    *UI2_SHOW_CALLED.lock().unwrap() = true;
+    0
+}
+
+unsafe extern "system" fn fake_ui2_hide() -> i32 {
+    *UI2_HIDE_CALLED.lock().unwrap() = true;
+    0
+}
+
+unsafe extern "system" fn fake_ui2_is_visible() -> i32 {
+    1
+}
+
+unsafe extern "system" fn fake_ui2_register_page(schema: *const u8, len: usize) -> i32 {
+    let slice = unsafe { core::slice::from_raw_parts(schema, len) };
+    *UI2_LAST_PAGE.lock().unwrap() = Some(std::string::String::from_utf8_lossy(slice).into_owned());
+    0
+}
+
+#[test]
+fn ui_client_v2_forwards_calls() {
+    let table = ParsecOrbitUiV2 {
+        header: ParsecOrbitInterfaceHeader::new(size_of::<ParsecOrbitUiV2>(), 2, 0),
+        show: Some(fake_ui2_show),
+        hide: Some(fake_ui2_hide),
+        is_visible: Some(fake_ui2_is_visible),
+        navigate: None,
+        register_page: Some(fake_ui2_register_page),
+        unregister_page: None,
+        update_page: None,
+        on_action: None,
+        off_action: None,
+    };
+    let client =
+        services::ui::UiClient::from_table(std::boxed::Box::leak(std::boxed::Box::new(table)));
+    assert_eq!(client.is_visible().unwrap(), true);
+    assert!(client.show().is_ok());
+    assert!(*UI2_SHOW_CALLED.lock().unwrap());
+    assert!(client.hide().is_ok());
+    assert!(*UI2_HIDE_CALLED.lock().unwrap());
+    assert!(client.register_page(r#"{"id":"test"}"#).is_ok());
+    assert_eq!(
+        UI2_LAST_PAGE.lock().unwrap().as_deref(),
+        Some(r#"{"id":"test"}"#)
+    );
+}

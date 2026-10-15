@@ -122,6 +122,18 @@ fn service_table_layouts_are_frozen() {
     assert_eq!(offset_of!(ParsecOrbitUiV1, on_action), 56);
     assert_eq!(offset_of!(ParsecOrbitUiV1, off_action), 64);
     assert_eq!(size_of::<ParsecOrbitUiV1>(), 72);
+
+    assert_eq!(offset_of!(ParsecOrbitUiV2, header), 0);
+    assert_eq!(offset_of!(ParsecOrbitUiV2, show), 8);
+    assert_eq!(offset_of!(ParsecOrbitUiV2, hide), 16);
+    assert_eq!(offset_of!(ParsecOrbitUiV2, is_visible), 24);
+    assert_eq!(offset_of!(ParsecOrbitUiV2, navigate), 32);
+    assert_eq!(offset_of!(ParsecOrbitUiV2, register_page), 40);
+    assert_eq!(offset_of!(ParsecOrbitUiV2, unregister_page), 48);
+    assert_eq!(offset_of!(ParsecOrbitUiV2, update_page), 56);
+    assert_eq!(offset_of!(ParsecOrbitUiV2, on_action), 64);
+    assert_eq!(offset_of!(ParsecOrbitUiV2, off_action), 72);
+    assert_eq!(size_of::<ParsecOrbitUiV2>(), 80);
 }
 
 #[test]
@@ -238,6 +250,7 @@ fn abi_document_matches_the_definitions() {
         "ParsecOrbitConfigV1",
         "ParsecOrbitHooksV1",
         "ParsecOrbitUiV1",
+        "ParsecOrbitUiV2",
         "ERR_NOT_FOUND",
         INTERFACE_KIND_PREFIX,
         INTERFACE_WEBVIEW,

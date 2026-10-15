@@ -35,6 +35,8 @@ pub const fn kind_handler(
     }
 }
 
+pub mod ui;
+
 // ---- parsec-orbit.webview ----------------------------------------------------
 
 use core::ffi::{c_void, CStr};

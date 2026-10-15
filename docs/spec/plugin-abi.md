@@ -190,7 +190,7 @@ typedef struct ParsecOrbitHooksV1 {
     int32_t (*remove)(int64_t hook);
 } ParsecOrbitHooksV1;
 
-/* parsec-orbit.ui, version 1.0 */
+/* parsec-orbit.ui, version 1.0 (superseded by version 2.0 below) */
 typedef struct ParsecOrbitUiV1 {
     ParsecOrbitInterfaceHeader header;
     int32_t (*show)(void);
@@ -204,6 +204,22 @@ typedef struct ParsecOrbitUiV1 {
                          ParsecOrbitMessageCallback cb, void *user);
     int32_t (*off_action)(int64_t subscription);
 } ParsecOrbitUiV1;
+
+/* parsec-orbit.ui, version 2.0 */
+typedef struct ParsecOrbitUiV2 {
+    ParsecOrbitInterfaceHeader header;
+    int32_t (*show)(void);
+    int32_t (*hide)(void);
+    int32_t (*is_visible)(void);
+    int32_t (*navigate)(const uint8_t *page_id, size_t id_len);
+    int32_t (*register_page)(const uint8_t *page_json, size_t page_len);
+    int32_t (*unregister_page)(const uint8_t *page_id, size_t id_len);
+    int32_t (*update_page)(const uint8_t *page_id, size_t id_len,
+                           const uint8_t *patch_json, size_t patch_len);
+    int64_t (*on_action)(const uint8_t *page_id, size_t id_len,
+                         ParsecOrbitMessageCallback cb, void *user);
+    int32_t (*off_action)(int64_t subscription);
+} ParsecOrbitUiV2;
 ```
 
 Error codes returned by the host and by interfaces:
