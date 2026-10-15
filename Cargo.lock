@@ -1997,6 +1997,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "parsec-orbit-release"
+version = "0.1.1"
+dependencies = [
+ "parsec-orbit-registry",
+ "semver",
+ "serde",
+ "toml",
+]
+
+[[package]]
 name = "parsec-orbit-verify"
 version = "0.1.1"
 dependencies = [
