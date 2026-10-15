@@ -150,7 +150,7 @@ The UI architecture is divided into three cleanly decoupled pillars:
                                  ▼
  ┌────────────────────────────────────────────────────────────────────────┐
  │   parsec-orbit-ui-companion[.exe] (main-thread winio renderer)         │
- │  • Win32 / WinUI on Windows; AppKit on macOS                            │
+ │  • WinUI 3 on Windows; AppKit on macOS                                  │
  │  • Built-in: Overview, Plugins, Parsec & Orbit Config, Log             │
  │  • Dynamically rendered plugin sections from registered schemas        │
  └────────────────────────────────────────────────────────────────────────┘

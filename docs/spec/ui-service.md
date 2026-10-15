@@ -13,6 +13,14 @@ Plugins do not embed UI runtimes; they register declarative JSON schemas
 defining configuration sections and controls, and listen for user action
 events.
 
+On Windows the helper uses winio's WinUI 3 (`winui`) backend, with default
+backends disabled. Its development baseline is Windows 11 21H2 or newer and a
+compatible installed x64 Windows App Runtime, as documented by the pinned
+[winio 0.12.0 release](https://docs.rs/crate/winio/0.12.0/source/README.md).
+Runtime discovery belongs to winio. Orbit does not install that runtime or
+silently fall back to the Win32 backend when it is missing. The service ABI and
+plugin/loader dependency boundaries are unchanged.
+
 ## Service header and table
 
 Provider: `com.parsec-orbit.ui` (official plugin).
@@ -108,6 +116,10 @@ service methods. On Windows, the existing host hotkeys and CLI activation also
 request visibility through the service. macOS initially supports programmatic
 show/hide only; no external CLI or hotkey activation is implemented unless a
 renderer adds it.
+
+Windows activation restores a minimized helper window and requests foreground
+focus. Foreground focus is best effort under Windows focus restrictions;
+accepting a visibility request does not guarantee foreground ownership.
 
 `register_section`, `unregister_section` and `update_state` update the
 plugin-owned registry first, then send the corresponding change to the helper.

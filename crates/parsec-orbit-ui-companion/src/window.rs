@@ -270,7 +270,7 @@ impl OrbitUi {
         self.window.set_visible(visible)?;
         self.visible = visible;
         if visible {
-            activate(&self.window);
+            activate(&self.window)?;
         }
         Ok(true)
     }
@@ -281,7 +281,7 @@ impl OrbitUi {
         }
         self.revision = revision;
         if visible && self.visible {
-            activate(&self.window);
+            activate(&self.window)?;
             Ok(false)
         } else {
             self.set_visible(visible)
@@ -395,7 +395,7 @@ impl Component for OrbitUi {
             revision: 0,
         };
         ui.rebuild(Vec::new()).await?;
-        let wake = WakeTarget::for_window(&ui.window);
+        let wake = WakeTarget::for_window(&ui.window)?;
         context.connect(sender, wake);
         context.write(ChildMessage::Ready {
             version: parsec_orbit_ui_protocol::VERSION,

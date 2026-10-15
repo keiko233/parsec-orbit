@@ -2002,6 +2002,7 @@ dependencies = [
  "objc2-foundation",
  "parsec-orbit-ui-protocol",
  "serde_json",
+ "windows",
  "windows-sys 0.61.2",
  "winio",
 ]
@@ -3321,7 +3322,6 @@ dependencies = [
  "winio-ui-app-kit",
  "winio-ui-stub",
  "winio-ui-ui-kit",
- "winio-ui-win32",
  "winio-ui-windows-common",
  "winio-ui-winui",
 ]
@@ -3511,29 +3511,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "winio-ui-win32"
-version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d8a7748f7313f3fb86b28042f1ffc9e880e416c557d15529021304325d67438f"
-dependencies = [
- "arrayvec",
- "compio-log",
- "futures-util",
- "image",
- "inherit-methods-macro",
- "once_cell",
- "scoped-tls",
- "slab",
- "widestring",
- "windows",
- "windows-sys 0.61.2",
- "winio-handle",
- "winio-pollable",
- "winio-primitive",
- "winio-ui-windows-common",
-]
-
-[[package]]
 name = "winio-ui-windows-common"
 version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3546,8 +3523,6 @@ dependencies = [
  "image",
  "once_cell",
  "oneshot",
- "slim-detours-sys",
- "sync-unsafe-cell",
  "widestring",
  "windows",
  "windows-numerics",

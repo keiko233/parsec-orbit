@@ -122,10 +122,10 @@ impl Drop for WakeTarget {
 }
 
 impl WakeTarget {
-    pub fn for_window(window: &Child<Window>) -> Self {
+    pub fn for_window(window: &Child<Window>) -> winio::Result<Self> {
         #[cfg(windows)]
         {
-            Self::Windows(window.as_window().as_win32())
+            Ok(Self::Windows(window.as_window().handle()?))
         }
 
         #[cfg(target_os = "macos")]
@@ -156,7 +156,7 @@ impl WakeTarget {
                 unsafe { CFRunLoopSource::new(kCFAllocatorDefault, 0, &mut source_context) }
                     .expect("could not create the companion run loop wake source");
             run_loop.add_source(Some(&source), unsafe { kCFRunLoopDefaultMode });
-            Self::MacOs { run_loop, source }
+            Ok(Self::MacOs { run_loop, source })
         }
     }
 
@@ -178,7 +178,7 @@ impl WakeTarget {
     }
 }
 
-pub fn activate(window: &Child<Window>) {
+pub fn activate(window: &Child<Window>) -> winio::Result<()> {
     #[cfg(windows)]
     unsafe {
         use windows_sys::Win32::UI::WindowsAndMessaging::{
@@ -186,7 +186,7 @@ pub fn activate(window: &Child<Window>) {
         };
         // SAFETY: the component calls this on the UI thread while it owns the
         // live HWND. Both calls operate on that window only.
-        let hwnd = window.as_window().as_win32();
+        let hwnd = window.as_window().handle()?;
         ShowWindow(hwnd, SW_RESTORE);
         SetForegroundWindow(hwnd);
     }
@@ -205,4 +205,5 @@ pub fn activate(window: &Child<Window>) {
         }
         window.makeKeyAndOrderFront(None);
     }
+    Ok(())
 }

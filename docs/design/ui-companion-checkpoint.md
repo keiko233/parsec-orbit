@@ -65,9 +65,8 @@ these arm64 measurements.
 
 ## Unverified and deferred
 
-* The Windows renderer cross-check is blocked on this macOS host by missing
-  `llvm-rc` in winio's Windows resource build. No stub resource compiler was used.
-  Windows runtime, activation and window behavior require Windows verification.
+* The original macOS-host Windows renderer cross-check was blocked by missing
+  `llvm-rc`. Native Windows follow-up evidence is recorded below.
 * Launching from the real patched client, its inherited production isolation
   policy, client full-screen/streaming focus and real keyboard IME composition
   remain unverified. Unicode paste is not an IME acceptance test.
@@ -79,3 +78,60 @@ these arm64 measurements.
 
 See the [development guide](../guides/ui-companion.md) for build, staging and
 owned-host commands.
+
+## Windows follow-up (2026-10-15)
+
+The native Windows build exposed a `Result` name collision in winio's Windows
+prelude; the process entry point now explicitly uses `std::result::Result`.
+The UI plugin checks the process session ID instead of assuming that only
+LocalSystem runs in session 0. Session 0 and a failed session lookup keep the
+service table without launching desktop UI or hotkeys.
+
+The Windows helper now selects winio's WinUI 3 backend, without the Win32
+backend or its optional theme hooks ([ADR 0019](decisions/0019-windows-ui-winui3.md)).
+This host already has x64 Windows App Runtime 1.8 and 2 packages; no runtime
+installation or system configuration change was made. The helper's installed
+runtime dependency is separate from its executable size.
+
+All follow-up runs use owned test processes and synthetic forms, without an
+installed Parsec client or real user configuration. The real event-loop
+regression now also runs explicitly on Windows: idle shutdown, EOF after
+readiness and EOF before GUI construction passed. The SDK `service-host`
+registered the service, showed/hid the helper and updated state through the ABI.
+
+| Check | Windows result and scope |
+| --- | --- |
+| `cargo check --locked -p parsec-orbit-ui-companion --all-targets` | Passed with the native Windows resources and backend. |
+| `cargo test --workspace --locked` with `PARSEC_ORBIT_REQUIRE_NODE=1` | 550 passed, 0 failed, 3 ignored, including the two explicitly run desktop regressions. |
+| `pnpm install --frozen-lockfile`, recursive build and tests | Passed; 26 JavaScript tests passed. |
+| `companion_process` | All four Windows process tests passed, including a process-handle wait proving the supervisor terminates its owned child. |
+| Real Windows event-loop regression | Ten consecutive WinUI runs passed idle shutdown, EOF after readiness and EOF before GUI construction. |
+| Real WinUI desktop regression | Ten consecutive runs passed hidden startup, UI Automation tab selection, nonempty rendered control bounds, initial text/readonly values, text editing and button invocation returning IPC actions, state updates, repeated minimized-window restoration, close-to-hide, reactivation and shutdown. This is not physical mouse or IME acceptance. |
+| Owned all-control host | The release helper stayed connected while the existing `companion-host` constructed all eight supported control types. This is a startup smoke test, not interaction coverage of every type. |
+| Targeted Clippy, all targets | Passed with the pre-existing UI library boolean-assert style warning. |
+| New desktop regression Clippy | Passed with `-D warnings`. |
+
+Rust emitted incremental-cache finalization notes (`Access denied`) on the ReFS
+checkout. The commands above still completed successfully; no toolchain or
+filesystem setting was changed to suppress those notes.
+
+Release artifacts built on `x86_64-pc-windows-msvc`, with
+`rustc 1.100.0-nightly (a36d05efa 2026-09-09)` and the workspace static-CRT release
+profile:
+
+| Artifact | Bytes | SHA-256 |
+| --- | ---: | --- |
+| `parsec_orbit_plugin_ui.dll` | 563,200 | `985b341a57e6c0445b99fb337a64ec1101b50b124797f6678e919c9843a669ef` |
+| `parsec-orbit-ui-companion.exe` (WinUI 3) | 542,720 | `59598c76ccf43c4e2cc9c43c6b48b37700c9a67838b8a5a37ef1f369262955e9` |
+
+Neither the loader nor core gains a dependency. These sizes describe the
+separate UI artifacts, not the loader budget. Real client streaming/full-screen
+focus, keyboard IME composition and installed-client acceptance remain
+unverified. Windows foreground focus remains subject to OS restrictions.
+
+The superseded Win32 desktop probe observed one teardown CFG fast-fail
+(`0xc0000409`, subcode 10). WER listed an injected RTSS module, but that does
+not establish its cause. Fifteen immediate desktop reruns and 100 owned
+debugger lifecycle runs did not reproduce it. This is not evidence that the
+WinUI switch diagnoses or fixes that Win32 failure; the final backend has its
+own acceptance results above.

@@ -23,3 +23,4 @@ Format: Context, Decision, Consequences.
 | [0015](0015-macos-loader-as-host.md) | macOS runs the client from a host we control | Superseded by 0014 |
 | [0016](0016-orbit-ui-winio.md) | Orbit UI: External winio companion window with unified declarative ABI | Accepted |
 | [0018](0018-ui-companion-process.md) | Run the winio UI renderer in an independent helper process | Accepted |
+| [0019](0019-windows-ui-winui3.md) | Use winio's WinUI 3 backend for the Windows companion | Accepted |

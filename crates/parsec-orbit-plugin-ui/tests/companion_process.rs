@@ -148,6 +148,19 @@ fn dropping_supervisor_reaps_its_child() {
     .unwrap();
     wait_until(|| companion.child_pid() != 0);
     let pid = companion.child_pid();
+    #[cfg(windows)]
+    let process = {
+        use windows_sys::Win32::System::Threading::{OpenProcess, PROCESS_SYNCHRONIZE};
+
+        // SAFETY: `pid` identifies the live child owned by `companion`, and
+        // PROCESS_SYNCHRONIZE requests only the right needed to wait for it.
+        let handle = unsafe { OpenProcess(PROCESS_SYNCHRONIZE, 0, pid) };
+        assert!(
+            !handle.is_null(),
+            "could not open companion process for wait"
+        );
+        OwnedProcessHandle(handle)
+    };
     drop(companion);
     #[cfg(unix)]
     assert!(!Command::new("/bin/kill")
@@ -157,8 +170,28 @@ fn dropping_supervisor_reaps_its_child() {
         .status()
         .unwrap()
         .success());
-    #[cfg(not(unix))]
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::Foundation::WAIT_OBJECT_0;
+        use windows_sys::Win32::System::Threading::WaitForSingleObject;
+
+        // SAFETY: `process` owns the valid process handle returned above.
+        let result = unsafe { WaitForSingleObject(process.0, 5_000) };
+        assert_eq!(result, WAIT_OBJECT_0, "companion process was not reaped");
+    }
+    #[cfg(not(any(unix, windows)))]
     let _ = pid;
+}
+
+#[cfg(windows)]
+struct OwnedProcessHandle(windows_sys::Win32::Foundation::HANDLE);
+
+#[cfg(windows)]
+impl Drop for OwnedProcessHandle {
+    fn drop(&mut self) {
+        // SAFETY: this wrapper exclusively owns a valid process handle.
+        unsafe { windows_sys::Win32::Foundation::CloseHandle(self.0) };
+    }
 }
 
 #[cfg(unix)]

@@ -112,9 +112,9 @@ action callbacks without bundling GUI runtimes. Specified in detail in
 
 | Function | Behaviour |
 | --- | --- |
-| `show()` | Shows and brings the companion window to the foreground. |
-| `hide()` | Hides the companion window without terminating the event loop. |
-| `is_visible()` | `1` if visible, `0` if hidden. |
+| `show()` | Queues desired visibility and requests activation; foreground focus is best effort. |
+| `hide()` | Queues hiding the companion window without terminating the event loop. |
+| `is_visible()` | `1` if desired visibility is shown, `0` if hidden, including while the helper reconnects. |
 | `register_section(schema, len)` | Registers a declarative section JSON schema. |
 | `unregister_section(id, len)` | Removes a section and unmounts its controls. |
 | `update_state(id, id_len, state, len)` | Pushes updated control values (JSON object) to the UI. |

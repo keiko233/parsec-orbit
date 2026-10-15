@@ -26,6 +26,14 @@ The UI protocol uses ordinary `serde`/`serde_json` in the plugin. GUI
 dependencies belong to the companion crate; the protocol does not need to be
 `no_std`.
 
+The Windows helper uses winio's `winui` backend (WinUI 3). The pinned winio
+0.12.0 release documents Windows 11 21H2+ as its baseline. Install a compatible
+x64 [Windows App Runtime](https://learn.microsoft.com/en-us/windows/apps/windows-app-sdk/downloads)
+before running the helper. Winio discovers the installed runtime; a successful
+Rust build alone does not prove this runtime prerequisite is present. Orbit
+does not download or install the runtime automatically. Neither the loader nor
+the UI service plugin links the WinUI GUI stack.
+
 ## Stage a disposable plugin directory
 
 Create a scratch directory outside any installed Parsec bundle, then place the
@@ -53,6 +61,20 @@ Point `PARSEC_ORBIT_PLUGIN_DIR` at the scratch parent directory when launching a
 disposable development host. Keep the plugin library and helper side by side so
 the plugin can resolve and launch the matching renderer.
 
+On Windows, stage the release artifacts in a disposable directory with PowerShell:
+
+```powershell
+$scratch = Join-Path $env:TEMP ('orbit-ui-dev-' + [guid]::NewGuid())
+$plugin = Join-Path $scratch 'parsec-orbit-plugin-ui'
+New-Item -ItemType Directory -Path $plugin | Out-Null
+Copy-Item -LiteralPath crates/parsec-orbit-plugin-ui/plugin.toml -Destination $plugin
+Copy-Item -LiteralPath target/release/parsec_orbit_plugin_ui.dll -Destination $plugin
+Copy-Item -LiteralPath target/release/parsec-orbit-ui-companion.exe -Destination $plugin
+```
+
+These files are development staging; running `scripts/install.ps1` instead
+modifies an installed client and is not part of the owned-host tests below.
+
 ## Validation boundary
 
 This is development staging only. It does not modify the macOS release artifact
@@ -78,6 +100,12 @@ after 60 seconds and reaps its helper; set `ORBIT_UI_PROBE_SECONDS` to change th
 probe duration. This demonstrates the renderer and pipes in an owned host, not
 compatibility with a real signed-in client or the production sandbox.
 
+On Windows, the ABI host can use the staged directory:
+
+```powershell
+cargo run --locked -p parsec-orbit-plugin-ui --example service-host -- $plugin
+```
+
 The real event-loop regression requires an interactive Windows or macOS desktop
 session and is explicit:
 
@@ -88,6 +116,20 @@ cargo test --locked -p parsec-orbit-ui-companion --test pipe_lifecycle -- --igno
 It checks idle shutdown, pipe EOF after startup and parent exit before window
 construction. The standard workspace tests use headless peers for crash/replay,
 callback isolation, cancellation and stale visibility events.
+
+Windows also has an explicit WinUI 3 desktop regression:
+
+```powershell
+cargo test --locked -p parsec-orbit-ui-companion --test windows_desktop -- --ignored
+```
+
+It locates only its owned child's window, selects the configuration tab through
+UI Automation and checks rendered bounds, initial text/readonly values, text
+editing and button actions over IPC, and state updates. It also checks hidden
+startup, visibility requests, minimized-window restoration, close-to-hide and
+reactivation. It does not require Parsec or assert foreground ownership against
+Windows focus policy. UI Automation does not establish physical mouse or IME
+behavior.
 
 The ABI host example also exercises plugin `init` and the SDK service table:
 
