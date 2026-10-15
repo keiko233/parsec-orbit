@@ -86,6 +86,7 @@ plugins/    features: high-bitrate-native, high-bitrate-webview, stun-swap      
 tools/      host-side executables: parsec-orbit-verify, ui-companion (winio)
 examples/   parsec-orbit-plugin-hello (-> sdk), parsec-orbit-plugin-hello-nostd (-> sdk)
 crates/parsec-orbit-ui-protocol   shared JSON messages for the UI service and companion
+crates/parsec-orbit-winui-bindings   generated WinUI 3 bindings (Windows) the companion's shell uses; tools/parsec-orbit-winui-bindgen makes them
 javascript-sdk/  @parsec-orbit/sdk (TypeScript: types, definePlugin, ui helper, mock host)  [npm]
 tests/      parsec-orbit-e2e (also checks the dependency law between these groups)
 ```

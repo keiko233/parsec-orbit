@@ -75,6 +75,26 @@ Copy-Item -LiteralPath target/release/parsec-orbit-ui-companion.exe -Destination
 These files are development staging; running `scripts/install.ps1` instead
 modifies an installed client and is not part of the owned-host tests below.
 
+## Regenerate the WinUI bindings
+
+The Windows companion hosts a Fluent XAML shell
+([ADR 0027](../design/decisions/0027-windows-fluent-xaml-shell.md)). The WinUI
+controls winio does not wrap come from
+`crates/parsec-orbit-winui-bindings/src/bindings.rs`, which is generated and
+committed. Regenerate it only when the type list in
+`tools/parsec-orbit-winui-bindgen` or the pinned Windows App SDK changes:
+
+```powershell
+$runtime = (Get-AppxPackage Microsoft.WindowsAppRuntime.1.8 |
+  Where-Object Architecture -eq X64 | Sort-Object Version -Descending |
+  Select-Object -First 1).InstallLocation
+cargo run -p parsec-orbit-winui-bindgen -- $runtime
+```
+
+The file's first line records the runtime package it came from. The build never
+reads the installed runtime; the tool's tests check that every listed type is
+in the committed file.
+
 ## Validation boundary
 
 This is development staging only. It does not modify the macOS release artifact
