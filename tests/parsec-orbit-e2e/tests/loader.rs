@@ -149,8 +149,11 @@ fn the_stun_swap_plugin_installs_its_getaddrinfo_hook() {
 
 #[test]
 fn the_stun_swap_plugin_redirects_a_real_getaddrinfo_lookup() {
-    let responder = UdpSocket::bind(("127.0.0.1", 0)).expect("bind STUN responder");
-    let port = responder.local_addr().expect("responder port").port();
+    let responder = UdpSocket::bind(("127.0.0.2", 3478)).unwrap_or_else(|error| {
+        panic!(
+            "could not bind isolated STUN responder at 127.0.0.2:3478; the address may already be occupied, and no existing service was changed: {error}"
+        )
+    });
     let responder_thread = std::thread::spawn(move || {
         let mut request = [0u8; 2048];
         loop {
@@ -170,7 +173,7 @@ fn the_stun_swap_plugin_redirects_a_real_getaddrinfo_lookup() {
             response[22..24].copy_from_slice(&8u16.to_be_bytes());
             response[25] = 0x01;
             response[26..28].copy_from_slice(&peer.port().to_be_bytes());
-            let mapped = u32::from_be_bytes([127, 0, 0, 1]) ^ 0x2112_A442;
+            let mapped = u32::from_be_bytes([127, 0, 0, 2]) ^ 0x2112_A442;
             response[28..32].copy_from_slice(&mapped.to_be_bytes());
             let _ = responder.send_to(&response, peer);
         }
@@ -180,20 +183,39 @@ fn the_stun_swap_plugin_redirects_a_real_getaddrinfo_lookup() {
     sandbox.install_plugin("hooks", Plugin::Hooks);
     sandbox.install_plugin("stun-swap", Plugin::StunSwap);
 
-    let run = sandbox.run(CLIENT, "stun swap: selected 127.0.0.1", |command| {
-        command.env("PARSEC_ORBIT_STUN_SERVERS", format!("127.0.0.1@{port}"));
+    let run = sandbox.run(CLIENT, "stun swap: 127.0.0.2@3478 healthy", |command| {
+        command.env("PARSEC_ORBIT_STUN_SERVERS", "127.0.0.2@3478");
         command.arg("stun");
     });
     run.assert_success()
-        .assert_log_contains(&format!("stun swap: 127.0.0.1@{port} -> 127.0.0.1"))
-        .assert_log_contains("stun swap: selected 127.0.0.1");
+        .assert_log_contains("stun swap: 127.0.0.2@3478 healthy")
+        .assert_log_contains("stun swap: stun.parsec.app -> 127.0.0.2");
     assert_eq!(
         run.value("stun_lookup").as_deref(),
-        Some("127.0.0.1:3478"),
+        Some("127.0.0.2:3478"),
         "{}",
         run.describe()
     );
     drop(responder_thread);
+}
+
+#[test]
+fn the_stun_swap_plugin_rejects_non_3478_server_ports() {
+    let sandbox = client("stun-swap-invalid-port");
+    sandbox.install_plugin("hooks", Plugin::Hooks);
+    sandbox.install_plugin("stun-swap", Plugin::StunSwap);
+
+    let run = sandbox.run(
+        CLIENT,
+        "stun swap: Rejected invalid server(s): 127.0.0.2@3479",
+        |command| {
+            command.env("PARSEC_ORBIT_STUN_SERVERS", "127.0.0.2@3479");
+        },
+    );
+    run.assert_success()
+        .assert_log_contains("other ports cannot be redirected")
+        .assert_log_contains("stun swap: no candidates configured")
+        .assert_log_lacks("127.0.0.2@3479 healthy");
 }
 
 #[test]
@@ -794,11 +816,27 @@ fn the_users_own_browser_arguments_are_left_untouched() {
 // ---- the webview plugin against a fake DevTools endpoint -----------------------------------------
 
 fn bandwidth_script() -> String {
-    std::fs::read_to_string(
-        common::workspace_root()
-            .join("plugins/parsec-orbit-plugin-high-bitrate-webview/assets/bandwidth.js"),
+    let root = common::workspace_root();
+    let template = std::fs::read_to_string(
+        root.join("plugins/parsec-orbit-plugin-high-bitrate-webview/assets/bandwidth.js"),
     )
-    .unwrap()
+    .unwrap();
+    let defaults: Vec<i32> = serde_json::from_str(
+        &std::fs::read_to_string(root.join(
+            "plugins/parsec-orbit-plugin-high-bitrate-native/assets/default-bandwidth-mbps.json",
+        ))
+        .unwrap(),
+    )
+    .unwrap();
+    let marker = "const EXTRA_MBPS = [";
+    let start = template.find(marker).unwrap() + marker.len();
+    let end = start + template[start..].find("];\n").unwrap();
+    let rendered = defaults
+        .iter()
+        .map(i32::to_string)
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!("{}{rendered}{}", &template[..start], &template[end..])
 }
 
 /// The whole chain: the loader opens the endpoint (by setting the browser

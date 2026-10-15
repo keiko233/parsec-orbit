@@ -182,13 +182,15 @@ owns the native window and main-thread `winio` event loop.
     parent pipe lets the helper exit.
   * On Windows, the session-0 service instance keeps the service table without
     desktop hotkeys or a renderer. Only an instance with a known nonzero process
-    session starts the helper and the hotkey/CLI activation channel.
+    session and a readable non-LocalSystem process token starts the helper and
+    the hotkey/CLI activation channel. The System host can also run in the
+    user's session and must not claim that user's shortcuts (ADR 0026).
 * **Styling**:
   * Styled with a dark theme consistent with Parsec (background `#18181b`,
     surface `#27272a`, border `#3f3f46`, text `#f4f4f5`, accent `#8b5cf6` or
     Parsec crimson `#e01e5a`).
-  * **Built-in Tabs** (the first implementation ships the Overview tab; the
-    rest are planned):
+  * **Built-in Tabs** (Overview and Log ship; Plugins and Configuration remain
+    planned):
   1. **Overview**: Displays loader version, ABI level, Parsec version, loaded
      plugins count, and active UI mode.
   2. **Plugins**: Lists all discovered plugins, enabled/disabled toggle switches,
@@ -263,121 +265,60 @@ unless a renderer adds one.
   the helper process. Native plugin faults and action callback faults still run
   in the client process and are not contained by this process boundary.
 
-## 6. Planned: settings the window should grow into
+## 6. Settings follow-up implementation
 
-The first implementation ships the Overview tab and whatever the plugins
-register for themselves. The work below is agreed and not built; it starts with
-the ABI, because two of the five items cannot be drawn with the item types that
-exist today.
+The five follow-up items are implemented through the companion and existing
+service ABI. Their normative behavior is in [UI settings](../spec/ui-settings.md),
+[additional bandwidth choices](../spec/high-bitrate.md) and
+[STUN selection](../spec/stun-swap.md).
 
-### 6.1 What the ABI is missing
+### 6.1 Rendering support
 
-* **A read-only multiline view.** `text` maps to a single-line label, so neither
-  a latency table nor a log tail fits in a row. A `text_view` item (read-only,
-  scrolling, fed by `update_state`) covers both.
-* **Options that can change while the window is open.** The window builds a
-  dropdown from the schema once, at registration; `update_state` only moves the
-  selection. A server list that grows needs either the options to travel with
-  the state or the section to be re-registered, and re-registering throws away
-  the user's place in the panel.
-* **Nothing new for restarting.** A `button` is enough; what the window needs is
-  a way for a section to say "these values apply after a restart" so the label
-  can say so too.
+The renderer supports read-only scrolling `text_view`, editable multiline
+`text_input`, and dynamic select state containing `{ value, options }`.
+Updating server options does not re-register the section or discard its panel.
+The companion replaces its placeholder Overview with `orbit.overview` and
+shows one shared **Restart and apply** footer across plugin tabs.
 
 ### 6.2 Editable bandwidth ladder
 
-Everything up to 50 Mbps is Parsec's own list. Above it, Orbit appends
-`EXTRA_BANDWIDTH_MBPS` (`[60, 75, 100, 125, 150, 200, 250, 300, 400, 500]`) to
-the client's in-memory table for the native UI, and to the Web UI's list in
-`assets/bandwidth.js`, which carries the same values as a second hand-synced
-copy. The window only offers a coarse cut ("highest option").
+The High Bitrate panel edits an integer array of additional Mbps choices,
+including values such as 85. The plugin sorts and deduplicates values, limits
+the list to 128 entries above 50 Mbps, and persists it through the config
+service under `com.parsec-orbit.native`. Native and WebView implementations
+read the same setting and one shared default asset. Save errors are visible;
+a restart applies changes after the original table or script was installed.
 
-It should be one editable list instead: a text input taking the values in Mbps
-(`60, 75, 85, 100, 150, 500`), so a user who wants 85 Mbps adds 85.
+### 6.3 STUN selection
 
-* The native patch rebuilds the whole table, so any list works.
-  `legacy::extend_bandwidth_with` asks for the values while the client maps its
-  UI module, which is the last moment they can still change the result.
-* Validation belongs to the plugin, not to the window: integers only, above the
-  built-in maximum, sorted and de-duplicated, and capped at a small count
-  because the patch allocates a replacement table. A rejected list has to say
-  why in the status row rather than silently keep the old one.
-* Store the list through `parsec-orbit.config` (`ConfigClient`, owner
-  `com.parsec-orbit.native`) so it survives a restart, and let the WebView
-  plugin read the same key instead of keeping its own copy. That also retires
-  the "keep in sync with `../src/lib.rs`" comment in the script.
+STUN Swap displays each candidate's measured latency, resolved address and
+health, supports automatic and manual selection, and accepts custom servers
+with an explicit Save action. Drafts survive background updates. Generated
+`settings.json` stores UI settings; legacy `servers.txt` remains readable.
+The panel identifies environment overrides and candidate sources. The current
+DNS hook preserves Parsec's port, so custom endpoints must use port 3478.
+Manual failures return to Parsec DNS with an explicit unhealthy status.
 
-### 6.3 STUN swap: latency table, pinning, custom servers
+### 6.4 Overview and restart
 
-The plugin probes every candidate and logs each result, but the window only
-sees the winner. Picking a server by hand, seeing why a server lost, and adding
-one of your own all need the list itself.
+Overview displays loader/ABI/UI versions and paths, opens the log and data
+directory, copies version information, and selects Off/Both/Client/Host console
+behavior. On Windows, console selection is stored in the current user's
+environment, with the service's own environment updated by maintenance.
 
-* **Latency table**: a `text_view` row that `refresh` rewrites after each pass,
-  one line per candidate (`stun.qq.com@3478  23 ms  (active)`), including the
-  ones that timed out. The plugin already has this data.
-* **Pin a server**: a mode control (`auto` / `pinned`) plus a picker. While
-  pinned, `refresh` keeps measuring but does not move `selected()`. A pinned
-  server that stops answering must be visible as unhealthy, and there has to be
-  an explicit way back to `auto`.
-* **Custom servers**: an editable list, one `host@port` per line, in the grammar
-  `Candidate::from_text` already accepts. Where it is written down is part of
-  the design: the order today is `PARSEC_ORBIT_STUN_SERVERS`, then
-  `%APPDATA%\ParsecOrbit\servers.txt`, then `DEFAULT_SERVERS`. Writing the file
-  keeps the hand-editable escape hatch and needs no new store. The panel must
-  show which source won, or a user cannot tell why an edit did nothing.
+**Restart and apply** launches the adjacent Rust companion in an independent
+elevated maintenance mode before GUI initialization. It validates the exact
+requesting Parsec process before changing service state, stops the Parsec
+service, ends the requesting client if necessary, and starts the service.
+Saved settings survive UAC cancellation. Errors are reported; standalone
+installations without that service and macOS restart actions are unsupported.
+No restart logic was added to the legacy PowerShell scripts.
 
-### 6.4 Overview: the settings that are not a plugin's
+### 6.5 Log
 
-* **Debug console**: the four values `parsec-orbit-core` accepts (`off`, `1`,
-  `client`, `host`) as a dropdown, written to the user's environment so the next
-  launch reads it. The window only exists in the client instance, so the service
-  side cannot be previewed from it; `host` needs the machine scope and therefore
-  the elevation of section 6.5.
-* **Versions**: `Context` already answers `loader_version()`, `abi_version()`,
-  `plugin_dir()` and `data_dir()`. The row shows the loader's version rather
-  than the UI plugin's alone, and names the instance it is running in.
-* **Cheap extras in the same shape**: open the log file and the data directory,
-  and copy the version block for a bug report.
-
-### 6.5 Restart and apply
-
-Almost everything above is read at start-up: the loader's console switch when
-the process starts, the ladder when the client maps its UI module, the candidate
-list on each probe pass. The window needs one button that persists what can be
-persisted and restarts what has to be restarted.
-
-* The sequence already exists as `Stop-Parsec` / `Start-Parsec` in
-  `scripts/orbit-manager.ps1`: stop the `Parsec` service, kill `parsecd`, start
-  the service again, which relaunches the client.
-* Restarting the service needs elevation, so the button runs the helper through
-  `Start-Process -Verb RunAs` and the user sees one UAC prompt. The window has
-  to assume it is about to die: write the pending values first, then ask for
-  the restart.
-* A client-only restart is the cheaper path when nothing the service owns
-  changed, because the service relaunches `parsecd` by itself. It must not be
-  the default for plugin or loader changes, where a DLL may still be mapped.
-* Open question: whether to add a `restart` verb to `orbit-manager.ps1` and let
-  the button call it, so the sequence lives in one place.
-
-### 6.6 Log tab
-
-The debug console exists because there was nowhere else to put the loader's
-output. With a window there is: the console keeps working for users who want it,
-and the window grows a Log tab over the same file.
-
-* Source: the loader's own file, `PARSEC_ORBIT_LOG` first, then
-  `%APPDATA%\ParsecOrbit\parsec-orbit.log`. The service instance runs as
-  `LocalSystem`, so its `%APPDATA%` is a different directory; the Log tab in the
-  client instance shows the client's file unless both instances are pointed at
-  one path.
-* Tailing: reuse the console's rules (`console::follow`, one poll every
-  `FOLLOW_INTERVAL` = 200 ms, the same rotate and small-file handling) so the
-  window and the console never disagree about what a run wrote. The plugin
-  pushes the tail through `update_state`, and only when the file changed - the
-  window already compares values before it touches a control.
-* Bounds: keep the visible tail to a fixed number of lines and drop the oldest
-  first, so a long session cannot grow the control, or its copy in the registry,
-  without limit.
-* Filtering and copying belong to the plugin: a level filter (info / warn /
-  error) and a button that puts the visible text on the clipboard.
+The Log tab follows the current instance's Orbit log and client Parsec log,
+with source and severity filters and Copy visible log. It polls every 200 ms
+and bounds retained text to 1000 lines / 256 KiB. The zero-dependency
+`parsec-orbit-log-tail` crate shares rotation and partial-line handling with
+the console while limiting each poll to 64 KiB. It adds no GUI dependency to
+the loader. See [ADR 0025](decisions/0025-ui-settings-and-shared-log-tail.md).

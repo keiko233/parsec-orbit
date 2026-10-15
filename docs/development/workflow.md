@@ -259,8 +259,28 @@ is not obvious.
 
 Subject rules:
 
-- Use the imperative mood, stay within 72 characters, and do not end with a period.
+- Use Conventional Commits: `type(scope): description`. The scope is optional;
+  `!` before the colon marks a breaking change. An ordinary sentence without a
+  type prefix is not a valid subject in this repository.
+- Choose the type from `feat`, `fix`, `perf`, `refactor`, `docs`, `test`, `build`,
+  `ci`, `chore`, or `revert`, matching the release groups in
+  [`cliff.toml`](../../cliff.toml). Use a short scope for the affected component
+  when helpful, such as `ui`, `bitrate`, or `stun`.
+- Use the imperative mood in the description. The complete subject, including
+  the type and scope, must stay within 72 characters and not end with a period.
 - Describe the behavior or capability.
+
+Examples:
+
+```text
+feat(ui): add a persistent log tab
+fix(ui): reserve hotkeys for the user process
+docs(development): clarify commit message requirements
+```
+
+The release configuration enables `conventional_commits` and
+`filter_unconventional`. A missing prefix therefore drops the commit from
+generated release notes; Git accepting a message does not validate its format.
 
 Body rules:
 
@@ -289,3 +309,18 @@ Mention these only when they are genuinely non-obvious:
 - New test commands or tools that do not yet exist in the project.
 - Non-standard configuration required to reproduce the result.
 - Unusual constraints that affect how the data should be interpreted.
+
+### Check messages before finishing
+
+Before each commit, check the proposed type/scope, complete subject length and
+body against the rules above. Before finishing a branch, and after any rebase,
+review every commit in the task's range with
+`git log --reverse --format='%h %s' <base>..HEAD`; checking only the latest
+subject is insufficient. Confirm that no unprefixed, `fixup!`, or `squash!`
+subject remains. When `git-cliff` is available, preview the release notes with
+`git-cliff --unreleased --strip all` to check their grouping.
+
+For a message-only rebase, verify that each rewritten commit has the same tree
+as its original and that the intended bodies are preserved. Follow the consent
+rule above when any rewritten commit has been pushed; rewriting local messages
+does not itself authorize a force push.

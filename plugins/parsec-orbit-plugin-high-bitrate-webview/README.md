@@ -7,8 +7,16 @@ anything on disk.
 The client configuration system is far more permissive than its user
 interfaces. `encoder_bitrate` ("Bandwidth Limit"), for example, is an `int`
 with `min 0` / `max 2147483647`, but the WebView UI only offers the built-in
-ladder `3, 5, 7, 10, 15, 20, 25, 30, 35, 40, 45, 50 Mbps`. The plugin widens
-it to `60, 75, 100, 125, 150, 200, 250, 300, 400, 500 Mbps`.
+ladder `3, 5, 7, 10, 15, 20, 25, 30, 35, 40, 45, 50 Mbps`. The extra options
+default to `60, 75, 100, 125, 150, 200, 250, 300, 400, 500 Mbps` and are
+editable in the native plugin's Orbit UI. Enter a JSON array of integer Mbps
+values above 50, such as `[60, 85, 125]`; the native plugin sorts values and
+removes duplicates. Changes are stored by `parsec-orbit.config` and appear in
+both dropdowns after restarting the client. The shared defaults live in
+[`../parsec-orbit-plugin-high-bitrate-native/assets/default-bandwidth-mbps.json`](../parsec-orbit-plugin-high-bitrate-native/assets/default-bandwidth-mbps.json).
+
+If the config service is missing or contains invalid options, this plugin logs
+a warning and injects the shared defaults.
 
 The native (libmatoya) UI is patched by the separate
 [`parsec-orbit-plugin-high-bitrate-native`](../parsec-orbit-plugin-high-bitrate-native/README.md) plugin.
@@ -17,8 +25,8 @@ The native (libmatoya) UI is patched by the separate
 
 * `plugin.toml` - manifest the loader reads (`id`, `requires`, `entry`, ...).
 * `src/lib.rs` - plugin entry point: hands the script to the bridge.
-* `assets/bandwidth.js` - the script injected into the web UI; also usable by
-  hand in the DevTools console.
+* `assets/bandwidth.js` - the script template injected into the web UI. The
+  plugin fills its option list from the config service before registering it.
 
 ## Install
 
@@ -44,9 +52,9 @@ hard-coded array in `index.js`, and the page saves a selection through the
 `cfg_seti` RPC (`encoder_bitrate`), which the native side accepts as-is.
 
 `assets/bandwidth.js` finds the array through the React fiber tree, appends the
-extra entries and replays the app's own `parsec_config_update` event so an
-already-rendered settings page shows them. The script is idempotent and can be
-pasted into the DevTools console.
+configured entries and replays the app's own `parsec_config_update` event so an
+already-rendered settings page shows them. The script is idempotent. The Rust
+plugin fills its template from the shared config before registering it.
 
 The plugin calls `add_script("bandwidth", <assets/bandwidth.js>)` on the
 bridge's `parsec-orbit.webview` interface. The bridge (see its README) polls
@@ -73,9 +81,6 @@ The bridge logs what it does with the script under its own id
 (`com.parsec-orbit.webview-bridge`); a client without the bridge is logged as
 `parsec-orbit.webview is not available ... the web UI is left untouched`.
 
-## Keeping the two lists in sync
-
-The extra options live in two places and must stay in sync:
-
-* `assets/bandwidth.js` - `EXTRA_MBPS`
-* `../parsec-orbit-plugin-high-bitrate-native/src/lib.rs` - `EXTRA_BANDWIDTH_MBPS`
+The injected script reads the same `extra_bandwidth_mbps` value as the native
+plugin, under the `com.parsec-orbit.native` owner. The template has an empty
+option slot; the Rust plugin fills it from the shared persisted value.

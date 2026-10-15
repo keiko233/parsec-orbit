@@ -86,15 +86,28 @@ mod tests {
                         {"label": "AV1", "value": "av1"}
                     ],
                     "default": "hevc"
+                },
+                {
+                    "key": "notes",
+                    "type": "text_input",
+                    "label": "Notes",
+                    "multiline": true
+                },
+                {
+                    "key": "log",
+                    "type": "text_view",
+                    "label": "Log"
                 }
             ]
         }"#;
 
         let section: UiSection = serde_json::from_str(json).expect("valid schema");
         assert_eq!(section.id, "com.example.test");
-        assert_eq!(section.items.len(), 2);
+        assert_eq!(section.items.len(), 4);
         assert_eq!(section.items[0].key, "enabled");
         assert_eq!(section.items[0].item_type, "toggle");
         assert_eq!(section.items[1].options.as_ref().unwrap().len(), 2);
+        assert_eq!(section.items[2].multiline, Some(true));
+        assert_eq!(section.items[3].item_type, "text_view");
     }
 }

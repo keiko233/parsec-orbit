@@ -135,3 +135,58 @@ not establish its cause. Fifteen immediate desktop reruns and 100 owned
 debugger lifecycle runs did not reproduce it. This is not evidence that the
 WinUI switch diagnoses or fixes that Win32 failure; the final backend has its
 own acceptance results above.
+
+## Settings follow-up (2026-10-16)
+
+The companion now renders dynamic select options, read-only multiline text,
+multiline drafts and a common restart footer. The UI service contributes the
+Overview and Log panels. The bandwidth and STUN panels persist their settings;
+their normative contracts are [bandwidth](../spec/high-bitrate.md),
+[STUN](../spec/stun-swap.md) and [built-in settings](../spec/ui-settings.md).
+
+Validation on Windows:
+
+- `cargo test --workspace --locked` with `PARSEC_ORBIT_REQUIRE_NODE=1`: 719
+  passed, zero failures, four ignored (including explicit desktop tests and a
+  documentation example).
+- Both WinUI desktop tests passed with the default test scheduling, including
+  multiline controls, dynamic options without echo actions, drafts surviving
+  unrelated snapshots, one Overview, and the shared restart action.
+- The explicit pipe-lifecycle test passed, covering shutdown and parent EOF.
+- Recursive TypeScript build and all 26 JavaScript tests passed.
+- Formatting and relevant Clippy checks passed; existing workspace/legacy lint
+  warnings and ReFS incremental-cache finalization notes remain.
+- UI library tests follow and rotate temporary logs through the real ABI and
+  validate filtering, text bounds and generated preference persistence.
+- Maintenance tests validate argument/environment parsing and open an owned
+  test-process handle to verify synchronization access and rejection before
+  touching a service. They never stop an installed service or change a real
+  user's environment.
+
+The UI library, WebView plugin and log-tail crate pass `cargo check` for
+`aarch64-apple-darwin`. Cross-checking the AppKit companion from this Windows
+host stops in its existing C build dependency because `cc` is unavailable;
+no macOS renderer runtime acceptance is claimed.
+
+Release sizes and their reasons are in the [size report](size-report.md).
+Actual UAC cancellation, restarting an installed Parsec service, propagation
+of its console environment to real clients, and real streaming/full-screen
+interaction remain manual acceptance gates. The restart action is implemented
+for Windows service installations only. STUN custom endpoints currently require
+port 3478 because the DNS hook preserves the requested service port.
+
+### Same-session host activation fix
+
+Read-only diagnostics found the service's System host and its user client in
+session 1, each owning an activation window. The host log identified itself as
+`host` and repeatedly reported `UI pipe closed`; the user's companion was
+running but hidden. Posting activation directly to the user client's window
+showed it successfully. A nonzero session alone therefore does not establish
+UI ownership.
+
+ADR 0026 requires a readable non-System token as well as a nonzero session.
+The regression first failed with the old session-only decision and then passed
+with the identity guard. The UI library's 17 unit and four process tests pass;
+the release service DLL builds at 640,512 B. Installed files and running Parsec
+processes were not replaced or restarted during verification. Applying this
+fix requires restarting the old host to release its hotkey registrations.

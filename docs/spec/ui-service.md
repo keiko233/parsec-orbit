@@ -28,12 +28,17 @@ Interface name: `parsec-orbit.ui`.
 Version: 1.0 (`(1 << 16) | 0`).
 
 The helper runs only for the interactive client instance. On Windows, the
-process session ID determines this: session 0 and an unreadable session register
-only the service table, without launching a helper or registering desktop
-hotkeys. This does not depend on the service account's identity. Existing
+process must have a known nonzero session and a readable process token that
+does not belong to LocalSystem. Session 0, unknown identity/session, and a
+LocalSystem host running in the user's session register only the service table,
+without launching a helper or registering desktop hotkeys. Existing
 hotkeys and CLI activation belong to the interactive instance. That instance
 launches the helper hidden and returns from plugin `init` without waiting for
 its window.
+
+Failures to create the activation window or register either shortcut are
+reported through the Orbit logger, including the Windows error code. One
+unavailable shortcut does not disable the other shortcut or CLI activation.
 
 ```c
 typedef struct ParsecOrbitUiV1 {
@@ -178,14 +183,25 @@ panel or tab:
 | Item type | Description | Payload shape |
 | --- | --- | --- |
 | `toggle` | Boolean switch checkbox. | `boolean` |
-| `text_input` | Single-line text input with optional `placeholder`. | `string` |
+| `text_input` | Text input with optional `placeholder`; `multiline: true` enables multiline editing. | `string` |
 | `number_input` | Numeric input with optional `min`, `max`, `step`. | `number` |
 | `slider` | Range slider with optional `min`, `max`, `step`. | `number` |
-| `select` | Dropdown selector with `options: [{ label, value }]`. | `string` or `number` |
+| `select` | Dropdown selector with `options: [{ label, value }]`. `update_state` may pass `{ "value": ..., "options": [{ "label": ..., "value": ... }] }` to replace its options and selection without rebuilding the section. | `string` or `number` |
 | `button` | Action button triggering a click event. | `null` |
 | `json_editor` | Multiline JSON editor for complex configuration. | `object` or `array` |
 | `readonly_text` | Read-only status value display. | `string` |
+| `text_view` | Read-only, scrollable multiline text. `update_state` replaces its content; it does not emit edit actions. | `string` |
 | `text` | The same as `readonly_text`, and what an unrecognized type falls back to. | `string` |
+
+The built-in Overview tab remains available unless a section with id
+`orbit.overview` is registered. That section replaces the built-in tab and is
+rendered once using its registered controls; its `order` participates in the same
+section ordering as other plugin sections. When it declares a button with key
+`restart`, that schema row is reserved for the companion's shared button and is
+omitted from the Overview tab. The companion shows one fixed `Restart and apply`
+button at the bottom whenever the section is registered. It emits the ordinary
+click action `{"section":"orbit.overview","key":"restart","type":"click","value":null}`
+from every tab.
 
 ## Action events
 
@@ -266,10 +282,10 @@ export default definePlugin({
 });
 ```
 
-## Open questions
+## State and editing
 
-1. **Item types the follow-up work needs**: a read-only multiline view (for a
-   latency table and a log tail) and dropdown options that can change while the
-   window is open. Both are described in
-   [design/orbit-ui.md](../design/orbit-ui.md) section 6 and will change this
-   spec when they land.
+The renderer keeps the last parent value separately from an in-progress edit.
+An unrelated snapshot containing the same parent value does not replace the
+draft. A changed parent value is authoritative. Dynamic select updates replace
+options and selection in place; programmatic updates and read-only text never
+emit user edit actions.

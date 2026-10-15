@@ -10,5 +10,6 @@ author = "Parsec Orbit contributors"
 description = "Adds bandwidth limits above 50 Mbps to the WebView UI"
 license = "MIT"
 requires = ["com.parsec-orbit.webview-bridge"]
+optional = ["com.parsec-orbit.config"]
 api = 1
 enabled = true

@@ -14,5 +14,6 @@ testutil = []
 
 [dependencies]
 parsec-orbit-plugin-abi = { path = "../parsec-orbit-plugin-abi" }
+parsec-orbit-log-tail = { path = "../parsec-orbit-log-tail" }
 # Parse-only, like in the loader: no serde, no writer.
 toml = { version = "1", default-features = false, features = ["parse", "std"] }

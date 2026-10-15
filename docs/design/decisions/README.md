@@ -34,3 +34,5 @@ accepted records retain their original names; use the full link to distinguish t
 | [0022](0022-official-registry-in-manifest.md) | The official registry is `manifest/` on `main` | Accepted |
 | [0023](0023-staged-update-promotion.md) | Staged updates are promoted by the loader | Accepted |
 | [0024](0024-restructured-ui-companion.md) | Integrate the UI companion with the crate role layout | Accepted |
+| [0025](0025-ui-settings-and-shared-log-tail.md) | Built-in UI settings and shared bounded log following | Accepted |
+| [0026](0026-ui-hotkeys-belong-to-the-user.md) | Reserve desktop UI activation for the user process | Accepted |

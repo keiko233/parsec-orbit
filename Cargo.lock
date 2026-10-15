@@ -1789,6 +1789,7 @@ dependencies = [
 name = "parsec-orbit-core"
 version = "0.1.1"
 dependencies = [
+ "parsec-orbit-log-tail",
  "parsec-orbit-plugin-abi",
  "toml",
 ]
@@ -1867,6 +1868,8 @@ dependencies = [
 name = "parsec-orbit-lib-ui"
 version = "0.1.1"
 dependencies = [
+ "parsec-orbit-layout",
+ "parsec-orbit-log-tail",
  "parsec-orbit-plugin-sdk",
  "parsec-orbit-plugin-sdk-testing",
  "parsec-orbit-ui-protocol",
@@ -1905,6 +1908,10 @@ dependencies = [
  "parsec-orbit-plugin-abi",
  "windows-sys 0.61.2",
 ]
+
+[[package]]
+name = "parsec-orbit-log-tail"
+version = "0.1.1"
 
 [[package]]
 name = "parsec-orbit-macos-state"

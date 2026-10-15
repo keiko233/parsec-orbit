@@ -86,6 +86,31 @@ Parsec state and bundle for that validation.
 
 ## Exercise a standalone host
 
+The installed UI service contributes **Overview** and **Log** through the same
+declarative service that feature plugins use. Overview shows the loader version,
+ABI and paths, saves the next console selection (Off, Both, Client, Host), opens
+the log or data directory, and copies a version block. On Windows, **Restart and
+apply** requests UAC and restarts the Parsec service and the requesting client;
+active connections disconnect. Cancelling UAC leaves saved plugin settings intact.
+The maintenance helper refuses a requesting process that is not `parsecd.exe`.
+It reports failures in a dialog. A missing Parsec service is an explicit failure.
+Restart and console selection currently require Windows. On macOS, restart
+Parsec manually; the Log panel follows Orbit output only.
+
+The Log tab follows the resolved Orbit log and the client `log_cl.txt`, with
+source and minimum-level filters and a Copy visible log action. It keeps at most
+1000 lines / 256 KiB, polls every 200 ms, and shares partial-line and rotation
+handling with the optional console. Old or large files start at their end;
+fresh files up to 64 KiB include startup lines. The current user's log does not
+include the session-0 service's log unless both instances use the same file.
+
+The High Bitrate panel edits the additional Mbps choices in Parsec's own
+bandwidth dropdown. Include `85` to offer 85 Mbps; save the list and restart to
+apply it after the native table has already been patched. STUN Swap shows each
+candidate's health and latency, supports automatic or manual selection, and
+accepts custom servers. These panels display validation and persistence failures
+in their status fields.
+
 The owned host example loads no Parsec code and uses no installed client state:
 
 ```sh

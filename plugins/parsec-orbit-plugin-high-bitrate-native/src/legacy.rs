@@ -9,7 +9,7 @@
 //!
 //! The patch keeps the original table untouched and instead:
 //!
-//! 1. allocates a copy extended with [`crate::EXTRA_BANDWIDTH_MBPS`],
+//! 1. allocates a copy extended with the configured Mbps options,
 //! 2. rewrites the two `lea` displacements to point at the copy (the
 //!    displacement is relative, so the copy has to live within 2 GB of the
 //!    code - the allocator asks for addresses near the module), and
@@ -116,12 +116,11 @@ impl Image {
 /// Extends the native bandwidth dropdown. Returns `None` when the table could
 /// not be found (unknown client build) or nothing was patched.
 pub fn extend_bandwidth<F: Fn(&str)>(log: F) -> Option<Report> {
-    extend_bandwidth_with(|| crate::EXTRA_BANDWIDTH_MBPS.to_vec(), log)
+    extend_bandwidth_with(crate::default_extras, log)
 }
 
 /// Same as [`extend_bandwidth`], but asks `extras` for the options to append
-/// once the client module is there. Asking late is what lets the Orbit UI pick
-/// a different maximum while the plugin is still waiting for the module.
+/// once the client module is there so it uses the persisted options.
 pub fn extend_bandwidth_with<G: Fn() -> Vec<i32>, F: Fn(&str)>(
     extras: G,
     log: F,
@@ -133,7 +132,7 @@ pub fn extend_bandwidth_with<G: Fn() -> Vec<i32>, F: Fn(&str)>(
 /// first: the native UI lives in `parsecd-<version>.dll`, which the executable
 /// maps after start-up.
 pub fn extend_bandwidth_when_ready<F: Fn(&str)>(log: &F, timeout: Duration) -> Option<Report> {
-    extend_bandwidth_with_when_ready(&|| crate::EXTRA_BANDWIDTH_MBPS.to_vec(), log, timeout)
+    extend_bandwidth_with_when_ready(&crate::default_extras, log, timeout)
 }
 
 /// [`extend_bandwidth_when_ready`] with a caller-chosen extension of the ladder.
@@ -679,11 +678,10 @@ mod tests {
 
     fn extend(image: &FakeImage) -> (Option<Report>, Vec<String>) {
         let logs = RefCell::new(Vec::new());
-        let report = try_extend(
-            &image.module(),
-            crate::EXTRA_BANDWIDTH_MBPS.as_slice(),
-            &|message: &str| logs.borrow_mut().push(message.to_string()),
-        );
+        let extras = crate::default_extras();
+        let report = try_extend(&image.module(), &extras, &|message: &str| {
+            logs.borrow_mut().push(message.to_string())
+        });
         (report, logs.into_inner())
     }
 
@@ -712,17 +710,15 @@ mod tests {
 
         let (report, logs) = extend(&image);
         let report = report.expect("the fake client is patchable");
+        let extras = crate::default_extras();
 
         assert_eq!(report.module, "parsecd-test.dll");
         assert_eq!(report.table_offset, TABLE_RVA);
         assert_eq!(report.reference_sites, 2);
         assert_eq!(report.patched_references, 2);
         assert_eq!(report.patched_counts, 3);
-        assert_eq!(
-            report.options,
-            BUILT_IN_COUNT + crate::EXTRA_BANDWIDTH_MBPS.len()
-        );
-        assert_eq!(report.options, 22);
+        assert_eq!(report.options, BUILT_IN_COUNT + extras.len());
+        assert_eq!(report.options, BUILT_IN_COUNT + extras.len());
 
         // The new table: the original twelve records, then the extras.
         let new_table = lea_target(&image, SITE_A);
@@ -732,7 +728,7 @@ mod tests {
             assert_eq!(label_at(record), *label);
             assert_eq!(value_at(record), *value);
         }
-        for (index, mbps) in crate::EXTRA_BANDWIDTH_MBPS.iter().enumerate() {
+        for (index, mbps) in extras.iter().enumerate() {
             let record = new_table + (BUILT_IN_COUNT + index) * RECORD_STRIDE;
             assert_eq!(label_at(record), format!("{mbps} Mbps"));
             assert_eq!(value_at(record), *mbps);

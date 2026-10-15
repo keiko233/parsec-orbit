@@ -11,7 +11,7 @@
 
 use std::ptr::null_mut;
 
-use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
+use windows_sys::Win32::Foundation::{GetLastError, HWND, LPARAM, LRESULT, WPARAM};
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
     RegisterHotKey, UnregisterHotKey, MOD_ALT, MOD_CONTROL, MOD_NOREPEAT,
@@ -53,7 +53,7 @@ unsafe extern "system" fn window_proc(
 
 /// Registers the activation window and both hotkeys, then pumps messages until
 /// the window closes. `toggle` runs on this thread.
-pub fn run(toggle: impl Fn() + Send + 'static) {
+pub fn run(toggle: impl Fn() + Send + 'static, report: impl Fn(&str)) {
     unsafe {
         let instance = GetModuleHandleW(null_mut());
         let class = wide(ACTIVATION_CLASS);
@@ -70,6 +70,10 @@ pub fn run(toggle: impl Fn() + Send + 'static) {
             lpszClassName: class.as_ptr(),
         };
         if RegisterClassW(&registration) == 0 {
+            report(&format!(
+                "activation window class registration failed (Windows error {})",
+                GetLastError()
+            ));
             return;
         }
 
@@ -89,23 +93,39 @@ pub fn run(toggle: impl Fn() + Send + 'static) {
             null_mut(),
         );
         if activation_window.is_null() {
+            report(&format!(
+                "activation window creation failed (Windows error {})",
+                GetLastError()
+            ));
             return;
         }
 
         // RegisterHotKey returns 0 when another program owns the combination;
         // that shortcut is lost, the others are not.
-        RegisterHotKey(
+        if RegisterHotKey(
             activation_window,
             HOTKEY_ID,
             MOD_CONTROL | MOD_ALT | MOD_NOREPEAT,
             VK_O,
-        );
-        RegisterHotKey(
+        ) == 0
+        {
+            report(&format!(
+                "Ctrl+Alt+O could not be registered (Windows error {})",
+                GetLastError()
+            ));
+        }
+        if RegisterHotKey(
             activation_window,
             ALT_HOTKEY_ID,
             MOD_CONTROL | MOD_NOREPEAT,
             VK_F12,
-        );
+        ) == 0
+        {
+            report(&format!(
+                "Ctrl+F12 could not be registered (Windows error {})",
+                GetLastError()
+            ));
+        }
 
         let mut message: MSG = std::mem::zeroed();
         while GetMessageW(&mut message, null_mut(), 0, 0) > 0 {

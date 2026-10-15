@@ -3,7 +3,9 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::task::Poll;
 
-use parsec_orbit_ui_protocol::{ChildMessage, ParentMessage, SectionState, UiAction, UiItem};
+use parsec_orbit_ui_protocol::{
+    ChildMessage, ParentMessage, SectionState, UiAction, UiItem, UiOption,
+};
 use serde_json::Value;
 use winio::prelude::*;
 
@@ -14,6 +16,7 @@ pub(crate) enum OrbitUiMessage {
     InputAvailable,
     UserClose,
     Action { panel: usize, row: usize },
+    RestartAndApply,
     Refresh,
 }
 
@@ -22,6 +25,8 @@ enum Control {
     Slider(Child<Slider>),
     Select(Child<ComboBox>),
     Input(Child<Edit>),
+    MultilineInput(Child<TextBox>),
+    TextView(Child<TextBox>),
     Json(Child<TextBox>),
     Button(Child<Button>),
     Text(Child<Label>),
@@ -34,6 +39,8 @@ macro_rules! with_control {
             Control::Slider($widget) => $body,
             Control::Select($widget) => $body,
             Control::Input($widget) => $body,
+            Control::MultilineInput($widget) => $body,
+            Control::TextView($widget) => $body,
             Control::Json($widget) => $body,
             Control::Button($widget) => $body,
             Control::Text($widget) => $body,
@@ -45,6 +52,7 @@ struct Row {
     item: UiItem,
     label: Child<Label>,
     control: Control,
+    state_value: Value,
     value: Value,
 }
 
@@ -73,7 +81,15 @@ impl Row {
                 }
                 Control::Select(select)
             }
+            "text_input" if item.multiline == Some(true) => {
+                Control::MultilineInput(Child::init(parent).await?)
+            }
             "text_input" | "number_input" => Control::Input(Child::init(parent).await?),
+            "text_view" => {
+                let mut view = Child::<TextBox>::init(parent).await?;
+                view.set_readonly(true)?;
+                Control::TextView(view)
+            }
             "json_editor" => Control::Json(Child::init(parent).await?),
             "button" => {
                 let mut button = Child::<Button>::init(parent).await?;
@@ -86,6 +102,7 @@ impl Row {
             item,
             label,
             control,
+            state_value: Value::Null,
             value: Value::Null,
         };
         if let Some(description) = row.item.description.clone() {
@@ -105,19 +122,45 @@ impl Row {
                     .set_text(format!("{}: {}", self.item.label, widget.pos()?))?;
             }
             Control::Select(widget) => {
+                let (selected, options) = select_state(&value);
+                if let Some(options) = options {
+                    widget.set_items(options.iter().map(|option| option.label.clone()))?;
+                    self.item.options = Some(options);
+                }
                 let options = self.item.options.as_deref().unwrap_or_default();
-                if let Some(index) = options.iter().position(|option| option.value == value) {
+                if let Some(index) = options.iter().position(|option| option.value == *selected) {
                     widget.set_selection(index)?;
                 }
+                self.value = selected.clone();
             }
-            Control::Input(widget) => widget.set_text(display_value(&value))?,
+            Control::Input(widget) => {
+                let text = display_value(&value);
+                if widget.text()? != text {
+                    widget.set_text(text)?;
+                }
+            }
+            Control::MultilineInput(widget) => {
+                let text = display_value(&value);
+                if widget.text()? != text {
+                    widget.set_text(text)?;
+                }
+            }
+            Control::TextView(widget) => {
+                let text = display_value(&value);
+                if widget.text()? != text {
+                    widget.set_text(text)?;
+                }
+            }
             Control::Json(widget) => {
                 widget.set_text(serde_json::to_string_pretty(&value).unwrap_or_default())?;
             }
             Control::Text(widget) => widget.set_text(display_value(&value))?,
             Control::Button(_) => {}
         }
-        self.value = value;
+        self.state_value = value;
+        if !matches!(&self.control, Control::Select(_)) {
+            self.value = self.state_value.clone();
+        }
         Ok(())
     }
 
@@ -143,6 +186,8 @@ impl Row {
                 })
                 .map(Value::from),
             Control::Input(widget) => Some(Value::String(widget.text()?)),
+            Control::MultilineInput(widget) => Some(Value::String(widget.text()?)),
+            Control::TextView(_) => None,
             Control::Json(widget) => serde_json::from_str::<Value>(&widget.text()?)
                 .ok()
                 .filter(|value| value.is_object() || value.is_array()),
@@ -177,6 +222,12 @@ impl Row {
                     .start(sender, touched(panel, row), || OrbitUiMessage::Refresh)
                     .await
             }
+            Control::MultilineInput(widget) => {
+                widget
+                    .start(sender, touched(panel, row), || OrbitUiMessage::Refresh)
+                    .await
+            }
+            Control::TextView(_) => std::future::pending().await,
             Control::Json(widget) => {
                 widget
                     .start(sender, touched(panel, row), || OrbitUiMessage::Refresh)
@@ -190,6 +241,19 @@ impl Row {
             Control::Text(_) => std::future::pending().await,
         }
     }
+}
+
+fn select_state(value: &Value) -> (&Value, Option<Vec<UiOption>>) {
+    if let (Some(selected), Some(options)) = (
+        value.get("value"),
+        value.get("options").and_then(Value::as_array),
+    ) {
+        if let Ok(options) = serde_json::from_value::<Vec<UiOption>>(Value::Array(options.clone()))
+        {
+            return (selected, Some(options));
+        }
+    }
+    (value, None)
 }
 
 fn display_value(value: &Value) -> String {
@@ -213,11 +277,13 @@ pub(crate) struct OrbitUi {
     context: Arc<Shared>,
     window: Child<Window>,
     tabs: Child<TabView>,
+    restart_button: Child<Button>,
     overview: Child<TabViewItem>,
     overview_text: Child<Label>,
     sections: Vec<SectionState>,
     panels: Vec<Panel>,
     visible: bool,
+    restart_visible: bool,
     revision: u64,
 }
 
@@ -225,14 +291,23 @@ impl OrbitUi {
     async fn rebuild(&mut self, sections: Vec<SectionState>) -> winio::Result<()> {
         self.tabs.clear()?;
         self.panels.clear();
-        self.tabs.push(&self.overview)?;
-        self.overview_text.set_text(format!(
-            "Parsec Orbit {}\n\n\
-             {} configuration section(s) registered by plugins.\n\n\
-             Closing this window hides it; plugins keep running.",
-            env!("CARGO_PKG_VERSION"),
-            sections.len()
-        ))?;
+        let has_overview = sections
+            .iter()
+            .any(|section| section.schema.id == "orbit.overview");
+        self.restart_visible = has_overview;
+        self.restart_button.set_visible(has_overview)?;
+        self.overview_text.set_visible(!has_overview)?;
+        if !has_overview {
+            self.tabs.push(&self.overview)?;
+            self.overview.set_text("Overview")?;
+            self.overview_text.set_text(format!(
+                "Parsec Orbit {}\n\n\
+                 {} configuration section(s) registered by plugins.\n\n\
+                 Closing this window hides it; plugins keep running.",
+                env!("CARGO_PKG_VERSION"),
+                sections.len()
+            ))?;
+        }
         for section in &sections {
             let mut tab = Child::<TabViewItem>::init(()).await?;
             tab.set_text(&section.schema.title)?;
@@ -241,6 +316,12 @@ impl OrbitUi {
             scroll.set_vscroll(true)?;
             let mut rows = Vec::new();
             for item in &section.schema.items {
+                if section.schema.id == "orbit.overview"
+                    && item.item_type == "button"
+                    && item.key == "restart"
+                {
+                    continue;
+                }
                 let value = section
                     .values
                     .get(&item.key)
@@ -314,7 +395,7 @@ impl OrbitUi {
                         .cloned()
                         .or_else(|| row.item.default.clone())
                         .unwrap_or(Value::Null);
-                    if row.value != value {
+                    if row.state_value != value {
                         row.set_value(value)?;
                         changed = true;
                     }
@@ -380,6 +461,9 @@ impl Component for OrbitUi {
         window.set_size(Size::new(880.0, 580.0))?;
         window.set_visible(false)?;
         let tabs = Child::<TabView>::init(&window).await?;
+        let mut restart_button = Child::<Button>::init(&window).await?;
+        restart_button.set_text("Restart and apply")?;
+        restart_button.set_visible(false)?;
         let mut overview = Child::<TabViewItem>::init(()).await?;
         overview.set_text("Overview")?;
         let overview_text = Child::<Label>::init(&overview).await?;
@@ -387,11 +471,13 @@ impl Component for OrbitUi {
             context: Arc::clone(&context),
             window,
             tabs,
+            restart_button,
             overview,
             overview_text,
             sections: Vec::new(),
             panels: Vec::new(),
             visible: false,
+            restart_visible: false,
             revision: 0,
         };
         ui.rebuild(Vec::new()).await?;
@@ -407,6 +493,7 @@ impl Component for OrbitUi {
         let Self {
             window,
             tabs,
+            restart_button,
             panels,
             ..
         } = self;
@@ -432,6 +519,15 @@ impl Component for OrbitUi {
                 || OrbitUiMessage::Refresh,
             )
             .await;
+        }));
+        listeners.push(Box::pin(async {
+            restart_button
+                .start(
+                    sender,
+                    |_| Some(OrbitUiMessage::RestartAndApply),
+                    || OrbitUiMessage::Refresh,
+                )
+                .await;
         }));
         for (index, panel) in panels.iter_mut().enumerate() {
             let scroll = &mut panel.scroll;
@@ -490,13 +586,24 @@ impl Component for OrbitUi {
                 });
                 Ok(true)
             }
+            OrbitUiMessage::RestartAndApply => {
+                self.context.write(ChildMessage::Action(UiAction {
+                    section: "orbit.overview".to_string(),
+                    key: "restart".to_string(),
+                    action_type: "click".to_string(),
+                    value: Some(Value::Null),
+                }));
+                Ok(true)
+            }
             OrbitUiMessage::Action { panel, row } => self.apply_action(panel, row),
             OrbitUiMessage::Refresh => Ok(true),
         }
     }
 
     async fn update_children(&mut self) -> winio::Result<bool> {
-        let mut changed = self.window.update().await? | self.tabs.update().await?;
+        let mut changed = self.window.update().await?
+            | self.tabs.update().await?
+            | self.restart_button.update().await?;
         changed |= self.overview.update().await? | self.overview_text.update().await?;
         for panel in &mut self.panels {
             changed |= panel.tab.update().await? | panel.scroll.update().await?;
@@ -511,7 +618,14 @@ impl Component for OrbitUi {
     fn render(&mut self, _: &ComponentSender<Self>) -> winio::Result<()> {
         let size = self.window.client_size()?;
         self.tabs.set_loc(Point::new(0.0, 0.0))?;
-        self.tabs.set_size(size)?;
+        let footer_height = if self.restart_visible { 64.0 } else { 0.0 };
+        self.tabs
+            .set_size(Size::new(size.width, size.height - footer_height))?;
+        self.restart_button.set_loc(Point::new(
+            (size.width - 200.0).max(24.0),
+            (size.height - 48.0).max(8.0),
+        ))?;
+        self.restart_button.set_size(Size::new(176.0, 32.0))?;
         self.overview_text.set_loc(Point::new(24.0, 24.0))?;
         self.overview_text
             .set_size(Size::new((size.width - 64.0).max(100.0), 260.0))?;
@@ -526,7 +640,10 @@ impl Component for OrbitUi {
             for row in &mut panel.rows {
                 row.label.set_loc(Point::new(24.0, y))?;
                 row.label.set_size(Size::new(width, 24.0))?;
-                let height = if matches!(row.control, Control::Json(_)) {
+                let height = if matches!(
+                    row.control,
+                    Control::Json(_) | Control::MultilineInput(_) | Control::TextView(_)
+                ) {
                     120.0
                 } else {
                     32.0
@@ -558,6 +675,7 @@ impl Component for OrbitUi {
     fn render_children(&mut self) -> winio::Result<()> {
         self.window.render()?;
         self.tabs.render()?;
+        self.restart_button.render()?;
         self.overview.render()?;
         self.overview_text.render()?;
         for panel in &mut self.panels {
@@ -569,5 +687,45 @@ impl Component for OrbitUi {
             }
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn select_state_carries_new_options_and_the_selected_value() {
+        let state = serde_json::json!({
+            "value": "new",
+            "options": [
+                {"label": "New", "value": "new"},
+                {"label": "Existing", "value": "existing"}
+            ]
+        });
+
+        let (value, options) = select_state(&state);
+        assert_eq!(value, "new");
+        assert_eq!(
+            options.unwrap(),
+            vec![
+                UiOption {
+                    label: "New".into(),
+                    value: Value::String("new".into()),
+                },
+                UiOption {
+                    label: "Existing".into(),
+                    value: Value::String("existing".into()),
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn ordinary_select_state_keeps_its_scalar_value_and_existing_options() {
+        let value = serde_json::json!(42);
+        let (selected, options) = select_state(&value);
+        assert_eq!(selected, 42);
+        assert_eq!(options, None);
     }
 }

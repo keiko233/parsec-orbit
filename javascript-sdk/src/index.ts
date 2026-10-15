@@ -92,13 +92,14 @@ export interface ToggleItem {
   default?: boolean;
 }
 
-/** Single-line text input with optional `placeholder`. Payload shape: `string`. */
+/** Text input with optional `placeholder` and multiline editing. Payload shape: `string`. */
 export interface TextInputItem {
   key: string;
   type: "text_input";
   label: string;
   description?: string;
   placeholder?: string;
+  multiline?: boolean;
   default?: string;
 }
 
@@ -118,6 +119,12 @@ export interface NumberInputItem {
 export interface SelectOption {
   label: string;
   value: string | number;
+}
+
+/** State update for a select whose available options can change at runtime. */
+export interface SelectState {
+  value: string | number;
+  options: SelectOption[];
 }
 
 /** Dropdown selector. Payload shape: `string` or `number`. */
@@ -156,6 +163,15 @@ export interface ReadonlyTextItem {
   default?: string;
 }
 
+/** Read-only multiline text view. Payload shape: `string`. */
+export interface TextViewItem {
+  key: string;
+  type: "text_view";
+  label: string;
+  description?: string;
+  default?: string;
+}
+
 /** One control in a {@link UiSection}, discriminated by `type`. */
 export type UiItem =
   | ToggleItem
@@ -164,7 +180,8 @@ export type UiItem =
   | SelectItem
   | ButtonItem
   | JsonEditorItem
-  | ReadonlyTextItem;
+  | ReadonlyTextItem
+  | TextViewItem;
 
 /** A visual panel or tab registered with the UI service. */
 export interface UiSection {
@@ -183,7 +200,10 @@ export interface UiAction {
   value?: unknown;
 }
 
-/** Control values pushed to the rendered UI, by control key. */
+/**
+ * Control values pushed to the rendered UI, by control key. A select may use
+ * {@link SelectState}.
+ */
 export type UiState = Record<string, unknown>;
 
 /**
@@ -204,7 +224,10 @@ export interface Ui {
   registerSection(section: UiSection): Promise<void>;
   /** Removes a registered section and unmounts its controls. */
   unregisterSection(id: string): Promise<void>;
-  /** Pushes updated control values to the rendered UI. */
+  /**
+   * Pushes updated control values to the rendered UI. Select controls may
+   * receive a {@link SelectState}.
+   */
   updateState(sectionId: string, state: UiState): Promise<void>;
   /** Calls `handler` for each user interaction with a control. */
   onAction(handler: (action: UiAction) => void): Unsubscribe;

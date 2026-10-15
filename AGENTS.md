@@ -196,8 +196,12 @@ Follow [Git commits](docs/development/workflow.md#git-commits).
 - One commit does one thing and builds. No fix-up commits: fold a correction into
   the unpushed commit it completes. Rewriting pushed history requires explicit
   consent.
-- The subject is imperative, at most 72 characters, without a trailing period; a
-  non-trivial change explains why in the body.
+- Use Conventional Commits (`type(scope): description`, scope optional), matching
+  `cliff.toml`; unprefixed subjects are excluded from release notes. Check every
+  branch commit's format before finishing, including after a rebase.
+- The description is imperative; the entire subject, including its prefix, is at
+  most 72 characters without a trailing period. A non-trivial change explains why
+  in the body.
 
 ## 12. Final Review
 

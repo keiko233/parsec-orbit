@@ -15,18 +15,25 @@ crate-type = ["cdylib", "rlib"]
 parsec-orbit-plugin-sdk = { path = "../../crates/parsec-orbit-plugin-sdk" }
 serde_json = "1"
 parsec-orbit-ui-protocol = { path = "../../crates/parsec-orbit-ui-protocol" }
+parsec-orbit-layout = { path = "../../crates/parsec-orbit-layout" }
+parsec-orbit-log-tail = { path = "../../crates/parsec-orbit-log-tail" }
 
-# Only activation/session checks remain here. GUI dependencies live in the
-# separate companion executable.
+# Activation, console preferences, clipboard and helper launching stay here.
+# GUI dependencies live in the separate companion executable.
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61.2", features = [
     "Win32_Foundation",
+    "Win32_Security",
     "Win32_System_LibraryLoader",
     "Win32_System_RemoteDesktop",
     "Win32_System_Threading",
     "Win32_UI_WindowsAndMessaging",
     "Win32_UI_Input_KeyboardAndMouse",
     "Win32_Graphics_Gdi",
+    "Win32_UI_Shell",
+    "Win32_System_Registry",
+    "Win32_System_DataExchange",
+    "Win32_System_Memory",
 ] }
 
 [dev-dependencies]

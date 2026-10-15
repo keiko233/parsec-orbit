@@ -147,7 +147,13 @@ fn libs_and_plugins_link_the_sdk_and_nothing_above_it() {
             // The market uses registry/layout; the UI service shares its wire protocol.
             let allowed = dep == SDK
                 || dep == ABI
-                || (package.name == "parsec-orbit-lib-ui" && dep == "parsec-orbit-ui-protocol")
+                || (package.name == "parsec-orbit-lib-ui"
+                    && matches!(
+                        dep,
+                        "parsec-orbit-ui-protocol"
+                            | "parsec-orbit-layout"
+                            | "parsec-orbit-log-tail"
+                    ))
                 || (package.name == "parsec-orbit-plugin-market"
                     && (dep == "parsec-orbit-registry" || dep == "parsec-orbit-layout"));
             assert!(

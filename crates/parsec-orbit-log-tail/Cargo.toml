@@ -1,0 +1,8 @@
+[package]
+name = "parsec-orbit-log-tail"
+description = "Lightweight incremental file log follower for Parsec Orbit"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false

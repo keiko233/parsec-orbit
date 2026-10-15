@@ -218,3 +218,45 @@ digests and validation limits are recorded in the
 the native Windows build in its
 [Windows follow-up](ui-companion-checkpoint.md#windows-follow-up-2026-10-15).
 GUI dependencies belong only to the helper; the loader and core are unchanged.
+
+## Shared bounded log follower (Windows x64, 2026-10-15)
+
+Extracting the existing follower into the zero-dependency `parsec-orbit-log-tail`
+crate and limiting reads to 64 KiB changes the current release `bcrypt.dll`
+from 400,896 to 401,408 B (+512 B), measured with the same checkout toolchain
+and workspace release profile. This small cost bounds allocations when a log
+grows quickly and lets the UI reuse the console's rotation handling without
+linking core. No GUI or third-party dependency is added to the loader. The
+existing loader baseline already exceeds the historical 360 KiB budget.
+
+## Editable bitrate settings (Windows x64, 2026-10-16)
+
+With the same workspace release profile, the native plugin is 283,136 B
+(previous artifact 257,024 B, +26,112 B) and the `no_std` WebView plugin is
+36,864 B (previous artifact 17,920 B, +18,944 B). The extra code reads shared
+persisted options, validates custom values, and constructs the injected
+script. No third-party dependency or GUI toolkit was added to either plugin;
+the native plugin's existing JSON dependency also handles persistence events.
+
+## STUN selection settings (Windows x64, 2026-10-16)
+
+The STUN plugin is 393,728 B in the same release profile (previous artifact
+349,696 B, +44,032 B). The increase provides persisted selection/custom-server
+settings, per-candidate status, validation and dynamic UI state. No new
+dependency was added; probing and DNS interception remain in this optional
+plugin, outside the loader.
+
+## Overview, restart and Log (Windows x64, 2026-10-16)
+
+The UI service is 639,488 B (previous artifact 563,200 B, +76,288 B), and the
+WinUI companion is 571,392 B (previous artifact 541,184 B, +30,208 B), in the
+workspace release profile. These artifacts now contain the built-in panels,
+bounded log tail and clipboard/file actions, dynamic and multiline controls,
+and the independent Windows restart helper. The service adds only the shared
+layout/follower crates, with no third-party or GUI dependency; WinUI remains
+confined to the companion. The loader measurement above remains 401,408 B.
+
+The same-session host/hotkey fix (ADR 0026) takes the UI service to 640,512 B
+(+1,024 B): it checks the process token and reports activation registration
+failures. It adds only Win32 security bindings, with no third-party dependency
+or loader change.

@@ -59,3 +59,6 @@ review.
 - Relevant checks pass, and any limitation that could not be run is recorded.
 - Language style follows [Rust code style](rust.md).
 - The commit is atomic and only related files are staged.
+- Every commit in the task's range follows the
+  [commit message rules](workflow.md#commit-message-content), including its
+  Conventional Commits prefix, full subject length and explanatory body.
