@@ -221,59 +221,6 @@ fn any_core_error_converts_with_the_question_mark() {
 
 // ---- UiClient -----------------------------------------------------------------
 
-static UI_SHOW_CALLED: Mutex<bool> = Mutex::new(false);
-static UI_HIDE_CALLED: Mutex<bool> = Mutex::new(false);
-static UI_LAST_SECTION: Mutex<Option<std::string::String>> = Mutex::new(None);
-
-unsafe extern "system" fn fake_ui_show() -> i32 {
-    *UI_SHOW_CALLED.lock().unwrap() = true;
-    0
-}
-
-unsafe extern "system" fn fake_ui_hide() -> i32 {
-    *UI_HIDE_CALLED.lock().unwrap() = true;
-    0
-}
-
-unsafe extern "system" fn fake_ui_is_visible() -> i32 {
-    1
-}
-
-unsafe extern "system" fn fake_ui_register_section(schema: *const u8, len: usize) -> i32 {
-    let slice = unsafe { core::slice::from_raw_parts(schema, len) };
-    *UI_LAST_SECTION.lock().unwrap() =
-        Some(std::string::String::from_utf8_lossy(slice).into_owned());
-    0
-}
-
-#[test]
-fn ui_client_forwards_calls() {
-    let table = ParsecOrbitUiV1 {
-        header: ParsecOrbitInterfaceHeader::new(size_of::<ParsecOrbitUiV1>(), 1, 0),
-        show: Some(fake_ui_show),
-        hide: Some(fake_ui_hide),
-        is_visible: Some(fake_ui_is_visible),
-        register_section: Some(fake_ui_register_section),
-        unregister_section: None,
-        update_state: None,
-        on_action: None,
-        off_action: None,
-    };
-    let client = services::UiClient::from_table(std::boxed::Box::leak(std::boxed::Box::new(table)));
-    assert_eq!(client.is_visible().unwrap(), true);
-    assert!(client.show().is_ok());
-    assert!(*UI_SHOW_CALLED.lock().unwrap());
-    assert!(client.hide().is_ok());
-    assert!(*UI_HIDE_CALLED.lock().unwrap());
-    assert!(client.register_section(r#"{"id":"test"}"#).is_ok());
-    assert_eq!(
-        UI_LAST_SECTION.lock().unwrap().as_deref(),
-        Some(r#"{"id":"test"}"#)
-    );
-}
-
-// ---- UiClient, version 2 -----------------------------------------------------------------
-
 static UI2_SHOW_CALLED: Mutex<bool> = Mutex::new(false);
 static UI2_HIDE_CALLED: Mutex<bool> = Mutex::new(false);
 static UI2_LAST_PAGE: Mutex<Option<std::string::String>> = Mutex::new(None);

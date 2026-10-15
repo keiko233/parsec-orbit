@@ -190,21 +190,6 @@ typedef struct ParsecOrbitHooksV1 {
     int32_t (*remove)(int64_t hook);
 } ParsecOrbitHooksV1;
 
-/* parsec-orbit.ui, version 1.0 (superseded by version 2.0 below) */
-typedef struct ParsecOrbitUiV1 {
-    ParsecOrbitInterfaceHeader header;
-    int32_t (*show)(void);
-    int32_t (*hide)(void);
-    int32_t (*is_visible)(void);
-    int32_t (*register_section)(const uint8_t *schema_json, size_t schema_len);
-    int32_t (*unregister_section)(const uint8_t *section_id, size_t id_len);
-    int32_t (*update_state)(const uint8_t *section_id, size_t id_len,
-                           const uint8_t *state_json, size_t state_len);
-    int64_t (*on_action)(const uint8_t *section_id, size_t id_len,
-                         ParsecOrbitMessageCallback cb, void *user);
-    int32_t (*off_action)(int64_t subscription);
-} ParsecOrbitUiV1;
-
 /* parsec-orbit.ui, version 2.0 */
 typedef struct ParsecOrbitUiV2 {
     ParsecOrbitInterfaceHeader header;
