@@ -81,7 +81,7 @@ binaries) revealed two entirely distinct UI implementations:
 | **Audience Coverage** | Native users only | Web UI users only | **100% of users (Native + Web)** |
 | **Update Resilience** | **Very Low** (binary offsets drift) | Medium (DOM structure changes) | **Immune** (decoupled from client) |
 | **UI Capabilities** | Bare-bones IMGUI controls | Full web stack (CSS, React) | Native rich controls (winio) |
-| **Parsec Client Risk** | High (in-process render crash) | Low (isolated in webview) | **Zero** (runs in companion thread) |
+| **Parsec Client Risk** | High (in-process render crash) | Low (isolated in webview) | Renderer and transport faults are isolated in a helper; native plugin and callback faults remain in the client |
 | **Cross-Platform Path**| None (Win32 specific binary) | Webview-dependent | **High** (winio Win/Mac/Linux) |
 
 ## 3. Technology Selection: `compio-rs/winio`
@@ -135,17 +135,22 @@ The UI architecture is divided into three cleanly decoupled pillars:
  ┌───────────────┼────────────────────────────────────────┼───────────────┐
  │               ▼                                        ▼               │
  │   Pillar 3: Framework-Specific Activation                              │
- │   • Global Hotkey (Ctrl+Alt+O / Ctrl+F12) • host.ui.show()             │
- │   • System Tray Icon                      • WebView injected trigger   │
- │   • Programmatic ui.show()                • CLI: orbit-manager.ps1 ui  │
+ │   • Windows host hotkeys                  • host.ui.show()             │
+ │   • Programmatic ui.show()/hide()          • Windows CLI activation     │
  └───────────────────────────────┬────────────────────────────────────────┘
                                  │
                                  ▼ [parsec-orbit.ui service]
  ┌────────────────────────────────────────────────────────────────────────┐
  │                 Pillar 1: winio External Window Renderer               │
  │                                                                        │
- │  com.parsec-orbit.ui (Official Service Plugin on dedicated thread)     │
- │  • Win32 / WinUI native window with Parsec dark theme                  │
+ │  com.parsec-orbit.ui (official service plugin, owns registry)           │
+ │  • Private inherited stdin/stdout pipes; bounded JSON-line IPC          │
+ └───────────────────────────────┬────────────────────────────────────────┘
+                                 │ version 1 handshake; max 4 MiB per line
+                                 ▼
+ ┌────────────────────────────────────────────────────────────────────────┐
+ │   parsec-orbit-ui-companion[.exe] (main-thread winio renderer)         │
+ │  • WinUI 3 on Windows; AppKit on macOS                                  │
  │  • Built-in: Overview, Plugins, Parsec & Orbit Config, Log             │
  │  • Dynamically rendered plugin sections from registered schemas        │
  └────────────────────────────────────────────────────────────────────────┘
@@ -153,25 +158,31 @@ The UI architecture is divided into three cleanly decoupled pillars:
 
 ### 4.1 Pillar 1: winio External Window Renderer
 
-The renderer runs inside an official plugin (`com.parsec-orbit.ui`) that registers
-the `parsec-orbit.ui` service table ([spec/ui-service.md](../spec/ui-service.md)).
+The official plugin (`com.parsec-orbit.ui`) registers the
+`parsec-orbit.ui` service table and owns the authoritative schemas, state,
+subscriptions and callback pointers ([spec/ui-service.md](../spec/ui-service.md)).
+It launches the adjacent `parsec-orbit-ui-companion[.exe]` executable, which
+owns the native window and main-thread `winio` event loop.
 
 * **Lifecycle & Concurrency**:
   * In accordance with [ADR 0004](decisions/0004-loader-stays-light.md), the
     loader stays completely free of `winio` or GUI code.
-  * The UI plugin spawns a dedicated worker thread during `init` and hosts the
-    `winio` single-threaded async event loop.
-  * The window is created hidden on start-up, so Parsec's launch never waits on
-    it and the first `show()` has nothing left to build.
-  * Only the user's instance draws. Parsec starts its client twice - the service
-    copy in session 0 and the user's copy on the desktop - and the window and
-    the hotkeys belong to the second; the first registers the `parsec-orbit.ui`
-    service and nothing else. The check is the same token query the debug
-    console uses.
-  * Cross-thread messages are posted to the window thread and followed by a
-    `WM_NULL`. `winio`'s loop sits in `MsgWaitForMultipleObjectsEx` when idle
-    and the queue's own waker only counts during a poll, so that empty message
-    is what ends the wait and lets the loop drain the queue.
+  * Plugin `init` launches the helper hidden and returns promptly. It never
+    waits for window creation or a UI round trip.
+  * The processes use private inherited stdin/stdout pipes with a version 1
+    JSON-line handshake and a 4 MiB maximum line. There is no listener, port or
+    authentication token. Standard output carries protocol data; diagnostics
+    use the Orbit logger or standard error.
+  * Callback pointers stay in the plugin process. Actions are delivered on a
+    plugin-owned thread outside the UI, IPC and host main threads. Cancellation
+    waits for in-flight callbacks except when called from that callback.
+  * The plugin owns desired visibility and the registry. It retries helper
+    failures with finite attempts and backoff, then replays schemas, state and
+    visibility after a new handshake. Closing the window hides it; closing the
+    parent pipe lets the helper exit.
+  * On Windows, the session-0 service instance keeps the service table without
+    desktop hotkeys or a renderer. Only an instance with a known nonzero process
+    session starts the helper and the hotkey/CLI activation channel.
 * **Styling**:
   * Styled with a dark theme consistent with Parsec (background `#18181b`,
     surface `#27272a`, border `#3f3f46`, text `#f4f4f5`, accent `#8b5cf6` or
@@ -221,28 +232,24 @@ libraries. Instead, plugins register declarative data structures.
 
 ### 4.3 Pillar 3: Framework-Specific Activation
 
-Each framework environment provides an intuitive way to open and toggle the UI:
+The service API provides programmatic show/hide on Windows and macOS. Windows
+retains its existing host activation paths. macOS initially supports
+programmatic activation only; it has no external CLI or hotkey activation
+unless a renderer adds one.
 
 1. **Rust Native Plugins**:
    * Call `ui.show()`, `ui.hide()`, or `ui.toggle()` directly from `Context`.
-   * The UI plugin registers a global Windows hotkey (default: `Ctrl+Alt+O` / `Ctrl+F12`).
-   * Optional system tray icon integration (left-click opens UI, right-click
-     context menu).
-   * If `parsec-orbit.hooks` is active, plugins can optionally hook client input
-     or native buttons to trigger `ui.show()`.
+   * Existing Windows host hotkeys can request visibility through the service.
 2. **JavaScript / TypeScript Plugins**:
    * Direct programmatic access: `host.ui.show()` / `host.ui.toggle()`.
-   * **WebView Bridge Integration**: When `com.parsec-orbit.webview-bridge` is
+   * **Windows WebView Bridge Integration**: When `com.parsec-orbit.webview-bridge` is
      present, a lightweight JS helper injects an "Orbit" button into Parsec's
      Settings navigation bar or binds a shortcut inside the WebView2 DOM.
      Clicking the button calls `orbit.emit("orbit:ui:show")`, which the plugin
      realm receives and translates to `host.ui.show()`.
 3. **External CLI & Orchestration**:
-   * The `orbit-manager.ps1` script provides `orbit-manager.ps1 ui` (or
-       `orbit-manager ui`) to bring the companion window up from outside Parsec.
-       It posts the activation message instead of pressing keys, so the
-       window's own visible/hidden state stays correct; focusing an existing
-       window and synthesizing the hotkey are the fallbacks.
+   * Windows retains its existing CLI activation path. The initial macOS
+     renderer has no external CLI activation contract.
 
 ## 5. Architectural Integrity & Size Policy
 
@@ -252,9 +259,9 @@ Each framework environment provides an intuitive way to open and toggle the UI:
 * **Plugin Overhead**: Plugins pay zero binary size cost for GUI dependencies. A
   `no_std` Rust plugin registering a settings section only emits a static JSON
   string through `extern "system"` service calls.
-* **Isolated Failure Domain**: Any unexpected issue or panic inside the `winio`
-  event loop is confined to the UI thread and can be safely caught without
-  crashing Parsec's streaming session.
+* **Isolated Failure Domain**: Ordinary renderer and transport faults stay in
+  the helper process. Native plugin faults and action callback faults still run
+  in the client process and are not contained by this process boundary.
 
 ## 6. Planned: settings the window should grow into
 

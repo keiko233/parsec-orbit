@@ -5,6 +5,9 @@
 #
 #   powershell -ExecutionPolicy Bypass -File scripts\install.ps1 [-EnableWebViewUi] [-EnableStunSwap]
 #
+# When the optional UI plugin DLL is in target\release, its companion helper is
+# required and installed beside the plugin library.
+#
 # It has to run elevated: it writes into the client directory and controls the
 # Parsec service. The previous bcrypt.dll is copied to
 # %APPDATA%\ParsecOrbit\backups\ before it is replaced.
@@ -74,6 +77,7 @@ if (Test-Path -LiteralPath (Join-Path $release 'parsec_orbit_lib_ui.dll')) {
             Name = 'parsec-orbit-lib-ui'
             Source = Join-Path $root 'libs\parsec-orbit-lib-ui'
             Dll = 'parsec_orbit_lib_ui.dll'
+            Companion = 'parsec-orbit-ui-companion.exe'
         }
     )
 }
@@ -95,6 +99,12 @@ foreach ($plugin in $plugins) {
     $dll = Join-Path $release $plugin.Dll
     if (-not (Test-Path -LiteralPath $dll)) {
         throw "missing $dll - build it first (cargo build --release)"
+    }
+    if ($plugin.ContainsKey('Companion')) {
+        $companion = Join-Path $release $plugin.Companion
+        if (-not (Test-Path -LiteralPath $companion)) {
+            throw "missing $companion - build parsec-orbit-ui-companion --release first"
+        }
     }
 }
 
@@ -148,6 +158,9 @@ foreach ($plugin in $plugins) {
         Copy-Item -LiteralPath $readme -Destination $dir -Force
     }
     Copy-Item -LiteralPath (Join-Path $release $plugin.Dll) -Destination $dir -Force
+    if ($plugin.ContainsKey('Companion')) {
+        Copy-Item -LiteralPath (Join-Path $release $plugin.Companion) -Destination $dir -Force
+    }
     Write-Log "installed $($plugin.Name)"
 }
 

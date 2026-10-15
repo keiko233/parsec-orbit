@@ -5,8 +5,43 @@ session, and what a Windows session has to do next. The design is
 [restructure.md](restructure.md); this file says what is done, what is not,
 and how to continue.
 
-Everything below was built and tested on macOS arm64 only. The branch is not
-pushed. Commits are Conventional Commits without attribution trailers.
+The original hand-off below records the macOS arm64 session. Commits are
+Conventional Commits without attribution trailers.
+
+## Windows follow-up (2026-10-15)
+
+Merged `origin/main` at `38bc3b1`, retaining the restructured crate names and
+placing the independent UI renderer under `tools/`. The service uses the one
+SDK package; its protocol dependency is recorded in
+[ADR 0024](decisions/0024-restructured-ui-companion.md).
+
+Native Windows verification:
+
+* Locked workspace check with all targets, formatting and targeted Clippy passed.
+  Existing lint warnings and ReFS incremental-cache access-denied notes remain;
+  they do not fail these commands.
+* `PARSEC_ORBIT_REQUIRE_NODE=1 cargo test --workspace --locked`: 700 passed,
+  0 failed, 3 ignored. Both interactive companion regressions were then run
+  explicitly and passed (WinUI controls/visibility and pipe lifecycle).
+* Frozen pnpm install, recursive build and tests: 26 JavaScript tests passed.
+* `cargo build --release --locked` and `scripts/verify.ps1` passed. The latter
+  now builds the relocated verification package as well as the loader.
+* `scripts/package.ps1 -SkipBuild` passed using that release build. Its legacy
+  distribution policy still excludes UI; public release cutover is deferred.
+* The Rust release tool packaged all nine Windows modules under
+  `target/windows-packages`; every ZIP and checksum was checked. The UI package
+  includes its helper next to the DLL and refuses a missing helper.
+* Path assertions account for native separators; canonical deduplication is
+  tested directly without feeding drive letters to a macOS path list.
+* The sandbox verifies pending promotion before discovery and exactly one
+  `ready:` summary. A Windows sharing-denial test verifies a locked installed
+  file preserves the old version and pending update.
+
+Sizes and PE checks are in
+[size-report.md](size-report.md#restructure-windows-checkpoint-2026-10-15).
+The loader remains over budget. No installed client or real user configuration
+was touched. Installed-client acceptance and the installer/cutover phases below
+remain outstanding.
 
 ## 1. Get going on Windows
 

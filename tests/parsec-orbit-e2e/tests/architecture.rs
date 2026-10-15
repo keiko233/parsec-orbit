@@ -144,9 +144,10 @@ fn libs_and_plugins_link_the_sdk_and_nothing_above_it() {
         }
         for dep in linked(package) {
             let group = packages[dep].group.as_str();
-            // The market plugin may also use the registry library.
+            // The market uses registry/layout; the UI service shares its wire protocol.
             let allowed = dep == SDK
                 || dep == ABI
+                || (package.name == "parsec-orbit-lib-ui" && dep == "parsec-orbit-ui-protocol")
                 || (package.name == "parsec-orbit-plugin-market"
                     && (dep == "parsec-orbit-registry" || dep == "parsec-orbit-layout"));
             assert!(

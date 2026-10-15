@@ -1,5 +1,27 @@
 # Size report
 
+## Restructure Windows checkpoint (2026-10-15)
+
+Native `x86_64-pc-windows-msvc`, `rustc 1.100.0-nightly (a36d05efa
+2026-09-09)`, workspace release profile and static CRT. The default loader
+was rebuilt without `diagnostics` after forwarding checks.
+
+| Artifact | Bytes |
+| --- | ---: |
+| loader `bcrypt.dll` | 400,896 |
+| WebView patches (`no_std`) | 17,920 |
+| UI service `parsec_orbit_lib_ui.dll` | 563,200 |
+| WinUI renderer `parsec-orbit-ui-companion.exe` | 541,184 |
+| market plugin | 1,968,640 |
+
+The loader exceeds 360 KiB by 32,256 B and the previous console-enabled
+381,952 B checkpoint by 18,944 B. This is the restructured loader with shared
+layout/session/logging and pending-update promotion, not a controlled comparison
+against the old toolchain; no precise per-change attribution is claimed.
+The UI merge adds no loader dependency, and the TOML parser is unchanged.
+Direct PE table inspection confirms the WebView DLL exports only the three
+plugin ABI functions and imports only `kernel32.dll`.
+
 Measured on `x86_64-pc-windows-msvc`, release profile (`opt-level = "z"`, `lto = "fat"`, `codegen-units = 1`, `panic = "abort"`, `strip = "symbols"`), static CRT where a CRT is linked at all. Sizes are bytes of the DLL. The [macOS arm64](#macos-arm64-m0) numbers below were taken with the same profile on `aarch64-apple-darwin`.
 
 ## Plugin runtime spike (phase 3)
@@ -187,3 +209,12 @@ universal parsing, full metadata, recovery/locking and assessment. Hooks are
 a separate optional plugin, not added to the injected loader. The historical
 360 KiB reference is still exceeded by the 571,472 B loader; no final macOS
 budget or size optimization is claimed here.
+
+## Independent UI companion (Windows x64 and macOS arm64)
+
+The service plugin and separate winio renderer sizes, build profile, artifact
+digests and validation limits are recorded in the
+[UI companion checkpoint](ui-companion-checkpoint.md#release-profile-sizes), with
+the native Windows build in its
+[Windows follow-up](ui-companion-checkpoint.md#windows-follow-up-2026-10-15).
+GUI dependencies belong only to the helper; the loader and core are unchanged.

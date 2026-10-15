@@ -481,7 +481,13 @@ mod tests {
         assert!(matches!(error, Error::Index(_)));
         let text = String::from_utf8(out).unwrap();
         assert!(
-            text.contains("host/releases.toml") && text.contains("installer size 0"),
+            text.contains(
+                &dir.path()
+                    .join("host")
+                    .join("releases.toml")
+                    .display()
+                    .to_string()
+            ) && text.contains("installer size 0"),
             "{text}"
         );
     }

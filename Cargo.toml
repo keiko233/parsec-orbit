@@ -21,6 +21,8 @@ members = [
     "plugins/parsec-orbit-plugin-high-bitrate-native",
     "plugins/parsec-orbit-plugin-stun-swap",
     "plugins/parsec-orbit-plugin-market",
+    "crates/parsec-orbit-ui-protocol",
+    "tools/parsec-orbit-ui-companion",
     "examples/parsec-orbit-plugin-hello",
     "examples/parsec-orbit-plugin-hello-nostd",
     "tools/parsec-orbit-verify",

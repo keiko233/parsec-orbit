@@ -18,6 +18,9 @@ use crate::args::{usage, Args};
 use crate::manifest::{read_optional, sorted_dirs, Entry};
 use crate::version;
 
+const WINDOWS_UI_ID: &str = "com.parsec-orbit.ui";
+const WINDOWS_UI_COMPANION: &str = "parsec-orbit-ui-companion.exe";
+
 /// What a platform's packages and loader look like.
 struct Target {
     kind: &'static str,
@@ -139,6 +142,16 @@ pub fn package(
         std::fs::write(stage.join("plugin.toml"), stamped)?;
         copy_readmes(folder, &stage)?;
         std::fs::copy(&library, stage.join(&file_name))?;
+        if platform == PlatformId::WINDOWS_X86_64 && id == WINDOWS_UI_ID {
+            let companion = release_dir.join(WINDOWS_UI_COMPANION);
+            if !companion.is_file() {
+                return Err(Error::Io(format!(
+                    "{} is not built; run cargo build --release -p parsec-orbit-ui-companion first",
+                    companion.display()
+                )));
+            }
+            std::fs::copy(&companion, stage.join(WINDOWS_UI_COMPANION))?;
+        }
 
         let zip = out_dir.join(format!("{}-{platform}.zip", cargo.package.name));
         std::fs::write(&zip, package::pack(&stage)?)?;
@@ -372,6 +385,22 @@ mod tests {
         dir.write("target/release/bcrypt.dll", b"MZ loader");
     }
 
+    fn add_windows_ui(dir: &TempDir) {
+        dir.write(
+            "libs/parsec-orbit-lib-ui/Cargo.toml",
+            "[package]\nname = \"parsec-orbit-lib-ui\"\n\n[lib]\nname = \"parsec_orbit_lib_ui\"\n",
+        );
+        dir.write(
+            "libs/parsec-orbit-lib-ui/plugin.toml",
+            "id = \"com.parsec-orbit.ui\"\nversion = \"0.0.1\"\nkind = \"dll\"\nentry = \"old.dll\"\n",
+        );
+        dir.write(
+            "manifest/plugins/com.parsec-orbit.ui/entry.toml",
+            "id = \"com.parsec-orbit.ui\"\n\n[build]\nplatforms = [\"windows-x86_64\"]\n",
+        );
+        dir.write("target/release/parsec_orbit_lib_ui.dll", b"MZ UI plugin");
+    }
+
     #[test]
     fn a_windows_package_is_zipped_with_its_loader_and_sums() {
         let dir = TempDir::new("package-windows");
@@ -410,6 +439,52 @@ mod tests {
         );
         assert_eq!(sums, expected);
         assert!(!out.join(".stage").exists());
+    }
+
+    #[test]
+    fn a_windows_ui_package_includes_its_companion_beside_the_plugin() {
+        let dir = TempDir::new("package-windows-ui");
+        workspace(&dir);
+        add_windows_ui(&dir);
+        dir.write(
+            "target/release/parsec-orbit-ui-companion.exe",
+            b"MZ UI companion",
+        );
+
+        let out = dir.path().join("dist");
+        package(
+            dir.path(),
+            &dir.path().join("target"),
+            &out,
+            "windows-x86_64",
+        )
+        .unwrap();
+
+        let zip = std::fs::read(out.join("parsec-orbit-lib-ui-windows-x86_64.zip")).unwrap();
+        let read = package::read(&zip).unwrap();
+        let paths: Vec<&str> = read.files.iter().map(|file| file.path.as_str()).collect();
+        assert!(paths.contains(&"parsec_orbit_lib_ui.dll"), "{paths:?}");
+        assert!(paths.contains(&WINDOWS_UI_COMPANION), "{paths:?}");
+    }
+
+    #[test]
+    fn a_windows_ui_package_fails_when_its_companion_is_missing() {
+        let dir = TempDir::new("package-windows-ui-missing-companion");
+        workspace(&dir);
+        add_windows_ui(&dir);
+
+        let error = package(
+            dir.path(),
+            &dir.path().join("target"),
+            &dir.path().join("dist"),
+            "windows-x86_64",
+        )
+        .unwrap_err();
+
+        assert!(
+            matches!(&error, Error::Io(text) if text.contains(WINDOWS_UI_COMPANION)),
+            "{error}"
+        );
     }
 
     #[test]

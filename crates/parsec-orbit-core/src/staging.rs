@@ -266,6 +266,41 @@ mod tests {
         assert!(dir.path().join("plugins/com.example.q.old").exists());
     }
 
+    #[cfg(windows)]
+    #[test]
+    fn a_locked_installed_file_keeps_the_old_version_and_pending_update() {
+        use std::os::windows::fs::OpenOptionsExt;
+
+        let dir = TempDir::new("staging-locked");
+        dir.write("plugins/com.example.p/plugin.toml", &manifest("1"));
+        dir.write("pending/com.example.p/plugin.toml", &manifest("2"));
+        let installed = dir.path().join("plugins/com.example.p/plugin.toml");
+        let lock = fs::OpenOptions::new()
+            .read(true)
+            .share_mode(0)
+            .open(&installed)
+            .unwrap();
+        let log = Recording::default();
+
+        assert_eq!(
+            promote(
+                &log,
+                &dir.path().join("plugins"),
+                &dir.path().join("pending")
+            ),
+            0
+        );
+        assert!(dir
+            .path()
+            .join("pending/com.example.p/plugin.toml")
+            .is_file());
+        assert!(log.mentions("the installed version stays"));
+        drop(lock);
+        assert!(fs::read_to_string(installed)
+            .unwrap()
+            .contains("version = \"1\""));
+    }
+
     #[cfg(unix)]
     #[test]
     fn a_failed_swap_keeps_the_installed_version() {

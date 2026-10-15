@@ -3,6 +3,9 @@
 One file per decision, numbered, never rewritten after acceptance (supersede with a new record).
 Format: Context, Decision, Consequences.
 
+The parallel UI and restructure branches each allocated 0018 and 0019. Their
+accepted records retain their original names; use the full link to distinguish them.
+
 | # | Title | Status |
 | --- | --- | --- |
 
@@ -24,7 +27,10 @@ Format: Context, Decision, Consequences.
 | [0016](0016-orbit-ui-winio.md) | Orbit UI: External winio companion window with unified declarative ABI | Accepted |
 | [0017](0017-one-sdk-package-no-features.md) | One SDK package without features; `sdk-std` dissolved | Accepted |
 | [0018](0018-crate-roles-and-layout.md) | Crate roles and directory layout | Accepted |
+| [0018](0018-ui-companion-process.md) | Run the winio UI renderer in an independent helper process | Accepted |
 | [0019](0019-layout-crate-and-shared-loader-glue.md) | One `layout` crate and shared loader glue | Accepted |
-| [0020](0020-market-is-a-plugin-over-registry.md) | The market is a plugin over the registry library | Accepted
+| [0019](0019-windows-ui-winui3.md) | Use winio's WinUI 3 backend for the Windows companion | Accepted |
+| [0020](0020-market-is-a-plugin-over-registry.md) | The market is a plugin over the registry library | Accepted |
 | [0022](0022-official-registry-in-manifest.md) | The official registry is `manifest/` on `main` | Accepted |
 | [0023](0023-staged-update-promotion.md) | Staged updates are promoted by the loader | Accepted |
+| [0024](0024-restructured-ui-companion.md) | Integrate the UI companion with the crate role layout | Accepted |

@@ -249,7 +249,7 @@ mod tests {
 
     fn mac(list: &[PathBuf]) -> Vec<String> {
         list.iter()
-            .map(|path| path.to_string_lossy().into_owned())
+            .map(|path| path.to_string_lossy().replace('\\', "/"))
             .collect()
     }
 
@@ -500,19 +500,13 @@ mod tests {
     fn macos_plugin_dirs_drop_duplicates_by_canonical_path() {
         let dir = std::env::temp_dir().join(format!("parsec-orbit-layout-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
-        let real = dir.to_string_lossy().into_owned();
-        let layout = macos(
-            Some("/Users/me"),
-            &[(
-                "PARSEC_ORBIT_PLUGIN_DIR",
-                // The second spelling resolves to the same directory.
-                &format!("{real}:{real}/."),
-            )],
-        );
+        // Exercise canonicalization directly: a Windows drive letter contains
+        // the macOS path-list separator, so it cannot be an override fixture.
+        let paths = dedupe(Os::MacOs, vec![dir.clone(), dir.join(".")]);
         let _ = std::fs::remove_dir_all(&dir);
         assert_eq!(
-            mac(&layout.plugin_dirs),
-            [real, format!("{MAC_ROOT}/plugins")],
+            paths,
+            [dir],
             "the canonical duplicate is dropped, the first spelling wins"
         );
     }

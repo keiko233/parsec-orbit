@@ -1,12 +1,25 @@
 # UI service (`parsec-orbit.ui`)
 
-Status: Draft (version 1.0). Implements [ADR 0016](../design/decisions/0016-orbit-ui-winio.md);
-architectural walkthrough in [design/orbit-ui.md](../design/orbit-ui.md).
+Status: Draft (version 1.0). The ABI and declarative schema implement
+[ADR 0016](../design/decisions/0016-orbit-ui-winio.md); the independent renderer
+process is selected by [ADR 0018](../design/decisions/0018-ui-companion-process.md).
+See the [architecture walkthrough](../design/orbit-ui.md).
 
 The `parsec-orbit.ui` service provides a native, external management window
-powered by `compio-rs/winio`. Plugins do not embed UI runtimes; they register
-declarative JSON schemas defining configuration sections and controls, and
-listen for user action events.
+rendered by `parsec-orbit-ui-companion[.exe]` using `compio-rs/winio`. The
+official UI plugin remains in the client process, owns the authoritative
+registry and callback pointers, and relays bounded JSON messages to the helper.
+Plugins do not embed UI runtimes; they register declarative JSON schemas
+defining configuration sections and controls, and listen for user action
+events.
+
+On Windows the helper uses winio's WinUI 3 (`winui`) backend, with default
+backends disabled. Its development baseline is Windows 11 21H2 or newer and a
+compatible installed x64 Windows App Runtime, as documented by the pinned
+[winio 0.12.0 release](https://docs.rs/crate/winio/0.12.0/source/README.md).
+Runtime discovery belongs to winio. Orbit does not install that runtime or
+silently fall back to the Win32 backend when it is missing. The service ABI and
+plugin/loader dependency boundaries are unchanged.
 
 ## Service header and table
 
@@ -14,12 +27,13 @@ Provider: `com.parsec-orbit.ui` (official plugin).
 Interface name: `parsec-orbit.ui`.
 Version: 1.0 (`(1 << 16) | 0`).
 
-The companion window belongs to the instance the user started. Parsec runs its
-client twice - once as the service (`LocalSystem`, session 0) and once as the
-logged-in user - and a session-0 window is invisible, so the service instance
-registers the service table without creating a window and answers the three
-visibility calls from the requested state alone. Everything else in this spec
-behaves the same in both instances.
+The helper runs only for the interactive client instance. On Windows, the
+process session ID determines this: session 0 and an unreadable session register
+only the service table, without launching a helper or registering desktop
+hotkeys. This does not depend on the service account's identity. Existing
+hotkeys and CLI activation belong to the interactive instance. That instance
+launches the helper hidden and returns from plugin `init` without waiting for
+its window.
 
 ```c
 typedef struct ParsecOrbitUiV1 {
@@ -37,17 +51,58 @@ typedef struct ParsecOrbitUiV1 {
 } ParsecOrbitUiV1;
 ```
 
-All strings are UTF-8 `(ptr, len)`. All functions are thread-safe. Callbacks
-passed to `on_action` execute on the UI delivery thread; they must not block the
-UI thread.
+All strings are UTF-8 `(ptr, len)`. All functions are thread-safe. Callback
+function pointers and user pointers remain inside the plugin process and never
+cross IPC. Action callbacks execute on a separate plugin-owned delivery thread,
+not on the UI thread, IPC thread, or host main thread. They may call the UI
+service recursively. Cancellation waits for callbacks already running and
+prevents new callbacks from starting; cancellation called from its own callback
+does not wait for itself. Queued actions bind the subscribers present when
+accepted, so subscribers added later never receive older queued actions.
+
+## Companion process and IPC
+
+The helper executable is placed beside the UI plugin library in the plugin
+directory. The plugin launches it hidden with private inherited stdin and stdout
+pipes. These pipes are the only transport: there is no socket server, port,
+authentication token or public listener. Standard output is reserved for the
+protocol; diagnostics go to standard error or the Orbit logger.
+
+The protocol is version 1, newline-delimited JSON. The helper and plugin perform
+a version handshake before requests. Each JSON frame, excluding its
+terminating newline, is limited to 4 MiB. A peer that sends an oversized,
+malformed or incompatible message is disconnected. The helper owns the main
+thread `winio` event loop and receives only serializable schemas, state, desired
+visibility and UI actions; native callback pointers never cross the process
+boundary.
+
+The plugin keeps section schemas, state, subscriptions, callbacks and desired
+visibility authoritative. It mirrors renderable data to the helper. On helper
+exit or protocol failure, the plugin retries automatically with a bounded
+number of attempts and bounded backoff, then replays the registry and desired
+visibility after a successful handshake. The supervisor makes at most three automatic launch attempts per explicit
+show request, with 250 ms, 500 ms and 750 ms retry delays. An explicit show
+request renews the exhausted budget; registry updates do not. Startup handshake
+and stalled pipe writes each have a five-second deadline.
+
+The plugin launches the helper without waiting for window creation. `show()`
+and `hide()` update desired visibility and enqueue the request without waiting
+for the UI; `is_visible()` reports the desired state. Closing the native window
+hides it and updates desired visibility. Visibility requests carry a revision;
+a delayed close event cannot override a newer show/hide request. When the plugin process closes its
+inherited pipe, EOF tells the helper to exit.
+
+Ordinary renderer and transport failures are isolated from the client process.
+Native plugin faults and action callback faults still occur in the client
+process and are not contained by the helper boundary.
 
 ## Functions
 
 | Function | Behaviour |
 | --- | --- |
-| `show()` | Shows and brings the companion window to the foreground, and makes later `is_visible()` calls answer `1`. The window exists from plugin start-up, so the call never waits on creating one. Returns `0`. |
-| `hide()` | Hides the companion window without terminating the background event loop. Returns `0`. |
-| `is_visible()` | Returns `1` if the companion window should be visible, `0` if hidden. Answers from any thread. |
+| `show()` | Sets desired visibility to shown and queues the request without waiting for process startup, IPC or window creation. Returns `0` when accepted locally. |
+| `hide()` | Sets desired visibility to hidden and queues the request without waiting for IPC. Returns `0` when accepted locally. |
+| `is_visible()` | Returns `1` when desired visibility is shown and `0` when hidden. Answers from any thread, including while the helper reconnects. |
 | `register_section(schema, len)` | Registers a declarative section schema. Returns `0`, `-1` for invalid JSON schema, `-2` if section ID is already registered. |
 | `unregister_section(id, len)` | Removes a registered section and unmounts its controls. Returns `0`, or `-3` if not found. |
 | `update_state(id, id_len, state, len)` | Pushes updated control values to the rendered UI. `state` is a JSON object mapping control keys to values. Returns `0`, `-1` invalid JSON, `-3` section not found. |
@@ -56,16 +111,19 @@ UI thread.
 
 ## Activation
 
-The window starts hidden and three ways bring it up:
+The helper starts hidden. Programmatic activation is available through the
+service methods. On Windows, the existing host hotkeys and CLI activation also
+request visibility through the service. macOS initially supports programmatic
+show/hide only; no external CLI or hotkey activation is implemented unless a
+renderer adds it.
 
-* The global hotkeys `Ctrl+Alt+O` and `Ctrl+F12`. Whichever another program has
-  not already claimed still works.
-* `show()`, `hide()` or the plugin's toggle, called by a plugin running in the
-  client instance.
-* `scripts/orbit-manager.ps1 ui` from outside Parsec. The script posts the
-  registered message `PARSEC_ORBIT_UI_TOGGLE` to the hidden activation window of
-  class `ParsecOrbitUiActivation`, which runs the same toggle as the hotkeys.
-  The class name and the message name are part of this contract.
+Windows activation restores a minimized helper window and requests foreground
+focus. Foreground focus is best effort under Windows focus restrictions;
+accepting a visibility request does not guarantee foreground ownership.
+
+`register_section`, `unregister_section` and `update_state` update the
+plugin-owned registry first, then send the corresponding change to the helper.
+The helper's rendered state is a replayable mirror, not the authority.
 
 ## Declarative UI schema
 
@@ -210,12 +268,7 @@ export default definePlugin({
 
 ## Open questions
 
-1. **System tray icon placement**: Should the UI service create a system tray
-   icon by default, or remain hotkey-only (`Ctrl+Alt+O`) until configured?
-2. **IPC for out-of-process companion**: When Orbit runs as an external tool
-   rather than an injected DLL, should the UI communicate via named pipes
-   with the same JSON action protocol?
-3. **Item types the follow-up work needs**: a read-only multiline view (for a
+1. **Item types the follow-up work needs**: a read-only multiline view (for a
    latency table and a log tail) and dropdown options that can change while the
    window is open. Both are described in
    [design/orbit-ui.md](../design/orbit-ui.md) section 6 and will change this
