@@ -1,6 +1,9 @@
 #[cfg(windows)]
 mod fluent;
 mod maintenance;
+// The decisions the AppKit renderer shares; the tests run everywhere.
+#[allow(dead_code)]
+mod model;
 mod platform;
 // Only the macOS renderer draws rows; the tests of the reduction run everywhere.
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
