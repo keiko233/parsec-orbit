@@ -6,3 +6,4 @@
 //! and `docs/spec/registry.md` the section keys.
 
 pub mod controller;
+pub mod worker;
