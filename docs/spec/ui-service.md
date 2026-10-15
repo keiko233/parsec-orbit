@@ -19,11 +19,13 @@ Provider: `com.parsec-orbit.ui` (official plugin).
 Interface name: `parsec-orbit.ui`.
 Version: 1.0 (`(1 << 16) | 0`).
 
-The helper runs only for the interactive client instance. On Windows, Parsec's
-session-0 service instance still registers the service table for existing
-hotkeys and CLI activation, but it does not launch a helper. Existing hotkeys
-and CLI remain the host activation channel. The interactive instance launches
-the helper hidden and returns from plugin `init` without waiting for its window.
+The helper runs only for the interactive client instance. On Windows, the
+process session ID determines this: session 0 and an unreadable session register
+only the service table, without launching a helper or registering desktop
+hotkeys. This does not depend on the service account's identity. Existing
+hotkeys and CLI activation belong to the interactive instance. That instance
+launches the helper hidden and returns from plugin `init` without waiting for
+its window.
 
 ```c
 typedef struct ParsecOrbitUiV1 {

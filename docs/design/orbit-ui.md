@@ -180,9 +180,9 @@ owns the native window and main-thread `winio` event loop.
     failures with finite attempts and backoff, then replays schemas, state and
     visibility after a new handshake. Closing the window hides it; closing the
     parent pipe lets the helper exit.
-  * On Windows, the session-0 service instance retains the existing host hotkeys
-    and CLI activation channel but does not launch a renderer. Only the
-    interactive client starts the desktop helper.
+  * On Windows, the session-0 service instance keeps the service table without
+    desktop hotkeys or a renderer. Only an instance with a known nonzero process
+    session starts the helper and the hotkey/CLI activation channel.
 * **Styling**:
   * Styled with a dark theme consistent with Parsec (background `#18181b`,
     surface `#27272a`, border `#3f3f46`, text `#f4f4f5`, accent `#8b5cf6` or
