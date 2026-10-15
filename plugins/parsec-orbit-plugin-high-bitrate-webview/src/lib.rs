@@ -123,23 +123,25 @@ fn read_extras(
         .ok_or("saved bandwidth options are invalid")
 }
 
-fn script_with_extras(extras: &[i32]) -> String {
+fn splice_extras(template: &str, extras: &[i32]) -> String {
     let marker = "const EXTRA_MBPS = [";
-    let start = BITRATE_SCRIPT.find(marker).expect("bandwidth list marker") + marker.len();
-    let end = start
-        + BITRATE_SCRIPT[start..]
-            .find("];\n")
-            .expect("bandwidth list end");
-    let mut script = String::with_capacity(BITRATE_SCRIPT.len() + extras.len() * 5);
-    script.push_str(&BITRATE_SCRIPT[..start]);
+    let start = template.find(marker).expect("bandwidth list marker") + marker.len();
+    // Match only the list end so LF and CRLF checkouts both splice.
+    let end = start + template[start..].find("];").expect("bandwidth list end");
+    let mut script = String::with_capacity(template.len() + extras.len() * 5);
+    script.push_str(&template[..start]);
     for (index, mbps) in extras.iter().enumerate() {
         if index != 0 {
             script.push_str(", ");
         }
         let _ = write!(script, "{mbps}");
     }
-    script.push_str(&BITRATE_SCRIPT[end..]);
+    script.push_str(&template[end..]);
     script
+}
+
+fn script_with_extras(extras: &[i32]) -> String {
+    splice_extras(BITRATE_SCRIPT, extras)
 }
 
 /// Key of the script in the bridge. The bridge adds the plugin id.
@@ -480,6 +482,22 @@ mod tests {
         let script = script_with_extras(&[60, 85, 125]);
         assert!(script.contains("const EXTRA_MBPS = [60, 85, 125];"));
         assert!(!script.contains("[60, 75, 100, 125, 150"));
+    }
+
+    #[test]
+    fn bandwidth_list_splice_tolerates_crlf_line_endings() {
+        // Windows checkouts may carry CRLF, so the asset can contain
+        // `[];\r\n` instead of `[];\n`; the old `"];\n"` search panicked there.
+        let crlf_template = BITRATE_SCRIPT.replace("\r\n", "\n").replace('\n', "\r\n");
+        assert!(crlf_template.contains("const EXTRA_MBPS = [];\r\n"));
+        let lf = splice_extras(BITRATE_SCRIPT, &[60, 85, 125]);
+        let crlf = splice_extras(&crlf_template, &[60, 85, 125]);
+        assert!(lf.contains("const EXTRA_MBPS = [60, 85, 125];"));
+        assert!(crlf.contains("const EXTRA_MBPS = [60, 85, 125];\r\n"));
+        assert!(crlf.contains("__orbitBitrateExtend"));
+        // An empty list leaves either checkout untouched.
+        assert_eq!(splice_extras(BITRATE_SCRIPT, &[]), BITRATE_SCRIPT);
+        assert_eq!(splice_extras(&crlf_template, &[]), crlf_template);
     }
 
     // ---- descriptor ---------------------------------------------------------------
