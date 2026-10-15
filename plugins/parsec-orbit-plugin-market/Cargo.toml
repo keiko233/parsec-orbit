@@ -1,0 +1,16 @@
+[package]
+name = "parsec-orbit-plugin-market"
+description = "Parsec Orbit plugin that browses, installs, updates and removes plugins from the signed registries"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[lib]
+name = "parsec_orbit_plugin_market"
+crate-type = ["cdylib"]
+
+[dependencies]
+parsec-orbit-plugin-sdk = { path = "../../crates/parsec-orbit-plugin-sdk" }
+serde_json = "1"

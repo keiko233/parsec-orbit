@@ -20,6 +20,7 @@ members = [
     "plugins/parsec-orbit-plugin-high-bitrate-webview",
     "plugins/parsec-orbit-plugin-high-bitrate-native",
     "plugins/parsec-orbit-plugin-stun-swap",
+    "plugins/parsec-orbit-plugin-market",
     "examples/parsec-orbit-plugin-hello",
     "examples/parsec-orbit-plugin-hello-nostd",
     "tools/parsec-orbit-verify",
