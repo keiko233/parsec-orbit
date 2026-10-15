@@ -188,3 +188,34 @@ fn a_tool_links_at_most_one_plugin_rlib() {
         );
     }
 }
+
+/// Every manifest in the tree parses, and `role = "lib"` is exactly what puts a
+/// module in `libs/` (a broken manifest once slipped through a rename because
+/// nothing but the packaging step read it).
+#[test]
+fn every_manifest_parses_and_the_role_matches_the_directory() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let mut checked = 0;
+    for group in ["libs", "plugins", "examples"] {
+        for entry in std::fs::read_dir(root.join(group)).unwrap().flatten() {
+            for name in ["plugin.toml", "plugin.macos.toml"] {
+                let path = entry.path().join(name);
+                if !path.is_file() {
+                    continue;
+                }
+                parsec_orbit_core::read_manifest(&path)
+                    .unwrap_or_else(|error| panic!("{}: {error}", path.display()));
+                let text = std::fs::read_to_string(&path).unwrap();
+                let is_lib = text.lines().any(|line| line.trim() == "role = \"lib\"");
+                assert_eq!(
+                    is_lib,
+                    group == "libs",
+                    "{}: role = \"lib\" belongs to modules in libs/ only",
+                    path.display()
+                );
+                checked += 1;
+            }
+        }
+    }
+    assert!(checked >= 10, "only {checked} manifests found");
+}
