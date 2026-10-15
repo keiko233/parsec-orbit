@@ -1,3 +1,4 @@
+mod maintenance;
 mod platform;
 mod window;
 
@@ -158,6 +159,30 @@ impl Shared {
 }
 
 fn main() {
+    if let Some(result) = maintenance::run(&std::env::args().skip(1).collect::<Vec<_>>()) {
+        if let Err(error) = result {
+            eprintln!("Restart and apply failed: {error}");
+            #[cfg(windows)]
+            {
+                let text: Vec<u16> = format!("Restart and apply failed:\n{error}")
+                    .encode_utf16()
+                    .chain(Some(0))
+                    .collect();
+                let title: Vec<u16> = "Parsec Orbit".encode_utf16().chain(Some(0)).collect();
+                // Safety: terminated UTF-16 buffers remain valid for the modal dialog.
+                unsafe {
+                    windows_sys::Win32::UI::WindowsAndMessaging::MessageBoxW(
+                        std::ptr::null_mut(),
+                        text.as_ptr(),
+                        title.as_ptr(),
+                        0x10,
+                    );
+                }
+            }
+            std::process::exit(1);
+        }
+        return;
+    }
     if let Err(error) = run() {
         eprintln!("parsec-orbit-ui-companion: {error}");
         std::process::exit(1);

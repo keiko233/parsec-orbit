@@ -3,7 +3,10 @@
 //! Provides `parsec-orbit.ui`: an external companion window powered by `compio-rs/winio`
 //! driven by unified declarative schemas across Rust and JavaScript.
 
+mod builtins;
 pub mod companion;
+#[cfg(windows)]
+mod maintenance;
 pub mod registry;
 pub mod schema;
 pub mod service;
@@ -17,7 +20,9 @@ use parsec_orbit_plugin_sdk::prelude::*;
 use parsec_orbit_plugin_sdk::services::Ui;
 
 #[derive(Default)]
-pub struct OrbitUiPlugin;
+pub struct OrbitUiPlugin {
+    _builtins: Option<builtins::Builtins>,
+}
 
 impl Plugin for OrbitUiPlugin {
     fn init(&mut self, cx: &Context) -> Result {
@@ -45,6 +50,13 @@ impl Plugin for OrbitUiPlugin {
             if let Err(error) = service::start(cx) {
                 warn!(cx, "orbit ui: could not start companion: {}", error);
             }
+            #[cfg(not(test))]
+            {
+                match builtins::start(cx) {
+                    Ok(panels) => self._builtins = Some(panels),
+                    Err(error) => warn!(cx, "orbit ui: built-in panels unavailable: {}", error),
+                }
+            }
             std::thread::Builder::new()
                 .name(format!("{}:hotkey", cx.plugin_id()))
                 .spawn(|| hotkey::run(service::toggle))?;
@@ -53,6 +65,13 @@ impl Plugin for OrbitUiPlugin {
         #[cfg(all(target_os = "macos", not(test)))]
         if let Err(error) = service::start(*cx) {
             warn!(cx, "orbit ui: could not start companion: {}", error);
+        }
+        #[cfg(all(target_os = "macos", not(test)))]
+        {
+            match builtins::start(*cx) {
+                Ok(panels) => self._builtins = Some(panels),
+                Err(error) => warn!(cx, "orbit ui: built-in panels unavailable: {}", error),
+            }
         }
 
         Ok(())

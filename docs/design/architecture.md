@@ -42,6 +42,11 @@
 * **WebView operations are a plugin too** (`parsec-orbit.webview`), because the DevTools client (HTTP + WebSocket) is not something the bcrypt proxy should carry. The loader keeps only the existing job of opening the DevTools port.
 * **UI operations are a plugin too** (`parsec-orbit.ui`), providing an external native companion window via a separate `parsec-orbit-ui-companion[.exe]` process. The plugin owns the authoritative registry and communicates with the helper over bounded JSON-line IPC on private inherited stdin/stdout pipes ([ADR 0018](decisions/0018-ui-companion-process.md), [UI design](orbit-ui.md)). The helper owns the main-thread `winio` event loop; Windows uses the WinUI 3 backend and its installed runtime ([ADR 0019](decisions/0019-windows-ui-winui3.md)). The loader stays light and Win32/GUI-free.
 
+The UI service also uses `parsec-orbit-layout` for path resolution and the
+zero-dependency `parsec-orbit-log-tail` for the console's incremental following
+and rotation rules. Core re-exports that follower; no GUI dependency enters
+the loader ([ADR 0025](decisions/0025-ui-settings-and-shared-log-tail.md)).
+
 ### macOS
 
 The pristine macOS app has no compatible proxy slot. The target is a supported local bootstrap dependency patch, keeping the installed app path/id and loading the Orbit dylib on normal launch ([ADR 0014](decisions/0014-macos-patched-bundle.md), [spec](../spec/macos-host.md)). The disposable-copy PoC passed; original-path identity and distribution remain gates. Loader-as-Host is optional fallback/development mode.

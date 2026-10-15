@@ -20,6 +20,9 @@
 | [spec/marketplace.md](spec/marketplace.md) | Implemented | Plugin index, sha256, signatures, safe installation, `parsec-orbit-market` |
 | [spec/registry.md](spec/registry.md) | Partly implemented | Format-1 index additions (serial, yanked, mirrors, platform), cache, `host.json`, `trusted-keys.toml` |
 | [spec/ui-service.md](spec/ui-service.md) | Draft | Declarative UI service (parsec-orbit.ui), winio companion window, schema, SDK bindings |
+| [spec/ui-settings.md](spec/ui-settings.md) | Implemented | Overview, Windows restart-and-apply, bounded Log panel |
+| [spec/high-bitrate.md](spec/high-bitrate.md) | Implemented | Shared editable native/WebView bandwidth choices |
+| [spec/stun-swap.md](spec/stun-swap.md) | Implemented | STUN latency display, manual selection and custom servers |
 | [spec/macos-host.md](spec/macos-host.md) | Draft | macOS patched-app launch, loader, state isolation, signing and transactional installation |
 | [spec/macos-platform.md](spec/macos-platform.md) | Draft | macOS paths, `dylib` plugins, per-service behaviour, marketplace |
 

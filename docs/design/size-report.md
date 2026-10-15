@@ -245,3 +245,13 @@ The STUN plugin is 393,728 B in the same release profile (previous artifact
 settings, per-candidate status, validation and dynamic UI state. No new
 dependency was added; probing and DNS interception remain in this optional
 plugin, outside the loader.
+
+## Overview, restart and Log (Windows x64, 2026-10-16)
+
+The UI service is 639,488 B (previous artifact 563,200 B, +76,288 B), and the
+WinUI companion is 571,392 B (previous artifact 541,184 B, +30,208 B), in the
+workspace release profile. These artifacts now contain the built-in panels,
+bounded log tail and clipboard/file actions, dynamic and multiline controls,
+and the independent Windows restart helper. The service adds only the shared
+layout/follower crates, with no third-party or GUI dependency; WinUI remains
+confined to the companion. The loader measurement above remains 401,408 B.
