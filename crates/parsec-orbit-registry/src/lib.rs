@@ -7,6 +7,7 @@
 //! * [`install`] - installing, updating and removing below a plugins
 //!   directory,
 //! * [`source`] - where bytes come from (files, https),
+//! * [`sources`] - the registries a client reads (`market/sources.toml`),
 //! * [`cache`] - the last verified index of each source,
 //! * [`host`] - the loader and installer of each release (`host.json`),
 //! * [`cli`] - the command line.
@@ -20,6 +21,7 @@ pub mod index;
 pub mod install;
 pub mod package;
 pub mod source;
+pub mod sources;
 pub mod trust;
 
 use std::fmt;

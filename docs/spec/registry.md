@@ -104,3 +104,16 @@ The tool reads and writes the sources in `manifest/` ([manifest/README.md](../..
 | `registry add --tag vX.Y.Z --assets DIR [--manifest DIR] [--repo owner/name]` | Appends a `[[release]]` to `plugins/<id>/releases.toml` for each plugin zip (URL `https://github.com/<repo>/releases/download/<tag>/<file>`, platform from the file name, `published` today) and to `host/releases.toml` for each loader with its installer. A host release needs both files; a loader alone adds nothing. A release already listed is refused, and nothing is written if any check fails. |
 | `registry build [--manifest DIR] [--sign KEYFILE] [--dist DIR]` | Fetches every release, checks its size, sha256 and manifest (`id`, `version`, `kind` against the platform), and writes `index.json` and `host.json` in the format of this document. `serial` rises by one only when the content changes; an unchanged build leaves both files untouched. `--sign` writes `*.sig` over the exact bytes; `--dist DIR` reads each release from the file of its last URL name. A signature left from an older file is removed when the file changes unsigned. |
 | `keygen`, `sign`, `verify`, `verify-any` | Forwarded to the `parsec-orbit-market` implementation in `parsec-orbit-registry`, so both tools sign and verify the same way. |
+
+## `sources.toml`
+
+The registries a client reads, at `<Orbit root>/market/sources.toml` (`parsec_orbit_registry::sources`). One table per source:
+
+```toml
+[[source]]
+name = "Parsec Orbit"
+location = "https://example.com/orbit/index.json"
+```
+
+* `name` is shown to the user and must be unique and not empty; `location` is what the index is fetched from (an `https://` URL or a path). An empty `location` is refused.
+* Unknown keys are ignored. A broken file refuses the whole list; a missing file is an empty list.
