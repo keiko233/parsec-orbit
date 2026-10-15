@@ -16,13 +16,131 @@
 //! from the environment without `std`, see the `environment` module.
 #![cfg_attr(not(test), no_std)]
 
+extern crate alloc;
+
+use alloc::string::String;
+use core::fmt::Write;
 use parsec_orbit_plugin_sdk::prelude::*;
-use parsec_orbit_plugin_sdk::services::WebViewClient;
+use parsec_orbit_plugin_sdk::services::{ConfigClient, WebViewClient};
 
 parsec_orbit_plugin_sdk::freestanding!();
 
 /// Injected into the web UI; see `assets/bandwidth.js`.
 pub const BITRATE_SCRIPT: &str = include_str!("../assets/bandwidth.js");
+
+const CONFIG_OWNER: &str = "com.parsec-orbit.native";
+const CONFIG_KEY: &str = "extra_bandwidth_mbps";
+const MAX_EXTRA_OPTIONS: usize = 128;
+
+fn normalize_extras(mut values: alloc::vec::Vec<i32>) -> Option<alloc::vec::Vec<i32>> {
+    if values.len() > MAX_EXTRA_OPTIONS || values.iter().any(|mbps| *mbps <= 50) {
+        return None;
+    }
+    values.sort_unstable();
+    values.dedup();
+    Some(values)
+}
+
+fn parse_extras(json: &str) -> Option<alloc::vec::Vec<i32>> {
+    let bytes = json.as_bytes();
+    let mut cursor = 0;
+    let mut values = alloc::vec::Vec::new();
+    let skip_space = |cursor: &mut usize| {
+        while bytes.get(*cursor).is_some_and(u8::is_ascii_whitespace) {
+            *cursor += 1;
+        }
+    };
+    skip_space(&mut cursor);
+    if bytes.get(cursor) != Some(&b'[') {
+        return None;
+    }
+    cursor += 1;
+    loop {
+        skip_space(&mut cursor);
+        if bytes.get(cursor) == Some(&b']') {
+            cursor += 1;
+            break;
+        }
+        let start = cursor;
+        while bytes.get(cursor).is_some_and(u8::is_ascii_digit) {
+            cursor += 1;
+        }
+        if start == cursor {
+            return None;
+        }
+        if bytes[start] == b'0' && cursor - start > 1 {
+            return None;
+        }
+        let value = json[start..cursor].parse::<i32>().ok()?;
+        values.push(value);
+        if values.len() > MAX_EXTRA_OPTIONS {
+            return None;
+        }
+        skip_space(&mut cursor);
+        match bytes.get(cursor) {
+            Some(b',') => {
+                cursor += 1;
+                let mut next = cursor;
+                skip_space(&mut next);
+                if bytes.get(next) == Some(&b']') {
+                    return None;
+                }
+            }
+            Some(b']') => {
+                cursor += 1;
+                break;
+            }
+            _ => return None,
+        }
+    }
+    skip_space(&mut cursor);
+    if cursor != bytes.len() {
+        return None;
+    }
+    normalize_extras(values)
+}
+
+fn default_extras() -> alloc::vec::Vec<i32> {
+    parse_extras(include_str!(
+        "../../parsec-orbit-plugin-high-bitrate-native/assets/default-bandwidth-mbps.json"
+    ))
+    .expect("shared default bitrate options are valid")
+}
+
+fn read_extras(
+    config: Option<ConfigClient>,
+) -> core::result::Result<alloc::vec::Vec<i32>, &'static str> {
+    let mut json = None;
+    let config = config.ok_or("config service is unavailable")?;
+    if !config
+        .for_owner(CONFIG_OWNER)
+        .get(CONFIG_KEY, |value| json = Some(String::from(value)))
+        .map_err(|_| "config service read failed")?
+    {
+        return Ok(default_extras());
+    }
+    json.and_then(|value| parse_extras(&value))
+        .ok_or("saved bandwidth options are invalid")
+}
+
+fn script_with_extras(extras: &[i32]) -> String {
+    let marker = "const EXTRA_MBPS = [";
+    let start = BITRATE_SCRIPT.find(marker).expect("bandwidth list marker") + marker.len();
+    let end = start
+        + BITRATE_SCRIPT[start..]
+            .find("];\n")
+            .expect("bandwidth list end");
+    let mut script = String::with_capacity(BITRATE_SCRIPT.len() + extras.len() * 5);
+    script.push_str(&BITRATE_SCRIPT[..start]);
+    for (index, mbps) in extras.iter().enumerate() {
+        if index != 0 {
+            script.push_str(", ");
+        }
+        let _ = write!(script, "{mbps}");
+    }
+    script.push_str(&BITRATE_SCRIPT[end..]);
+    script
+}
 
 /// Key of the script in the bridge. The bridge adds the plugin id.
 const SCRIPT_KEY: &str = "bandwidth";
@@ -172,7 +290,15 @@ impl Plugin for Webview {
         // The bridge keeps the script installed: it runs in the current
         // document and in every new one, and is replayed if the page is
         // recreated. Nothing is waited for here.
-        match webview.add_script(SCRIPT_KEY, BITRATE_SCRIPT) {
+        let extras = match read_extras(ConfigClient::new(cx)) {
+            Ok(extras) => extras,
+            Err(error) => {
+                warn!(cx, "{error}; using the built-in bandwidth options");
+                default_extras()
+            }
+        };
+        let script = script_with_extras(&extras);
+        match webview.add_script(SCRIPT_KEY, &script) {
             Ok(id) => {
                 info!(
                     cx,
@@ -332,13 +458,28 @@ mod tests {
         let registered = REGISTERED.lock().unwrap();
         assert_eq!(registered.len(), 1);
         assert_eq!(registered[0].0, "com.parsec-orbit.webview/bandwidth");
-        assert_eq!(registered[0].1, BITRATE_SCRIPT);
+        assert_eq!(registered[0].1, script_with_extras(&default_extras()));
     }
 
     #[test]
     fn the_script_is_the_asset() {
         assert!(BITRATE_SCRIPT.contains("__orbitBitrateExtend"));
         assert!(BITRATE_SCRIPT.contains("const EXTRA_MBPS = ["));
+    }
+
+    #[test]
+    fn custom_integer_ladder_is_validated_and_injected() {
+        assert_eq!(
+            parse_extras("[60, 85, 125]"),
+            Some(alloc::vec![60, 85, 125])
+        );
+        assert_eq!(parse_extras("[125, 85, 85]"), Some(alloc::vec![85, 125]));
+        for invalid in ["[50]", "[85.5]", "[-85]", "[85,]", "[085]", "[2147483648]"] {
+            assert_eq!(parse_extras(invalid), None, "{invalid}");
+        }
+        let script = script_with_extras(&[60, 85, 125]);
+        assert!(script.contains("const EXTRA_MBPS = [60, 85, 125];"));
+        assert!(!script.contains("[60, 75, 100, 125, 150"));
     }
 
     // ---- descriptor ---------------------------------------------------------------

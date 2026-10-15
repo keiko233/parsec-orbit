@@ -228,3 +228,12 @@ and workspace release profile. This small cost bounds allocations when a log
 grows quickly and lets the UI reuse the console's rotation handling without
 linking core. No GUI or third-party dependency is added to the loader. The
 existing loader baseline already exceeds the historical 360 KiB budget.
+
+## Editable bitrate settings (Windows x64, 2026-10-16)
+
+With the same workspace release profile, the native plugin is 283,136 B
+(previous artifact 257,024 B, +26,112 B) and the `no_std` WebView plugin is
+36,864 B (previous artifact 17,920 B, +18,944 B). The extra code reads shared
+persisted options, validates custom values, and constructs the injected
+script. No third-party dependency or GUI toolkit was added to either plugin;
+the native plugin's existing JSON dependency also handles persistence events.

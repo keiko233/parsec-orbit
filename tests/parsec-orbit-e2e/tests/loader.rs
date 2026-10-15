@@ -794,11 +794,27 @@ fn the_users_own_browser_arguments_are_left_untouched() {
 // ---- the webview plugin against a fake DevTools endpoint -----------------------------------------
 
 fn bandwidth_script() -> String {
-    std::fs::read_to_string(
-        common::workspace_root()
-            .join("plugins/parsec-orbit-plugin-high-bitrate-webview/assets/bandwidth.js"),
+    let root = common::workspace_root();
+    let template = std::fs::read_to_string(
+        root.join("plugins/parsec-orbit-plugin-high-bitrate-webview/assets/bandwidth.js"),
     )
-    .unwrap()
+    .unwrap();
+    let defaults: Vec<i32> = serde_json::from_str(
+        &std::fs::read_to_string(root.join(
+            "plugins/parsec-orbit-plugin-high-bitrate-native/assets/default-bandwidth-mbps.json",
+        ))
+        .unwrap(),
+    )
+    .unwrap();
+    let marker = "const EXTRA_MBPS = [";
+    let start = template.find(marker).unwrap() + marker.len();
+    let end = start + template[start..].find("];\n").unwrap();
+    let rendered = defaults
+        .iter()
+        .map(i32::to_string)
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!("{}{rendered}{}", &template[..start], &template[end..])
 }
 
 /// The whole chain: the loader opens the endpoint (by setting the browser

@@ -7,8 +7,19 @@ anything on disk.
 The client configuration system is far more permissive than its user
 interfaces. `encoder_bitrate` ("Bandwidth Limit"), for example, is an `int`
 with `min 0` / `max 2147483647`, but the native UI only offers the built-in
-ladder `3, 5, 7, 10, 15, 20, 25, 30, 35, 40, 45, 50 Mbps`. The plugin widens
-it to `60, 75, 100, 125, 150, 200, 250, 300, 400, 500 Mbps`.
+ladder `3, 5, 7, 10, 15, 20, 25, 30, 35, 40, 45, 50 Mbps`. The default extra
+options are `60, 75, 100, 125, 150, 200, 250, 300, 400, 500 Mbps`; you can
+edit them in the Orbit UI under **High Bitrate → Additional bandwidth options**.
+Enter a JSON array of integer Mbps values above 50, such as `[60, 85, 125]`.
+The plugin sorts values and removes duplicates. It accepts up to 128 entries.
+Edits are saved by `parsec-orbit.config` and apply to both native and WebView
+dropdowns after restarting the client. The **Extend the bandwidth ladder**
+switch is persisted by the same service.
+
+If the config service is missing, the plugin uses the built-in defaults and
+shows that settings cannot be persisted in **Patch status**. Invalid saved
+options also fall back to defaults and appear in the status row. A failed save
+reports its config error code there.
 
 The WebView2 UI is patched by the separate
 [`parsec-orbit-plugin-high-bitrate-webview`](../parsec-orbit-plugin-high-bitrate-webview/README.md)
@@ -17,8 +28,10 @@ plugin.
 ## Files
 
 * `plugin.toml` - manifest the loader reads (`id`, `enabled`, `entry`, ...).
-* `src/lib.rs` - plugin entry point and `EXTRA_BANDWIDTH_MBPS`.
+* `src/lib.rs` - plugin entry point, validation and config service integration.
 * `src/legacy.rs` - the in-memory table patch.
+* `assets/default-bandwidth-mbps.json` - the shared default list compiled by
+  both high-bitrate plugins.
 
 ## Install
 
@@ -64,9 +77,6 @@ legacy ui patch: bandwidth table at +0x337B70
 legacy ui patch: 12 -> 22 options, 2 references and 2 count immediates patched
 ```
 
-## Keeping the two lists in sync
-
-The extra options live in two places and must stay in sync:
-
-* `src/lib.rs` - `EXTRA_BANDWIDTH_MBPS`
-* `../parsec-orbit-plugin-high-bitrate-webview/assets/bandwidth.js` - `EXTRA_MBPS`
+Both plugins read the same `extra_bandwidth_mbps` value from the config service,
+under the `com.parsec-orbit.native` owner. The default list has one source in
+`assets/default-bandwidth-mbps.json`.

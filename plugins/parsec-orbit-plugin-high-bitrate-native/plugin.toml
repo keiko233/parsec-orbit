@@ -11,4 +11,4 @@ license = "MIT"
 api = 1
 enabled = true
 
-optional = ["com.parsec-orbit.ui"]
+optional = ["com.parsec-orbit.ui", "com.parsec-orbit.config"]

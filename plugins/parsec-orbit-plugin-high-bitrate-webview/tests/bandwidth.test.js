@@ -12,10 +12,15 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 
-const SCRIPT = fs.readFileSync(path.join(__dirname, '..', 'assets', 'bandwidth.js'), 'utf8');
+const TEMPLATE = fs.readFileSync(path.join(__dirname, '..', 'assets', 'bandwidth.js'), 'utf8');
+const DEFAULT_EXTRAS = JSON.parse(fs.readFileSync(
+  path.join(__dirname, '..', '..', 'parsec-orbit-plugin-high-bitrate-native', 'assets', 'default-bandwidth-mbps.json'),
+  'utf8'
+));
+const SCRIPT = TEMPLATE.replace('const EXTRA_MBPS = [];', `const EXTRA_MBPS = [${DEFAULT_EXTRAS.join(', ')}];`);
 
 const BUILT_IN = [3, 5, 7, 10, 15, 20, 25, 30, 35, 40, 45, 50];
-const EXTRAS = [60, 75, 100, 125, 150, 200, 250, 300, 400, 500];
+const EXTRAS = DEFAULT_EXTRAS;
 
 const ladder = (numbers = BUILT_IN) =>
   numbers.map(value => ({ value, display: `${value} mbps` }));

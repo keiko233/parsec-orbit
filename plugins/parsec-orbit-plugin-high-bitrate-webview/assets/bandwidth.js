@@ -16,8 +16,8 @@
   const existing = window[MARK];
   if (existing && existing.installed) return 'already installed';
 
-  // Keep in sync with EXTRA_BANDWIDTH_MBPS in ../src/lib.rs.
-  const EXTRA_MBPS = [60, 75, 100, 125, 150, 200, 250, 300, 400, 500];
+  // The plugin replaces this empty slot with the shared persisted option list.
+  const EXTRA_MBPS = [];
   const state = (window[MARK] = {
     installed: true,
     applied: false,
