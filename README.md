@@ -66,6 +66,9 @@ libraries), `libs/` (service providers such as `config`, `hooks`, `js-runtime`,
 * `plugins/parsec-orbit-plugin-stun-swap/` - experimental plugin that redirects
   `stun.parsec.app` lookups to mainland-China STUN servers; see its
   [README](plugins/parsec-orbit-plugin-stun-swap/README.md).
+* `plugins/parsec-orbit-plugin-market/` - official plugin that browses, installs,
+  updates and removes plugins from the signed registries inside the client; see its
+  [README](plugins/parsec-orbit-plugin-market/README.md).
 * `examples/parsec-orbit-plugin-hello-nostd/` - smallest possible plugin (10 KB, `no_std`).
 * `examples/parsec-orbit-plugin-hello/` - the same idea with `std`.
 * `tools/parsec-orbit-verify/` - verification tools for the loader and the

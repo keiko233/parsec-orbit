@@ -117,3 +117,31 @@ location = "https://example.com/orbit/index.json"
 
 * `name` is shown to the user and must be unique and not empty; `location` is what the index is fetched from (an `https://` URL or a path). An empty `location` is refused.
 * Unknown keys are ignored. A broken file refuses the whole list; a missing file is an empty list.
+
+## In-client market plugin
+
+Status: implemented (`plugins/parsec-orbit-plugin-market`, id `com.parsec-orbit.market`), not yet verified in the Windows client. It needs `parsec-orbit.ui` and uses the same registry library as the command line: the sources of [`sources.toml`](#sourcestoml), the keys of [`trusted-keys.toml`](#trusted-keystoml) and the cache of [Cache](#cache). Its design is [restructure.md section 4](../design/restructure.md#4-market-as-a-plugin) and [ADR 0020](../design/decisions/0020-market-is-a-plugin-over-registry.md).
+
+It registers one section, `com.parsec-orbit.market`, built only from the existing item types of [ui-service.md](ui-service.md#supported-item-types):
+
+| Key | Type | Meaning |
+| --- | --- | --- |
+| `source` | `select` | The names in `sources.toml`. Choosing one loads that source. |
+| `filter` | `select` | `all`, `installed`, `updates` or `official`. |
+| `show_libs` | `toggle` | Include `role = "lib"` plugins. Off by default. |
+| `plugin` | `select` | One option per listed plugin: `Name vX.Y (state)`, the value is the plugin id. State is `available`, `installed`, `update` or `yanked`. |
+| `details` | `readonly_text` | Summary, author, license, requires, size, source, trust and whether the installed version was withdrawn. |
+| `install` | `button` | Installs the selected plugin, with the libraries it requires, into `<Orbit root>/plugins`. Only for an `available` plugin. |
+| `update` | `button` | Stages the newest release of a selected `update` plugin in `<Orbit root>/pending/<id>/`. |
+| `remove` | `button` | Removes an installed plugin the market installed. |
+| `refresh` | `button` | Loads the selected source again. |
+| `status` | `readonly_text` | The outcome of the last action, or the reason it failed. |
+
+Rules:
+
+* A plugin is listed when the index has a release for this computer and the loader API that is not withdrawn. A plugin whose only releases are withdrawn is not listed.
+* `update` is shown when the installed copy has a market origin (`market.json`) and a newer release exists. A plugin installed by hand is never updated or removed by the market.
+* An update is written under `pending/`, not over the installed folder: the loader swaps it in at the next start ([loading.md](loading.md#0-staged-updates)). Removing a plugin also deletes its staged copy, so it does not come back.
+* An index that a trusted key did not sign, or that fails the checks, is not listed; the reason is shown in `status`.
+* The verified index is kept in `<Orbit root>/market/cache/<sha256 of the location>/` (the cache of this document).
+* The dropdown options are fixed when the section is registered. A change of the list re-registers the section, which resets the user's place in the panel until the UI ABI has dynamic options ([restructure.md section 4.4](../design/restructure.md#44-ui-interface-reuse-of-parsec-orbitui)).
