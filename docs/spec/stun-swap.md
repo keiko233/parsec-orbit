@@ -9,9 +9,13 @@ Parsec's original DNS rather than silently selecting another candidate.
 Each completed probe updates the candidate health, resolved IPv4 address and
 latency display, active target and server-list source. Selection uses the
 current mode when committing probe results, including changes made while a
-probe was in progress. Dynamic dropdown options do not rebuild the panel.
+probe was in progress. Dynamic dropdown options do not rebuild the panel. The
+manual server choice is enabled only in Manual mode, and the probe interval the
+slider shows is limited to 10 to 600 seconds even when an environment override
+lies outside it.
 
-Custom entries are edited one per line, validated and explicitly saved.
+Custom entries are edited one per line, validated and explicitly saved; a
+rejected list is reported as the status of the custom servers setting.
 Incomplete drafts survive background probe updates. Entries use `host@3478`
 (a bare host defaults to 3478). Other ports are rejected: the DNS hook replaces
 the resolved address and preserves Parsec's service port. Hosts containing

@@ -1995,6 +1995,7 @@ version = "0.1.1"
 dependencies = [
  "parsec-orbit-plugin-sdk",
  "parsec-orbit-plugin-sdk-testing",
+ "parsec-orbit-ui-protocol",
  "serde_json",
  "windows-sys 0.61.2",
 ]
