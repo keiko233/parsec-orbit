@@ -21,4 +21,5 @@ windows-sys = { version = "0.61", features = [
 ] }
 
 [dev-dependencies]
+parsec-orbit-core = { path = "../../crates/parsec-orbit-core" }
 serde_json = "1"

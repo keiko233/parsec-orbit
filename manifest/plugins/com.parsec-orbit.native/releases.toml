@@ -1,0 +1,2 @@
+# One [[release]] per package, appended by `parsec-orbit-release registry add`.
+# Hand-edit only to set `yanked = true`; see ../../README.md.

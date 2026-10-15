@@ -1,0 +1,8 @@
+id = "com.parsec-orbit.native"
+default = true
+group = "UI patches"
+summary = "Adds bandwidth limits above 50 Mbps to the native UI"
+homepage = "https://github.com/keiko233/parsec-orbit"
+
+[build]
+platforms = ["windows-x86_64"]

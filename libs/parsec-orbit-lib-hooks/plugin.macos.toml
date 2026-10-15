@@ -1,0 +1,12 @@
+# macOS arm64 package metadata for the official hooks plugin.
+id = "com.parsec-orbit.hooks"
+name = "Hooks"
+version = "0.1.1"
+role = "lib"
+kind = "dylib"
+entry = "libparsec_orbit_lib_hooks.dylib"
+author = "Parsec Orbit contributors"
+description = "Provides parsec-orbit.hooks: bounded imported-symbol rebinding on macOS"
+license = "MIT"
+api = 1
+enabled = true

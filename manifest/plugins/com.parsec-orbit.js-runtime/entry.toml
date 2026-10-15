@@ -1,0 +1,7 @@
+id = "com.parsec-orbit.js-runtime"
+group = "Extensions"
+summary = "Runs JavaScript plugins (kind = \"js\") on Boa and provides parsec-orbit.js"
+homepage = "https://github.com/keiko233/parsec-orbit"
+
+[build]
+platforms = ["windows-x86_64", "macos-arm64"]

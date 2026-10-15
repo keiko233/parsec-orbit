@@ -1,0 +1,11 @@
+[package]
+name = "parsec-orbit-layout"
+description = "Where Parsec Orbit keeps its files on each OS: the Orbit root, plugin directories, data and log locations"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+# std only and no dependencies on purpose: the loaders, the installer and the
+# market plugin all read these paths and none of them may drag in the others.

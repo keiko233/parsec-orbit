@@ -26,9 +26,9 @@ fixture="$tmp/repository with spaces"
 mock_bin="$tmp/mock-bin"
 mkdir -p "$fixture/scripts" "$fixture/crates" "$fixture/target/release" "$mock_bin"
 cp "$source_root/scripts/install-macos.sh" "$fixture/scripts/install-macos.sh"
-for crate in parsec-orbit-plugin-config parsec-orbit-plugin-hooks parsec-orbit-plugin-js-runtime; do
-    mkdir -p "$fixture/crates/$crate"
-    cp "$source_root/crates/$crate/plugin.macos.toml" "$fixture/crates/$crate/plugin.macos.toml"
+for crate in parsec-orbit-lib-config parsec-orbit-lib-hooks parsec-orbit-lib-js-runtime; do
+    mkdir -p "$fixture/libs/$crate"
+    cp "$source_root/libs/$crate/plugin.macos.toml" "$fixture/libs/$crate/plugin.macos.toml"
 done
 touch "$fixture/target/release/libparsec_orbit_loader.dylib"
 cat > "$fixture/target/release/parsec-orbit-installer-macos" <<'EOF'
@@ -38,9 +38,9 @@ exit "${INSTALLER_EXIT:-0}"
 EOF
 chmod +x "$fixture/target/release/parsec-orbit-installer-macos"
 for library in \
-    libparsec_orbit_plugin_config.dylib \
-    libparsec_orbit_plugin_hooks.dylib \
-    libparsec_orbit_plugin_js_runtime.dylib; do
+    libparsec_orbit_lib_config.dylib \
+    libparsec_orbit_lib_hooks.dylib \
+    libparsec_orbit_lib_js_runtime.dylib; do
     touch "$fixture/target/release/$library"
 done
 
@@ -99,7 +99,7 @@ assert_file_contains "$CODESIGN_LOG" '--force --sign -'
 assert_file_contains "$CODESIGN_LOG" '--verify --strict --verbose=2'
 assert_file_contains "$INSTALLER_LOG" "apply $app --loader $fixture/target/release/libparsec_orbit_loader.dylib --orbit-root $success_root --sudo-user $uid"
 [[ -f "$success_root/plugins/com.parsec-orbit.config/plugin.toml" ]] || fail 'config manifest was not deployed'
-[[ -f "$success_root/plugins/com.parsec-orbit.hooks/libparsec_orbit_plugin_hooks.dylib" ]] || fail 'hooks library was not deployed'
+[[ -f "$success_root/plugins/com.parsec-orbit.hooks/libparsec_orbit_lib_hooks.dylib" ]] || fail 'hooks library was not deployed'
 [[ -f "$success_root/plugins/com.parsec-orbit.js-runtime/plugin.toml" ]] || fail 'JS runtime manifest was not deployed'
 [[ -f "$success_root/plugins/third-party.keep/keep.txt" ]] || fail 'unmanaged plugin was changed'
 backup=$(find "$success_root/plugin-backups" -type f -name old.txt -print -quit)

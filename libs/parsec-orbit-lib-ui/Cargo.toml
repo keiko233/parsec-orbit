@@ -1,0 +1,33 @@
+[package]
+name = "parsec-orbit-lib-ui"
+description = "Parsec Orbit UI service: external companion window for Orbit and plugin settings"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[lib]
+name = "parsec_orbit_lib_ui"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+parsec-orbit-plugin-sdk = { path = "../../crates/parsec-orbit-plugin-sdk" }
+serde_json = "1"
+parsec-orbit-ui-protocol = { path = "../../crates/parsec-orbit-ui-protocol" }
+
+# Only activation/session checks remain here. GUI dependencies live in the
+# separate companion executable.
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61.2", features = [
+    "Win32_Foundation",
+    "Win32_System_LibraryLoader",
+    "Win32_System_RemoteDesktop",
+    "Win32_System_Threading",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_Graphics_Gdi",
+] }
+
+[dev-dependencies]
+parsec-orbit-plugin-sdk-testing = { path = "../../crates/parsec-orbit-plugin-sdk-testing" }

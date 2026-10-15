@@ -54,12 +54,12 @@ EXPECTED_FILES = {
     "scripts/console-macos.py",
     "target/release/parsec-orbit-installer-macos",
     "target/release/libparsec_orbit_loader.dylib",
-    "target/release/libparsec_orbit_plugin_config.dylib",
-    "target/release/libparsec_orbit_plugin_hooks.dylib",
-    "target/release/libparsec_orbit_plugin_js_runtime.dylib",
-    "crates/parsec-orbit-plugin-config/plugin.macos.toml",
-    "crates/parsec-orbit-plugin-hooks/plugin.macos.toml",
-    "crates/parsec-orbit-plugin-js-runtime/plugin.macos.toml",
+    "target/release/libparsec_orbit_lib_config.dylib",
+    "target/release/libparsec_orbit_lib_hooks.dylib",
+    "target/release/libparsec_orbit_lib_js_runtime.dylib",
+    "libs/parsec-orbit-lib-config/plugin.macos.toml",
+    "libs/parsec-orbit-lib-hooks/plugin.macos.toml",
+    "libs/parsec-orbit-lib-js-runtime/plugin.macos.toml",
 }
 EXECUTABLE_FILES = {
     "scripts/install-macos.sh",

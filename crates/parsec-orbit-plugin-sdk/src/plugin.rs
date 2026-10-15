@@ -17,7 +17,7 @@ pub trait Plugin: Default + Send + 'static {
     /// Called once, after the plugin's dependencies finished their own
     /// `init`. Returning `Err` marks the plugin as failed. Do not block: the
     /// loader initialises plugins one by one; start a thread for long work
-    /// (`ContextExt::spawn` from `parsec-orbit-plugin-sdk-std`).
+    /// (`std::thread::Builder`, named after the plugin).
     fn init(&mut self, cx: &Context) -> Result;
 
     /// Called when the plugin is unloaded. Today nothing unloads plugins, so

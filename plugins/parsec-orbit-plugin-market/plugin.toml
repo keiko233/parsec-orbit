@@ -1,0 +1,16 @@
+# Metadata for the loader. Official plugin that browses, installs, updates and
+# removes plugins from the signed registries listed in market/sources.toml.
+id = "com.parsec-orbit.market"
+name = "Market"
+version = "0.1.1"
+kind = "dll"
+entry = "parsec_orbit_plugin_market.dll"
+role = "plugin"
+author = "Parsec Orbit contributors"
+description = "Browse, install, update and remove plugins from the signed registries"
+license = "MIT"
+api = 1
+enabled = true
+
+requires = ["com.parsec-orbit.ui"]
+optional = ["com.parsec-orbit.config"]

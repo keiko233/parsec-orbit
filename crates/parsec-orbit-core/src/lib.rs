@@ -1,6 +1,6 @@
 //! Plugin loading logic that does not need Win32.
 //!
-//! The loader proper (`parsec-orbit-loader`) is a `bcrypt.dll` proxy; the
+//! The loader proper (`parsec-orbit-loader-windows`) is a `bcrypt.dll` proxy; the
 //! decisions about *which* plugins to load, in what shape, and whether a
 //! descriptor is acceptable live here, written against two small traits so
 //! they can be unit-tested without mapping a single DLL:
@@ -14,9 +14,12 @@ pub mod activate;
 pub mod console;
 pub mod host;
 pub mod kind;
+pub mod log;
 pub mod manifest;
 pub mod plan;
 pub mod scan;
+pub mod session;
+pub mod staging;
 #[cfg(any(test, feature = "testutil"))]
 pub mod testutil;
 
@@ -27,6 +30,7 @@ use parsec_orbit_plugin_abi::{InitFn, LegacyInitFn, QueryFn, ShutdownFn};
 
 pub use manifest::{read_manifest, Manifest, KIND_DLL, KIND_DYLIB, KIND_JS, MANIFEST};
 pub use scan::{scan, Scan, Summary};
+pub use session::Session;
 
 /// Severity of a log line, in the order the ABI's `LOG_*` values use.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]

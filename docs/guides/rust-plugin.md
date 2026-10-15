@@ -34,7 +34,7 @@ parsec-orbit-plugin-sdk = "0.1"
 
 [dev-dependencies]
 # MockHost for unit tests; the plugin itself never links std.
-parsec-orbit-plugin-sdk-std = "0.1"
+parsec-orbit-plugin-sdk-testing = "0.1"
 
 # A no_std plugin cannot unwind, so abort in every profile.
 [profile.dev]
@@ -113,7 +113,7 @@ Build with `cargo build --release`. The DLL is `target/release/my_plugin.dll`
 #[cfg(test)]
 mod tests {
     use super::*;
-    use parsec_orbit_plugin_sdk_std::testing::MockHost;
+    use parsec_orbit_plugin_sdk_testing::MockHost;
 
     #[test]
     fn greets_the_loader() {
@@ -129,24 +129,25 @@ mod tests {
 
 ## 3. A plugin that needs `std`
 
-Threads, files, sockets: depend on `parsec-orbit-plugin-sdk-std` instead (it re-exports the SDK), do not call `freestanding!()`, and drop `#![no_std]`. Expect about 200 KB, which is what `std` costs.
+Threads, files, sockets: keep the same `parsec-orbit-plugin-sdk` dependency, do not call `freestanding!()`, and drop `#![no_std]`; use `std` directly. Expect about 200 KB, which is what `std` costs.
 
 ```rust
-use parsec_orbit_plugin_sdk_std::prelude::*;
+use parsec_orbit_plugin_sdk::prelude::*;
 
 impl Plugin for MyPlugin {
     fn init(&mut self, cx: &Context) -> Result {
-        cx.install_panic_hook();                  // panics go to the loader log
         let cx = *cx;                             // Context is Copy + Send + Sync
-        cx.spawn("worker", move || {
-            info!(cx, "doing the long thing on my own thread");
-        })?;
+        std::thread::Builder::new()
+            .name(format!("{}:worker", cx.plugin_id()))
+            .spawn(move || {
+                info!(cx, "doing the long thing on my own thread");
+            })?;
         Ok(())
     }
 }
 ```
 
-Do not mix the two in one build graph: a `no_std` plugin and the `std` crate cannot coexist as dependencies of the same crate. They can sit in the same workspace.
+A `no_std` plugin and a `std` plugin can sit in the same workspace and use the same SDK. What must not happen is `std` entering the dependency graph of a `no_std` plugin: no `std`-only dependency, and no normal dependency on `parsec-orbit-plugin-sdk-testing`.
 
 ## 4. Install
 
@@ -172,10 +173,10 @@ On Windows, to watch the log while the client starts, set `PARSEC_ORBIT_CONSOLE=
 
 * [`examples/parsec-orbit-plugin-hello-nostd`](../../examples/parsec-orbit-plugin-hello-nostd) - this guide's plugin.
 * [`examples/parsec-orbit-plugin-hello`](../../examples/parsec-orbit-plugin-hello) - the `std` flavour (writes a report file).
-* [`crates/parsec-orbit-plugin-high-bitrate-native`](../../crates/parsec-orbit-plugin-high-bitrate-native) - a real `std` plugin with a worker thread.
+* [`plugins/parsec-orbit-plugin-high-bitrate-native`](../../plugins/parsec-orbit-plugin-high-bitrate-native) - a real `std` plugin with a worker thread.
 
 ## Troubleshooting
 
 * *`unwinding panics are not supported without std`* - set `panic = "abort"` in `[profile.dev]` (and release) of the **workspace** manifest.
-* *`found duplicate lang item panic_impl`* - the `std` crate is in the dependency graph of a `no_std` plugin: a dependency pulls `std`, or the plugin depends on `parsec-orbit-plugin-sdk-std` as a normal dependency. Make it a dev-dependency.
+* *`found duplicate lang item panic_impl`* - the `std` crate is in the dependency graph of a `no_std` plugin: a dependency pulls `std`, or the plugin depends on `parsec-orbit-plugin-sdk-testing` as a normal dependency. Make it a dev-dependency.
 * *The plugin is skipped with `needs X, not installed`* - a `requires` entry in `plugin.toml` names a plugin that is not installed.

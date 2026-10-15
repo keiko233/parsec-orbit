@@ -1794,16 +1794,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "parsec-orbit-devtools"
-version = "0.1.1"
-dependencies = [
- "serde_json",
-]
-
-[[package]]
 name = "parsec-orbit-e2e"
 version = "0.1.1"
 dependencies = [
+ "parsec-orbit-core",
  "serde_json",
  "windows-sys 0.61.2",
 ]
@@ -1813,7 +1807,7 @@ name = "parsec-orbit-fixture-nostd"
 version = "0.1.1"
 dependencies = [
  "parsec-orbit-plugin-sdk",
- "parsec-orbit-plugin-sdk-std",
+ "parsec-orbit-plugin-sdk-testing",
 ]
 
 [[package]]
@@ -1836,12 +1830,56 @@ dependencies = [
 ]
 
 [[package]]
-name = "parsec-orbit-loader"
+name = "parsec-orbit-layout"
+version = "0.1.1"
+
+[[package]]
+name = "parsec-orbit-lib-config"
 version = "0.1.1"
 dependencies = [
- "parsec-orbit-core",
- "parsec-orbit-plugin-abi",
+ "parsec-orbit-plugin-sdk",
+ "parsec-orbit-plugin-sdk-testing",
+ "serde_json",
+]
+
+[[package]]
+name = "parsec-orbit-lib-hooks"
+version = "0.1.1"
+dependencies = [
+ "parsec-orbit-plugin-sdk",
+ "parsec-orbit-plugin-sdk-testing",
+ "retour",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "parsec-orbit-lib-js-runtime"
+version = "0.1.1"
+dependencies = [
+ "boa_engine",
+ "parsec-orbit-plugin-sdk",
+ "parsec-orbit-plugin-sdk-testing",
+ "serde_json",
+ "toml",
+]
+
+[[package]]
+name = "parsec-orbit-lib-ui"
+version = "0.1.1"
+dependencies = [
+ "parsec-orbit-plugin-sdk",
+ "parsec-orbit-plugin-sdk-testing",
+ "parsec-orbit-ui-protocol",
+ "serde_json",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "parsec-orbit-lib-webview-bridge"
+version = "0.1.1"
+dependencies = [
+ "parsec-orbit-plugin-sdk",
+ "serde_json",
 ]
 
 [[package]]
@@ -1850,11 +1888,22 @@ version = "0.1.1"
 dependencies = [
  "libc",
  "parsec-orbit-core",
+ "parsec-orbit-layout",
  "parsec-orbit-macos-state",
  "parsec-orbit-plugin-abi",
  "serde",
  "serde_json",
  "sha2",
+]
+
+[[package]]
+name = "parsec-orbit-loader-windows"
+version = "0.1.1"
+dependencies = [
+ "parsec-orbit-core",
+ "parsec-orbit-layout",
+ "parsec-orbit-plugin-abi",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -1869,7 +1918,81 @@ dependencies = [
 ]
 
 [[package]]
-name = "parsec-orbit-market"
+name = "parsec-orbit-plugin-abi"
+version = "0.1.1"
+
+[[package]]
+name = "parsec-orbit-plugin-hello"
+version = "0.1.1"
+dependencies = [
+ "parsec-orbit-plugin-sdk",
+ "parsec-orbit-plugin-sdk-testing",
+]
+
+[[package]]
+name = "parsec-orbit-plugin-hello-nostd"
+version = "0.1.1"
+dependencies = [
+ "parsec-orbit-plugin-sdk",
+ "parsec-orbit-plugin-sdk-testing",
+]
+
+[[package]]
+name = "parsec-orbit-plugin-high-bitrate-native"
+version = "0.1.1"
+dependencies = [
+ "parsec-orbit-plugin-sdk",
+ "parsec-orbit-plugin-sdk-testing",
+ "serde_json",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "parsec-orbit-plugin-high-bitrate-webview"
+version = "0.1.1"
+dependencies = [
+ "parsec-orbit-plugin-sdk",
+ "parsec-orbit-plugin-sdk-testing",
+ "serde_json",
+]
+
+[[package]]
+name = "parsec-orbit-plugin-market"
+version = "0.1.1"
+dependencies = [
+ "parsec-orbit-layout",
+ "parsec-orbit-plugin-sdk",
+ "parsec-orbit-plugin-sdk-testing",
+ "parsec-orbit-registry",
+ "serde_json",
+]
+
+[[package]]
+name = "parsec-orbit-plugin-sdk"
+version = "0.1.1"
+dependencies = [
+ "parsec-orbit-plugin-abi",
+]
+
+[[package]]
+name = "parsec-orbit-plugin-sdk-testing"
+version = "0.1.1"
+dependencies = [
+ "parsec-orbit-plugin-sdk",
+]
+
+[[package]]
+name = "parsec-orbit-plugin-stun-swap"
+version = "0.1.1"
+dependencies = [
+ "parsec-orbit-plugin-sdk",
+ "parsec-orbit-plugin-sdk-testing",
+ "serde_json",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "parsec-orbit-registry"
 version = "0.1.1"
 dependencies = [
  "base64",
@@ -1885,111 +2008,14 @@ dependencies = [
 ]
 
 [[package]]
-name = "parsec-orbit-plugin-abi"
-version = "0.1.1"
-
-[[package]]
-name = "parsec-orbit-plugin-config"
+name = "parsec-orbit-release"
 version = "0.1.1"
 dependencies = [
- "parsec-orbit-plugin-sdk-std",
- "serde_json",
-]
-
-[[package]]
-name = "parsec-orbit-plugin-hello"
-version = "0.1.1"
-dependencies = [
- "parsec-orbit-plugin-sdk-std",
-]
-
-[[package]]
-name = "parsec-orbit-plugin-hello-nostd"
-version = "0.1.1"
-dependencies = [
- "parsec-orbit-plugin-sdk",
- "parsec-orbit-plugin-sdk-std",
-]
-
-[[package]]
-name = "parsec-orbit-plugin-high-bitrate-native"
-version = "0.1.1"
-dependencies = [
- "parsec-orbit-plugin-sdk-std",
- "serde_json",
- "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "parsec-orbit-plugin-high-bitrate-webview"
-version = "0.1.1"
-dependencies = [
- "parsec-orbit-plugin-sdk-std",
- "serde_json",
-]
-
-[[package]]
-name = "parsec-orbit-plugin-hooks"
-version = "0.1.1"
-dependencies = [
- "parsec-orbit-plugin-sdk-std",
- "retour",
- "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "parsec-orbit-plugin-js-runtime"
-version = "0.1.1"
-dependencies = [
- "boa_engine",
- "parsec-orbit-plugin-sdk-std",
+ "parsec-orbit-registry",
+ "semver",
+ "serde",
  "serde_json",
  "toml",
-]
-
-[[package]]
-name = "parsec-orbit-plugin-sdk"
-version = "0.1.1"
-dependencies = [
- "parsec-orbit-plugin-abi",
-]
-
-[[package]]
-name = "parsec-orbit-plugin-sdk-std"
-version = "0.1.1"
-dependencies = [
- "parsec-orbit-plugin-sdk",
- "parsec-orbit-plugin-sdk-std",
- "tracing",
- "tracing-core",
-]
-
-[[package]]
-name = "parsec-orbit-plugin-stun-swap"
-version = "0.1.1"
-dependencies = [
- "parsec-orbit-plugin-sdk-std",
- "serde_json",
- "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "parsec-orbit-plugin-ui"
-version = "0.1.1"
-dependencies = [
- "parsec-orbit-plugin-sdk-std",
- "parsec-orbit-ui-protocol",
- "serde_json",
- "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "parsec-orbit-plugin-webview-bridge"
-version = "0.1.1"
-dependencies = [
- "parsec-orbit-devtools",
- "parsec-orbit-plugin-sdk-std",
- "serde_json",
 ]
 
 [[package]]
@@ -2016,25 +2042,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "parsec-orbit-verify-callpaths"
+name = "parsec-orbit-verify"
 version = "0.1.1"
 dependencies = [
+ "parsec-orbit-lib-webview-bridge",
  "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "parsec-orbit-verify-roundtrip"
-version = "0.1.1"
-dependencies = [
- "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "parsec-orbit-verify-webview-inject"
-version = "0.1.1"
-dependencies = [
- "parsec-orbit-devtools",
- "parsec-orbit-plugin-high-bitrate-webview",
 ]
 
 [[package]]

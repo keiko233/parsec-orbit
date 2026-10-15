@@ -1,5 +1,27 @@
 # Size report
 
+## Restructure Windows checkpoint (2026-10-15)
+
+Native `x86_64-pc-windows-msvc`, `rustc 1.100.0-nightly (a36d05efa
+2026-09-09)`, workspace release profile and static CRT. The default loader
+was rebuilt without `diagnostics` after forwarding checks.
+
+| Artifact | Bytes |
+| --- | ---: |
+| loader `bcrypt.dll` | 400,896 |
+| WebView patches (`no_std`) | 17,920 |
+| UI service `parsec_orbit_lib_ui.dll` | 563,200 |
+| WinUI renderer `parsec-orbit-ui-companion.exe` | 541,184 |
+| market plugin | 1,968,640 |
+
+The loader exceeds 360 KiB by 32,256 B and the previous console-enabled
+381,952 B checkpoint by 18,944 B. This is the restructured loader with shared
+layout/session/logging and pending-update promotion, not a controlled comparison
+against the old toolchain; no precise per-change attribution is claimed.
+The UI merge adds no loader dependency, and the TOML parser is unchanged.
+Direct PE table inspection confirms the WebView DLL exports only the three
+plugin ABI functions and imports only `kernel32.dll`.
+
 Measured on `x86_64-pc-windows-msvc`, release profile (`opt-level = "z"`, `lto = "fat"`, `codegen-units = 1`, `panic = "abort"`, `strip = "symbols"`), static CRT where a CRT is linked at all. Sizes are bytes of the DLL. The [macOS arm64](#macos-arm64-m0) numbers below were taken with the same profile on `aarch64-apple-darwin`.
 
 ## Plugin runtime spike (phase 3)
@@ -37,6 +59,18 @@ The end-to-end suite loads these DLLs into a real process and exercises the allo
 
 The migration to `Plugin` / `Context` costs 2.5 to 6 KB each: the log macros, the service lookup and the plugin slot. They are `std` plugins on purpose (threads, sockets, file system); moving them to `no_std` would mean replacing `std::net` and `std::fs`, which is not worth it.
 
+## no_std conversion
+
+`high-bitrate-webview` has no `std` left: its one `std::env::var` is a small environment reader over `GetEnvironmentVariableW` (Windows) and `getenv` (macOS), and the crate builds as `cdylib` only. Release `.dylib` on `aarch64-apple-darwin`, same profile as above, bytes:
+
+| Build | Size |
+| --- | ---: |
+| before (`std`, `cdylib` + `rlib`) | 302,208 |
+| after (`no_std`, `cdylib`) | 50,416 |
+| saved | 251,792 (83 %) |
+
+The Windows size is not measured here (no Windows linker on this machine); the Windows build was only type-checked.
+
 ## Loader
 
 | Point in time | `bcrypt.dll` |
@@ -51,7 +85,7 @@ Budget: 360 KiB = 368,640 bytes, so phase 2 left 512 bytes. The growth is the re
 
 | Artifact | Size | Notes |
 | --- | ---: | --- |
-| `webview-bridge` | 379,904 | `std`, `serde_json`, `parsec-orbit-devtools` |
+| `webview-bridge` | 379,904 | `std`, `serde_json`, its `devtools` module (a crate of its own when measured) |
 | `js-runtime` | 4,226,048 | Boa without `temporal`/`intl`; a separate download on purpose |
 | `config` | 297,984 | `std`, `serde_json` |
 | `hooks` | 385,536 | `std`, `retour` |

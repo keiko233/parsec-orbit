@@ -52,23 +52,22 @@ pub fn artifacts() -> &'static Artifacts {
             .arg(&target)
             .args([
                 "-p",
-                "parsec-orbit-loader",
+                "parsec-orbit-loader-windows",
                 "--features",
-                "parsec-orbit-loader/diagnostics",
+                "parsec-orbit-loader-windows/diagnostics",
             ])
             .args(["-p", "parsec-orbit-plugin-hello"])
             .args(["-p", "parsec-orbit-plugin-high-bitrate-webview"])
-            .args(["-p", "parsec-orbit-plugin-webview-bridge"])
-            .args(["-p", "parsec-orbit-plugin-js-runtime"])
-            .args(["-p", "parsec-orbit-plugin-config"])
-            .args(["-p", "parsec-orbit-plugin-hooks"])
+            .args(["-p", "parsec-orbit-lib-webview-bridge"])
+            .args(["-p", "parsec-orbit-lib-js-runtime"])
+            .args(["-p", "parsec-orbit-lib-config"])
+            .args(["-p", "parsec-orbit-lib-hooks"])
             .args(["-p", "parsec-orbit-plugin-high-bitrate-native"])
             .args(["-p", "parsec-orbit-plugin-stun-swap"])
             .args(["-p", "parsec-orbit-fixture-plugin"])
             .args(["-p", "parsec-orbit-fixture-nostd"])
             .args(["-p", "parsec-orbit-plugin-hello-nostd"])
-            .args(["-p", "parsec-orbit-verify-callpaths"])
-            .args(["-p", "parsec-orbit-verify-roundtrip"])
+            .args(["-p", "parsec-orbit-verify"])
             .output()
             .expect("start cargo");
         assert!(
@@ -82,10 +81,10 @@ pub fn artifacts() -> &'static Artifacts {
             loader: debug.join("bcrypt.dll"),
             hello: debug.join("parsec_orbit_plugin_hello.dll"),
             webview: debug.join("parsec_orbit_plugin_high_bitrate_webview.dll"),
-            bridge: debug.join("parsec_orbit_plugin_webview_bridge.dll"),
-            js_runtime: debug.join("parsec_orbit_plugin_js_runtime.dll"),
-            config: debug.join("parsec_orbit_plugin_config.dll"),
-            hooks: debug.join("parsec_orbit_plugin_hooks.dll"),
+            bridge: debug.join("parsec_orbit_lib_webview_bridge.dll"),
+            js_runtime: debug.join("parsec_orbit_lib_js_runtime.dll"),
+            config: debug.join("parsec_orbit_lib_config.dll"),
+            hooks: debug.join("parsec_orbit_lib_hooks.dll"),
             native: debug.join("parsec_orbit_plugin_high_bitrate_native.dll"),
             stun_swap: debug.join("parsec_orbit_plugin_stun_swap.dll"),
             fixture: debug.join("parsec_orbit_fixture_plugin.dll"),
@@ -121,13 +120,15 @@ pub fn plugin_manifest(kind: Plugin) -> PathBuf {
     let root = workspace_root();
     match kind {
         Plugin::Hello => root.join("examples/parsec-orbit-plugin-hello/plugin.toml"),
-        Plugin::Webview => root.join("crates/parsec-orbit-plugin-high-bitrate-webview/plugin.toml"),
-        Plugin::Native => root.join("crates/parsec-orbit-plugin-high-bitrate-native/plugin.toml"),
-        Plugin::StunSwap => root.join("crates/parsec-orbit-plugin-stun-swap/plugin.toml"),
-        Plugin::Hooks => root.join("crates/parsec-orbit-plugin-hooks/plugin.toml"),
-        Plugin::Config => root.join("crates/parsec-orbit-plugin-config/plugin.toml"),
-        Plugin::JsRuntime => root.join("crates/parsec-orbit-plugin-js-runtime/plugin.toml"),
-        Plugin::WebviewBridge => root.join("crates/parsec-orbit-plugin-webview-bridge/plugin.toml"),
+        Plugin::Webview => {
+            root.join("plugins/parsec-orbit-plugin-high-bitrate-webview/plugin.toml")
+        }
+        Plugin::Native => root.join("plugins/parsec-orbit-plugin-high-bitrate-native/plugin.toml"),
+        Plugin::StunSwap => root.join("plugins/parsec-orbit-plugin-stun-swap/plugin.toml"),
+        Plugin::Hooks => root.join("libs/parsec-orbit-lib-hooks/plugin.toml"),
+        Plugin::Config => root.join("libs/parsec-orbit-lib-config/plugin.toml"),
+        Plugin::JsRuntime => root.join("libs/parsec-orbit-lib-js-runtime/plugin.toml"),
+        Plugin::WebviewBridge => root.join("libs/parsec-orbit-lib-webview-bridge/plugin.toml"),
         Plugin::Fixture => root.join("tests/parsec-orbit-fixture-plugin/plugin.toml"),
         Plugin::FixtureNostd => root.join("tests/parsec-orbit-fixture-nostd/plugin.toml"),
         Plugin::HelloNostd => root.join("examples/parsec-orbit-plugin-hello-nostd/plugin.toml"),

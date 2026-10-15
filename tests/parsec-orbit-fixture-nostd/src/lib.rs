@@ -137,7 +137,7 @@ parsec_orbit_plugin_sdk::declare_plugin! {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use parsec_orbit_plugin_sdk_std::testing::MockHost;
+    use parsec_orbit_plugin_sdk_testing::MockHost;
 
     fn run(id: &str) -> MockHost {
         let host = MockHost::new(id);

@@ -62,7 +62,7 @@ jobs:
       # The crates that go to crates.io must package and build from their own
       # tarballs. Nothing is published here.
       - name: Package the SDK crates
-        run: cargo package -p parsec-orbit-plugin-abi -p parsec-orbit-plugin-sdk -p parsec-orbit-plugin-sdk-std --locked
+        run: cargo package -p parsec-orbit-plugin-abi -p parsec-orbit-plugin-sdk -p parsec-orbit-plugin-sdk-testing --locked
 
   test-macos:
     runs-on: macos-26
@@ -105,7 +105,7 @@ jobs:
       # The download-manager regressions run real Ed25519 verification with
       # the distribution's release binary; a check does not produce that tool.
       - name: Build the manifest verifier
-        run: cargo build --release --locked -p parsec-orbit-market
+        run: cargo build --release --locked -p parsec-orbit-registry
 
       # Exercises only the owned exec gate and trace-evidence parser; no sudo
       # or vendor bundle/account state is used by these regressions.

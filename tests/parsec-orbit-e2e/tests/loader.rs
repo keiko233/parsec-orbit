@@ -26,6 +26,36 @@ fn run_client(sandbox: &Sandbox) -> Run {
     sandbox.run(CLIENT, "ready:", |_| {})
 }
 
+#[test]
+fn a_pending_update_is_promoted_before_discovery() {
+    let sandbox = client("pending-update");
+    let installed = sandbox.install_plugin("old", Plugin::Hello);
+    let root = sandbox.appdata.join("ParsecOrbit");
+    let managed = root.join("plugins/com.example.hello");
+    std::fs::create_dir_all(managed.parent().unwrap()).unwrap();
+    std::fs::rename(installed, &managed).unwrap();
+    std::fs::write(managed.join("old-only.txt"), "old").unwrap();
+
+    let staged = root.join("pending/com.example.hello");
+    std::fs::create_dir_all(&staged).unwrap();
+    let dll = Plugin::Hello.dll();
+    std::fs::copy(dll, staged.join(dll.file_name().unwrap())).unwrap();
+    std::fs::copy(
+        common::plugin_manifest(Plugin::Hello),
+        staged.join("plugin.toml"),
+    )
+    .unwrap();
+
+    let run = run_client(&sandbox);
+    run.assert_success()
+        .assert_log_contains("pending update of com.example.hello is now installed")
+        .assert_log_contains("ready: 1 loaded, 0 skipped, 0 failed");
+    assert_eq!(run.log.matches("ready:").count(), 1, "{}", run.describe());
+    assert!(!staged.exists());
+    assert!(!managed.join("old-only.txt").exists());
+    assert!(managed.join(dll.file_name().unwrap()).is_file());
+}
+
 // ---- plugins ----------------------------------------------------------------
 
 #[test]
@@ -766,7 +796,7 @@ fn the_users_own_browser_arguments_are_left_untouched() {
 fn bandwidth_script() -> String {
     std::fs::read_to_string(
         common::workspace_root()
-            .join("crates/parsec-orbit-plugin-high-bitrate-webview/assets/bandwidth.js"),
+            .join("plugins/parsec-orbit-plugin-high-bitrate-webview/assets/bandwidth.js"),
     )
     .unwrap()
 }

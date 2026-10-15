@@ -30,15 +30,16 @@ reorganizations.
 - There is no `anyhow` or `thiserror`; each layer keeps its own error type and the
   consuming crate decides the convention. `parsec-orbit-core` returns
   `Result<T, String>` (the text goes into the log as-is); the loader's Win32 layer
-  returns `Result<T, u32>` (the Win32 error code); `parsec-orbit-market` has an
+  returns `Result<T, u32>` (the Win32 error code); `parsec-orbit-registry` has an
   `Error` enum with a manual `Display` and `From<std::io::Error>`;
   `parsec-orbit-plugin-sdk` has `Error { code, message }` with a `Result` alias.
 - Propagate recoverable errors with `Result` and `?`. Follow the consuming crate's
   existing error type instead of adding a workspace-wide error convention.
 - `no_std` is a hard boundary. `parsec-orbit-plugin-abi` and
   `parsec-orbit-plugin-sdk` are `#![no_std]` with `#[cfg(test)] extern crate std`.
-  Do not add a `std` feature: `std` support is the separate
-  `parsec-orbit-plugin-sdk-std` crate ([ADR 0002](../design/decisions/0002-sdk-is-no-std-by-default.md)).
+  Do not add a `std` feature: a `std` plugin links `std` itself and uses the
+  same SDK, and the `std`-only `MockHost` is the dev-dependency
+  `parsec-orbit-plugin-sdk-testing` ([ADR 0002](../design/decisions/0002-sdk-is-no-std-by-default.md)).
 - Keep public traits and methods narrow (`Platform`, `Logger`, `console::Console`).
   Preserve ownership and borrowing instead of introducing locks or clones solely
   to bypass a design problem.

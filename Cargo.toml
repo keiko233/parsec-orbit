@@ -1,31 +1,31 @@
 [workspace]
 resolver = "2"
 members = [
-    "crates/parsec-orbit-installer-macos",
-    "crates/parsec-orbit-loader",
+    "tools/parsec-orbit-installer-macos",
+    "tools/parsec-orbit-release",
+    "crates/parsec-orbit-loader-windows",
     "crates/parsec-orbit-loader-macos",
     "crates/parsec-orbit-macos-state",
     "crates/parsec-orbit-plugin-abi",
     "crates/parsec-orbit-plugin-sdk",
-    "crates/parsec-orbit-plugin-sdk-std",
+    "crates/parsec-orbit-plugin-sdk-testing",
     "crates/parsec-orbit-core",
-    "crates/parsec-orbit-market",
-    "crates/parsec-orbit-devtools",
-    "crates/parsec-orbit-plugin-webview-bridge",
-    "crates/parsec-orbit-plugin-config",
-    "crates/parsec-orbit-plugin-ui",
+    "crates/parsec-orbit-layout",
+    "crates/parsec-orbit-registry",
+    "libs/parsec-orbit-lib-webview-bridge",
+    "libs/parsec-orbit-lib-config",
+    "libs/parsec-orbit-lib-ui",
+    "libs/parsec-orbit-lib-hooks",
+    "libs/parsec-orbit-lib-js-runtime",
+    "plugins/parsec-orbit-plugin-high-bitrate-webview",
+    "plugins/parsec-orbit-plugin-high-bitrate-native",
+    "plugins/parsec-orbit-plugin-stun-swap",
+    "plugins/parsec-orbit-plugin-market",
     "crates/parsec-orbit-ui-protocol",
-    "crates/parsec-orbit-ui-companion",
-    "crates/parsec-orbit-plugin-hooks",
-    "crates/parsec-orbit-plugin-js-runtime",
-    "crates/parsec-orbit-plugin-high-bitrate-webview",
-    "crates/parsec-orbit-plugin-high-bitrate-native",
-    "crates/parsec-orbit-plugin-stun-swap",
+    "tools/parsec-orbit-ui-companion",
     "examples/parsec-orbit-plugin-hello",
     "examples/parsec-orbit-plugin-hello-nostd",
-    "crates/parsec-orbit-verify-callpaths",
-    "crates/parsec-orbit-verify-roundtrip",
-    "crates/parsec-orbit-verify-webview-inject",
+    "tools/parsec-orbit-verify",
     "tests/parsec-orbit-e2e",
     "tests/parsec-orbit-fixture-plugin",
     "tests/parsec-orbit-fixture-nostd",
@@ -42,6 +42,7 @@ repository = "https://github.com/keiko233/parsec-orbit"
 [workspace.dependencies]
 parsec-orbit-plugin-abi = { path = "crates/parsec-orbit-plugin-abi", version = "0.1.1" }
 parsec-orbit-plugin-sdk = { path = "crates/parsec-orbit-plugin-sdk", version = "0.1.1" }
+parsec-orbit-plugin-sdk-testing = { path = "crates/parsec-orbit-plugin-sdk-testing", version = "0.1.1" }
 
 # A `no_std` plugin cannot unwind, so it needs `panic = "abort"` in every
 # profile it is built with, not only in release.

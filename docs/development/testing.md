@@ -10,7 +10,7 @@
   stands in for `parsecd.exe`; the e2e sandbox redirects `%APPDATA%` and `%TEMP%`
   and installs a throwaway `bcrypt.dll`; the native patcher runs against an
   in-memory fake PE image; the WebView bridge runs against a fake DevTools
-  endpoint; `parsec-orbit-plugin-sdk-std` ships `MockHost`.
+  endpoint; `parsec-orbit-plugin-sdk-testing` ships `MockHost`.
 - Never touch an installed Parsec client or a real user configuration. Use
   temporary or injected paths.
 
@@ -40,7 +40,7 @@ pnpm install --frozen-lockfile; pnpm -r build; pnpm -r test
 After changing a published crate, also package it:
 
 ```powershell
-cargo package -p parsec-orbit-plugin-abi -p parsec-orbit-plugin-sdk -p parsec-orbit-plugin-sdk-std --locked
+cargo package -p parsec-orbit-plugin-abi -p parsec-orbit-plugin-sdk -p parsec-orbit-plugin-sdk-testing --locked
 ```
 
 Choose the tests that exercise the changed behavior. A formatting pass is not a

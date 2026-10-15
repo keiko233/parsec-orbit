@@ -16,9 +16,12 @@ only one job fails. When `main` turns red, fix it before landing further changes
 
 ## Repository scripts
 
-Automation lives in `scripts/` as PowerShell (`kebab-case.ps1`) with a usage header,
-`[CmdletBinding()] param(...)` first, `$ErrorActionPreference = 'Stop'`, and
-`-LiteralPath` for every file operation. Python helpers and the injected
+Product automation (install, upgrade, packaging, registry generation and signing)
+is Rust (`tools/parsec-orbit-installer`, `tools/parsec-orbit-release`); logic never
+lives in a script. Scripts in `scripts/` are thin PowerShell entry points
+(`kebab-case.ps1`) with a usage header, `[CmdletBinding()] param(...)` first,
+`$ErrorActionPreference = 'Stop'`, and `-LiteralPath` for every file operation;
+until the tools land, the existing scripts stay and get no new logic. Python helpers and the injected
 `webview-bridge-spy.js` follow the same "explain why and when to rerun" doc-comment
 style. CI calls the same scripts a developer runs (`scripts/verify.ps1`,
 `scripts/package.ps1`); keep execution logic in one place and keep the pnpm

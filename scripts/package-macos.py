@@ -57,12 +57,12 @@ def package(out, signing_key=None, no_build=False):
         raise ValueError("workspace version is missing")
     if not no_build:
         args = ["cargo", "build", "--release", "--locked"]
-        for name in ("installer-macos", "loader-macos", "market") + tuple("plugin-" + p for p in PLUGINS):
+        for name in ("installer-macos", "loader-macos", "market") + tuple("lib-" + p for p in PLUGINS):
             args.extend(("-p", "parsec-orbit-" + name))
         run(*args)
     release = ROOT / "target/release"
     names = ["parsec-orbit-installer-macos", "libparsec_orbit_loader.dylib", "parsec-orbit-market"]
-    names.extend("libparsec_orbit_plugin_" + p.replace("-", "_") + ".dylib" for p in PLUGINS)
+    names.extend("libparsec_orbit_lib_" + p.replace("-", "_") + ".dylib" for p in PLUGINS)
     out.mkdir(parents=True, exist_ok=True)
     if out.is_symlink():
         raise ValueError("output directory must not be a symlink")
@@ -83,7 +83,7 @@ def package(out, signing_key=None, no_build=False):
             if name != "parsec-orbit-market":
                 sources["target/release/" + name] = copied
         for plugin in PLUGINS:
-            member = f"crates/parsec-orbit-plugin-{plugin}/plugin.macos.toml"
+            member = f"libs/parsec-orbit-lib-{plugin}/plugin.macos.toml"
             sources[member] = ROOT / member
         for name in ("install-macos.sh", "console-macos.sh", "console-macos.py"):
             sources["scripts/" + name] = ROOT / "scripts" / name

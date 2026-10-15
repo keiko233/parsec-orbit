@@ -12,14 +12,14 @@ it does not define public release packaging. The service contract is in
 Build both packages for the target platform from the workspace root:
 
 ```sh
-cargo build --release -p parsec-orbit-plugin-ui -p parsec-orbit-ui-companion
+cargo build --release -p parsec-orbit-lib-ui -p parsec-orbit-ui-companion
 ```
 
 On macOS, build for the supported arm64 target if it is not the Rust host:
 
 ```sh
 cargo build --release --target aarch64-apple-darwin \
-  -p parsec-orbit-plugin-ui -p parsec-orbit-ui-companion
+  -p parsec-orbit-lib-ui -p parsec-orbit-ui-companion
 ```
 
 The UI protocol uses ordinary `serde`/`serde_json` in the plugin. GUI
@@ -41,19 +41,19 @@ platform manifest, plugin library and helper executable together:
 
 | Platform | Manifest | Plugin library | Helper |
 | --- | --- | --- | --- |
-| Windows x64 | `plugin.toml` | `parsec_orbit_plugin_ui.dll` | `parsec-orbit-ui-companion.exe` |
-| macOS arm64 | `plugin.macos.toml` renamed to `plugin.toml` | `libparsec_orbit_plugin_ui.dylib` | `parsec-orbit-ui-companion` |
+| Windows x64 | `plugin.toml` | `parsec_orbit_lib_ui.dll` | `parsec-orbit-ui-companion.exe` |
+| macOS arm64 | `plugin.macos.toml` renamed to `plugin.toml` | `libparsec_orbit_lib_ui.dylib` | `parsec-orbit-ui-companion` |
 
 For example, on macOS after the explicit arm64-target build:
 
 ```sh
 scratch="${TMPDIR:-/tmp}/parsec-orbit-ui-dev"
-plugin="$scratch/parsec-orbit-plugin-ui"
+plugin="$scratch/parsec-orbit-lib-ui"
 mkdir -p "$plugin"
-cp crates/parsec-orbit-plugin-ui/plugin.macos.toml "$plugin/plugin.toml"
-cp target/aarch64-apple-darwin/release/libparsec_orbit_plugin_ui.dylib "$plugin/"
+cp libs/parsec-orbit-lib-ui/plugin.macos.toml "$plugin/plugin.toml"
+cp target/aarch64-apple-darwin/release/libparsec_orbit_lib_ui.dylib "$plugin/"
 cp target/aarch64-apple-darwin/release/parsec-orbit-ui-companion "$plugin/"
-codesign --force --sign - "$plugin/libparsec_orbit_plugin_ui.dylib"
+codesign --force --sign - "$plugin/libparsec_orbit_lib_ui.dylib"
 codesign --force --sign - "$plugin/parsec-orbit-ui-companion"
 ```
 
@@ -65,10 +65,10 @@ On Windows, stage the release artifacts in a disposable directory with PowerShel
 
 ```powershell
 $scratch = Join-Path $env:TEMP ('orbit-ui-dev-' + [guid]::NewGuid())
-$plugin = Join-Path $scratch 'parsec-orbit-plugin-ui'
+$plugin = Join-Path $scratch 'parsec-orbit-lib-ui'
 New-Item -ItemType Directory -Path $plugin | Out-Null
-Copy-Item -LiteralPath crates/parsec-orbit-plugin-ui/plugin.toml -Destination $plugin
-Copy-Item -LiteralPath target/release/parsec_orbit_plugin_ui.dll -Destination $plugin
+Copy-Item -LiteralPath libs/parsec-orbit-lib-ui/plugin.toml -Destination $plugin
+Copy-Item -LiteralPath target/release/parsec_orbit_lib_ui.dll -Destination $plugin
 Copy-Item -LiteralPath target/release/parsec-orbit-ui-companion.exe -Destination $plugin
 ```
 
@@ -89,9 +89,9 @@ Parsec state and bundle for that validation.
 The owned host example loads no Parsec code and uses no installed client state:
 
 ```sh
-cargo build --locked -p parsec-orbit-plugin-ui --example companion-host \
+cargo build --locked -p parsec-orbit-lib-ui --example companion-host \
   -p parsec-orbit-ui-companion
-cargo run --locked -p parsec-orbit-plugin-ui --example companion-host -- \
+cargo run --locked -p parsec-orbit-lib-ui --example companion-host -- \
   "$PWD/target/debug/parsec-orbit-ui-companion"
 ```
 
@@ -103,7 +103,7 @@ compatibility with a real signed-in client or the production sandbox.
 On Windows, the ABI host can use the staged directory:
 
 ```powershell
-cargo run --locked -p parsec-orbit-plugin-ui --example service-host -- $plugin
+cargo run --locked -p parsec-orbit-lib-ui --example service-host -- $plugin
 ```
 
 The real event-loop regression requires an interactive Windows or macOS desktop
@@ -134,7 +134,7 @@ behavior.
 The ABI host example also exercises plugin `init` and the SDK service table:
 
 ```sh
-cargo run --locked -p parsec-orbit-plugin-ui --example service-host -- \
+cargo run --locked -p parsec-orbit-lib-ui --example service-host -- \
   "$PWD/target/debug"
 ```
 

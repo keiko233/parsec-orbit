@@ -1,0 +1,27 @@
+[package]
+name = "parsec-orbit-plugin-high-bitrate-native"
+description = "Parsec Orbit plugin that patches the native (libmatoya) client UI in memory"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[lib]
+name = "parsec_orbit_plugin_high_bitrate_native"
+crate-type = ["cdylib"]
+
+[dependencies]
+parsec-orbit-plugin-sdk = { path = "../../crates/parsec-orbit-plugin-sdk" }
+
+# Windows-only: on other targets the crate compiles to an empty library.
+[target.'cfg(windows)'.dependencies]
+serde_json = "1"
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_System_Diagnostics_ToolHelp",
+    "Win32_System_Memory",
+] }
+
+[dev-dependencies]
+parsec-orbit-plugin-sdk-testing = { path = "../../crates/parsec-orbit-plugin-sdk-testing" }

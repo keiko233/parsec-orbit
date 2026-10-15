@@ -36,9 +36,10 @@ Build it as a `cdylib` with `panic = "abort"` in every profile.
 
 * `Plugin`, `Context`, `Error`, `info!`/`warn!`/..., typed service lookup and
   registration, kind-handler registration.
-* `no_std` and **never links `std`**; what needs `std` (threads, `tracing`
-  bridge, a mock host for unit tests) is in
-  [`parsec-orbit-plugin-sdk-std`](https://crates.io/crates/parsec-orbit-plugin-sdk-std).
+* `no_std`, **never links `std`** and has no features, so one package serves
+  `std` and `no_std` plugins; the `std` mock host for unit tests is the
+  dev-dependency
+  [`parsec-orbit-plugin-sdk-testing`](https://crates.io/crates/parsec-orbit-plugin-sdk-testing).
 * Re-exports [`parsec-orbit-plugin-abi`](https://crates.io/crates/parsec-orbit-plugin-abi).
 
 Specification: [`docs/spec/rust-sdk.md`](https://github.com/keiko233/parsec-orbit/blob/main/docs/spec/rust-sdk.md).

@@ -123,9 +123,13 @@ Non-negotiable rules, restated because they are the most common violations:
   no async runtime, no `serde`, no `tracing` unless it is measured to fit. Its
   decisions are written against small traits (`Platform`, `Logger`,
   `console::Console`) so they are unit-tested without mapping a DLL.
-- Plugins do not pay for what they do not use. The SDK is `no_std` by default and
-  `std` is a separate crate (`parsec-orbit-plugin-sdk-std`), not a feature
-  ([ADR 0002](docs/design/decisions/0002-sdk-is-no-std-by-default.md)).
+- Plugins do not pay for what they do not use. The SDK is one `no_std` package
+  without features, used by `std` and `no_std` plugins alike; never add a `std`
+  feature to it (Cargo unifies features and one `std` plugin would break every
+  `no_std` plugin in the workspace). The `std`-only test double is the
+  dev-dependency `parsec-orbit-plugin-sdk-testing`
+  ([ADR 0002](docs/design/decisions/0002-sdk-is-no-std-by-default.md),
+  [restructure design](docs/design/restructure.md#67-the-sdk-as-one-package-adr-0002-re-evaluated)).
 - Construct dependencies explicitly and pass them in; do not add process-global
   mutable state. The loader owns one worker thread and one log file, and a plugin
   that needs more spawns its own thread and returns from `init`.
@@ -146,17 +150,27 @@ Read [Rust code style](docs/development/rust.md) for formatting, lint, types and
 errors. The crate directory equals the package name. The SDK guides under
 [docs/guides/](docs/guides/) are written together with the SDKs they describe.
 
-## 8. Repository Scripts
+## 8. Repository Scripts and Tools
 
-Automation lives in `scripts/` as PowerShell (`kebab-case.ps1`) with a usage
-header, `[CmdletBinding()] param(...)` first, `$ErrorActionPreference = 'Stop'` and
-`-LiteralPath` for file operations. CI calls the same scripts a developer runs
-(`scripts/verify.ps1`, `scripts/package.ps1`); keep execution logic in one place
-and keep the pnpm commands as thin delegates. See
-[Repository scripts](docs/development/workflow.md#repository-scripts).
+Product automation (install, upgrade, packaging, registry generation and
+signing) is Rust, in `tools/parsec-orbit-installer` and
+`tools/parsec-orbit-release`; logic and security-sensitive code never lives in
+shell, PowerShell or Python. `scripts/` holds thin PowerShell entry points
+(`kebab-case.ps1`, usage header, `[CmdletBinding()] param(...)` first,
+`$ErrorActionPreference = 'Stop'`, `-LiteralPath` for file operations) that
+build and delegate to those tools; CI calls the same scripts a developer runs
+(`scripts/verify.ps1`, `scripts/package.ps1`) and the pnpm commands stay thin
+delegates. The bootstrap scripts shipped to users (`get-orbit.ps1`,
+`get-orbit.sh`) only download, check `SHA256SUMS.txt` and run `orbit`.
+One-off research scripts live in `research/` and are not product automation.
+Until the tools land, the existing scripts stay; do not add logic to them. See
+[Repository scripts](docs/development/workflow.md#repository-scripts) and
+[File formats](docs/development/formats.md).
 
 ## 9. Documentation
 
+- Configuration and metadata files follow [File formats](docs/development/formats.md):
+  TOML for what people edit, JSON for what programs exchange, one source per fact.
 - `docs/spec/` is normative: a change in behaviour changes the spec in the same
   commit.
 - `docs/design/` explains why; `docs/guides/` are task-oriented how-tos written

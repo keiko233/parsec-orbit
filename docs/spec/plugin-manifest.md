@@ -17,6 +17,7 @@ A plugin lives in its own directory containing `plugin.toml` and the entry file.
 | `requires` | array of string | `[]` | Plugin ids (or ids in `provides`) that must be loaded *successfully before* this plugin. Missing or failed dependency => this plugin is skipped. |
 | `optional` | array of string | `[]` | Soft dependencies: only influence load order. |
 | `provides` | array of string | `[]` | Virtual ids this plugin satisfies in addition to its own `id` (lets alternative implementations of a service exist, e.g. another JS runtime). |
+| `role` | string | `plugin` | `lib` for a module that only provides a service or kind handler to other plugins (installed as a dependency, hidden by default in the market); `plugin` for a feature. Used by installers and the market; the loader ignores it. |
 | `permissions` | array of string | `[]` | Capabilities requested by sandboxed kinds (`webview`, `config`, `net`, `fs`). Ignored for the native kinds `dll` and `dylib`, which are unrestricted native code. |
 
 Rules:

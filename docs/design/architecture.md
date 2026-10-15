@@ -12,7 +12,7 @@
 ```text
                       parsecd.exe (Parsec client process)
  +-----------------------------------------------------------------------+
- |  bcrypt.dll  =  parsec-orbit-loader  (cdylib, thin)                    |
+ |  bcrypt.dll  =  parsec-orbit-loader-windows  (cdylib, thin)                    |
  |    thunks -> real bcrypt            Win32 Platform impl                |
  |    +----------------------------------------------------------+       |
 |    | parsec-orbit-core (rlib): manifest, resolver, registry,   |       |
@@ -29,7 +29,7 @@
  +-----------------------------------------------------------------------+
 ```
 
-* **Loader** (`parsec-orbit-loader`): `DllMain`, bcrypt thunks, a `Platform`
+* **Loader** (`parsec-orbit-loader-windows`): `DllMain`, bcrypt thunks, a `Platform`
   implementation on `windows-sys` and the opt-in debug console window. Nothing
   else.
 * **Core** (`parsec-orbit-core`): everything that does not need Win32: manifest
@@ -67,25 +67,25 @@ parsec-orbit-plugin-abi      no_std, zero deps. repr(C) types, constants, servic
         ^
         |-- parsec-orbit-plugin-sdk   safe Rust API + freestanding runtime; no_std, never std. [crates.io]
         |       ^
-        |       +-- parsec-orbit-plugin-sdk-std   threads, panic hook, tracing bridge, MockHost   [crates.io]
+        |       +-- parsec-orbit-plugin-sdk-testing   MockHost (std, dev-dependency only)         [crates.io]
         |-- parsec-orbit-core         loader logic (std; toml parse-only)
-        |-- parsec-orbit-devtools     HTTP + WebSocket + DevTools protocol client (std)
-        |-- parsec-orbit-market       index, sha256/ed25519, safe installation, the market tool
+        |-- parsec-orbit-layout       where files live per OS: Orbit root, plugin dirs, logs, data (std, no deps)
+        |-- parsec-orbit-registry     index, sha256/ed25519, safe installation; CLI `parsec-orbit-market`
                 ^
-                +-- parsec-orbit-loader   cdylib named `bcrypt`
+                +-- parsec-orbit-loader-windows   cdylib named `bcrypt`
 
-crates/     every Rust crate: the loader and SDK above, the official plugins and
-            the verification tools; high-bitrate-native and high-bitrate-webview -> sdk-std
-            (official), webview-bridge (-> devtools), js-runtime (Boa), config,
-            hooks (retour), ui (serde + JSON protocol; no GUI deps)                 -> sdk-std
-            ui-protocol (shared JSON messages; std is acceptable)                   -> UI plugin + companion
-            ui-companion (winio, process entry point)                               -> UI protocol
-examples/   parsec-orbit-plugin-hello (-> sdk-std), parsec-orbit-plugin-hello-nostd (-> sdk)
+crates/     the SDK, the loaders, `core` and the shared Rust libraries (macos-state, registry)
+libs/       service providers, loaded like plugins: webview-bridge (devtools module),
+            js-runtime (Boa), config, hooks (retour), ui (JSON protocol)                    -> sdk + heavy deps
+plugins/    features: high-bitrate-native, high-bitrate-webview, stun-swap          -> sdk
+tools/      host-side executables: parsec-orbit-verify, ui-companion (winio)
+examples/   parsec-orbit-plugin-hello (-> sdk), parsec-orbit-plugin-hello-nostd (-> sdk)
+crates/parsec-orbit-ui-protocol   shared JSON messages for the UI service and companion
 javascript-sdk/  @parsec-orbit/sdk (TypeScript: types, definePlugin, ui helper, mock host)  [npm]
-tests/      parsec-orbit-e2e;  crates/parsec-orbit-verify-*  verification tools
+tests/      parsec-orbit-e2e (also checks the dependency law between these groups)
 ```
 
-Directory layout: every Rust crate - the loader, the SDKs, the official plugins and the verification tools - lives under `crates/` (done); the SDK is split into `-abi` and `-sdk` (done); `-core` holds the Win32-free loading logic (done).
+Directory layout ([restructure design](restructure.md), [ADR 0018](decisions/0018-crate-roles-and-layout.md)): `crates/` holds the SDK, the loaders, `core` and the shared libraries; `libs/` the service providers (a module that provides a `parsec-orbit.*` service or kind handler and has no feature of its own, `role = "lib"` in its manifest); `plugins/` the features; `tools/` the executables. The groups may only depend downwards; the UI service also links the shared `parsec-orbit-ui-protocol` wire types ([ADR 0024](decisions/0024-restructured-ui-companion.md)); `tests/parsec-orbit-e2e/tests/architecture.rs` enforces it.
 
 ## Size policy
 
@@ -103,9 +103,8 @@ How the SDK keeps plugins small is specified in [spec/rust-sdk.md](../spec/rust-
 
 * The loader has one worker thread and runs plugin `init` on it sequentially in
   dependency order. Plugins that need to run long must spawn their own thread
-  (`ContextExt::spawn` from `parsec-orbit-plugin-sdk-std`) and return from
-  `init`.
-* **Logging**: the loader owns the log file. Plugins log through the host (`log_ex`, with the plugin id as target). The SDK's own macros need no dependencies; the `tracing` feature adds a `tracing::Subscriber` that forwards to the host so ecosystem crates' events end up in the same file. The loader itself adopts `tracing-core` only if the size budget allows ([ADR 0004](decisions/0004-loader-stays-light.md)).
+  (`std::thread::Builder`, named after the plugin) and return from `init`.
+* **Logging**: the loader owns the log file. Plugins log through the host (`log_ex`, with the plugin id as target). The SDK's own macros need no dependencies. The loader itself adopts `tracing-core` only if the size budget allows ([ADR 0004](decisions/0004-loader-stays-light.md)).
 * **Debug console**: `PARSEC_ORBIT_CONSOLE=1` makes the loader open a console window at start-up and mirror every line of that log into it, plus Parsec's own log, which `parsec-orbit-core` follows (the window and its Win32 calls stay in the loader). `client` and `host` open it in one of the client's two instances instead of both, because a console belongs to a process and the service's instance is a second one. It is opt-in because the client is a GUI process that normally has no console at all, and best effort because a debug aid must never change the load.
 * **Actors, without a runtime**: the heavy plugins are one thread that owns a resource plus a command channel - an actor in shape only, no `ractor` and no async runtime ([ADR 0004](decisions/0004-loader-stays-light.md#amendment-phase-4)). The JS runtime gives each Boa context (which is not `Send`) a thread of its own; the webview bridge gives the DevTools session one thread that reconnects and replays the scripts, and runs subscriber callbacks on a second thread so a callback can call back in. The UI plugin launches its helper without waiting for window creation; callbacks are delivered on a separate plugin-owned thread, outside the UI, IPC and host main threads ([ADR 0018](decisions/0018-ui-companion-process.md)).
 

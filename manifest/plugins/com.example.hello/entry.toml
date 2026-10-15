@@ -1,0 +1,7 @@
+id = "com.example.hello"
+group = "Examples"
+summary = "Example plugin that logs and writes a report file"
+homepage = "https://github.com/keiko233/parsec-orbit"
+
+[build]
+platforms = ["windows-x86_64"]

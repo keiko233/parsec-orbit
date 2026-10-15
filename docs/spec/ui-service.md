@@ -205,7 +205,7 @@ For buttons, `"type"` is `"click"` and `"value"` is `null`.
 
 ## Rust SDK API
 
-Plugins using `parsec-orbit-plugin-sdk` or `parsec-orbit-plugin-sdk-std` access
+Plugins using `parsec-orbit-plugin-sdk` access
 the service through `services::Ui`:
 
 ```rust

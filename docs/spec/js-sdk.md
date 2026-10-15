@@ -1,6 +1,6 @@
 # JavaScript / TypeScript SDK
 
-Status: implemented (`parsec-orbit-plugin-js-runtime`, `javascript-sdk`, `examples/parsec-orbit-plugin-bandwidth-ts`); `config` uses the config service when it is installed. Decisions: [ADR 0003](../design/decisions/0003-js-runtime-is-a-plugin.md), [ADR 0005](../design/decisions/0005-boa-as-js-engine.md).
+Status: implemented (`parsec-orbit-lib-js-runtime`, `javascript-sdk`, `examples/parsec-orbit-plugin-bandwidth-ts`); `config` uses the config service when it is installed. Decisions: [ADR 0003](../design/decisions/0003-js-runtime-is-a-plugin.md), [ADR 0005](../design/decisions/0005-boa-as-js-engine.md).
 
 ## Platforms
 
@@ -98,7 +98,7 @@ Versioning: the SDK's major tracks the `parsec-orbit.js` / `.webview` interface 
 ## Testing and baselines
 
 * Unit tests of plugin logic run on Node with `@parsec-orbit/sdk/testing` (mock `Host`).
-* Page-realm scripts run in a fake browser under Node with the real `window.__orbit` helper (`examples/parsec-orbit-plugin-bandwidth-ts/test/ui.test.mjs`, derived from `crates/parsec-orbit-plugin-high-bitrate-webview/tests/bandwidth.test.js`, which keeps testing the original script).
+* Page-realm scripts run in a fake browser under Node with the real `window.__orbit` helper (`examples/parsec-orbit-plugin-bandwidth-ts/test/ui.test.mjs`, derived from `plugins/parsec-orbit-plugin-high-bitrate-webview/tests/bandwidth.test.js`, which keeps testing the original script).
 * End-to-end: the e2e host (`tests/parsec-orbit-e2e/tests/js.rs`) loads the runtime, the bridge and the built TypeScript sample against a fake DevTools endpoint; the `native` plugin and this JS sample are the two baselines the SDKs are validated against.
 
 ## Open questions

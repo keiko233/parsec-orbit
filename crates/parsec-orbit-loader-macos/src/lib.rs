@@ -39,9 +39,7 @@ pub use config::Config;
 pub use parsec_orbit_macos_state::{seed, SeedReport};
 pub use platform::MacPlatform;
 
-use std::sync::{Mutex, OnceLock};
-
-use parsec_orbit_core::{Env, Loaded, Logger, Summary};
+use parsec_orbit_core::{Env, Logger, Session, Summary};
 
 /// Version reported to plugins through the host table.
 pub const LOADER_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -62,17 +60,7 @@ static SINK: Sink = Sink;
 /// There is no unload (`docs/spec/macos-platform.md`, section 4): interface
 /// tables point into the mapped images, so the bookkeeping is kept instead of
 /// dropped when the scan result goes away.
-static OWNED: OnceLock<Mutex<Vec<Loaded>>> = OnceLock::new();
-
-fn remember(loaded: Vec<Loaded>) {
-    let owned = OWNED.get_or_init(|| Mutex::new(Vec::new()));
-    match owned.lock() {
-        Ok(mut owned) => owned.extend(loaded),
-        // A poisoned lock cannot be fixed from here; keeping the modules
-        // mapped matters more than the bookkeeping.
-        Err(_) => std::mem::forget(loaded),
-    }
-}
+static SESSION: Session = Session::new();
 
 /// Runs one scan with the given settings.
 ///
@@ -80,7 +68,10 @@ fn remember(loaded: Vec<Loaded>) {
 /// the Windows loader: host callbacks keep pointing at the same sink.
 pub fn scan(config: &Config) -> Summary {
     parsec_orbit_core::host::install_logger(&SINK);
-    let result = parsec_orbit_core::scan(
+    if let Some((plugins, pending)) = &config.staging {
+        parsec_orbit_core::staging::promote(&SINK, plugins, pending);
+    }
+    SESSION.scan(
         Env {
             platform: &MacPlatform,
             logger: &SINK,
@@ -88,11 +79,5 @@ pub fn scan(config: &Config) -> Summary {
             data_root: config.data_root.as_deref(),
         },
         &config.plugin_dirs,
-    );
-    remember(result.loaded);
-    log::info(&format!(
-        "ready: {} loaded, {} skipped, {} failed",
-        result.summary.loaded, result.summary.skipped, result.summary.failed
-    ));
-    result.summary
+    )
 }

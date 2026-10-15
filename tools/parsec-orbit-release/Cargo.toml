@@ -1,0 +1,19 @@
+[package]
+name = "parsec-orbit-release"
+description = "Packages the official modules and builds, checks and signs the registry in manifest/"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[[bin]]
+name = "parsec-orbit-release"
+path = "src/main.rs"
+
+[dependencies]
+parsec-orbit-registry = { path = "../../crates/parsec-orbit-registry" }
+semver = "1.0.28"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+toml = "1.1.8"

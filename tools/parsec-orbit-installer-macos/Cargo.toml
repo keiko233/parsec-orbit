@@ -1,0 +1,27 @@
+[package]
+name = "parsec-orbit-installer-macos"
+description = "Transactional macOS installer: inspect, apply, verify and restore the patched Parsec.app layout"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+readme = "../../README.md"
+publish = false
+
+[lib]
+name = "parsec_orbit_installer"
+path = "src/lib.rs"
+
+[[bin]]
+name = "parsec-orbit-installer-macos"
+path = "src/main.rs"
+
+[dependencies]
+libc = "0.2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.11"
+parsec-orbit-macos-state = { path = "../../crates/parsec-orbit-macos-state" }
+
+[dev-dependencies]
+parsec-orbit-core = { path = "../../crates/parsec-orbit-core", features = ["testutil"] }
