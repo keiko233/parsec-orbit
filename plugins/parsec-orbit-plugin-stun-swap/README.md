@@ -16,16 +16,16 @@ public STUN server is the wrong layer. Parsec's default public STUN hostname is
 
 ## What it does
 
-1. Probes the configured candidates with a standard STUN Binding Request.
-2. Picks the first healthy candidate (lowest round-trip time).
+1. Probes every configured candidate with a standard STUN Binding Request and reports each result.
+2. Uses either the fastest healthy candidate (automatic mode) or the server selected in the UI (manual mode).
 3. Hooks `ws2_32!getaddrinfo` and returns that IP when Parsec resolves
    `stun.parsec.app`.
 4. Re-runs the probes periodically and switches endpoints when one dies.
 
 The plugin is intentionally conservative: it never rewrites other hostnames,
 does not change `hosts`, does not edit Parsec's config, and falls back to
-normal behaviour when no candidate has ever responded. If a later probe pass
-fails, it keeps the last healthy IP until one recovers.
+normal behaviour when no candidate responds. If a later probe pass fails,
+it returns to Parsec DNS; manual mode never silently chooses another server.
 
 ## Install
 
@@ -59,7 +59,16 @@ stun swap: stun.parsec.app -> 111.206.174.2
 
 ## Configuration
 
-Environment variables, set before Parsec starts:
+The STUN Swap section in the Orbit UI selects automatic or manual mode, chooses
+the manual server, and accepts custom servers one per line. Use **Save custom
+servers** to validate and persist that list. Background probes preserve an
+unfinished draft. The plugin stores UI settings in generated `settings.json`
+in its data directory, with `format: 1`; edit settings through the panel.
+The status panel shows the active server, each candidate's latency/health and
+the source of the server list. Unhealthy manual targets return to Parsec DNS.
+
+Environment variables, set before Parsec starts, take precedence over the
+saved custom server list:
 
 | Variable | Meaning |
 | --- | --- |
@@ -67,8 +76,14 @@ Environment variables, set before Parsec starts:
 | `PARSEC_ORBIT_STUN_SWAP=0` | Disables the plugin |
 | `PARSEC_ORBIT_STUN_SWAP_INTERVAL_SECS` | Probe interval, default 300 |
 
-A `servers.txt` file in the plugin's data directory also works: one
-`host@port` per line, `#` comments. Environment variables win.
+An existing `servers.txt` file is still read for
+compatibility: one `host@3478` per line, with `#` comments. It is left in place.
+The UI identifies the environment override or the legacy/default list plus
+saved custom entries.
+
+The client hook only replaces the resolved IP address and preserves Parsec's
+requested service port. The plugin therefore probes and accepts only port
+`3478`; custom ports are rejected because the hook cannot redirect them.
 
 Default candidates: `stun.hitv.com@3478`, `stun.miwifi.com@3478`,
 `stun.chat.bilibili.com@3478`, `stun.qq.com@3478`, `stun.cloudflare.com@3478`,

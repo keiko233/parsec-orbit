@@ -237,3 +237,11 @@ With the same workspace release profile, the native plugin is 283,136 B
 persisted options, validates custom values, and constructs the injected
 script. No third-party dependency or GUI toolkit was added to either plugin;
 the native plugin's existing JSON dependency also handles persistence events.
+
+## STUN selection settings (Windows x64, 2026-10-16)
+
+The STUN plugin is 393,728 B in the same release profile (previous artifact
+349,696 B, +44,032 B). The increase provides persisted selection/custom-server
+settings, per-candidate status, validation and dynamic UI state. No new
+dependency was added; probing and DNS interception remain in this optional
+plugin, outside the loader.

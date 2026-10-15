@@ -15,7 +15,7 @@ use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4, ToSocketAddrs, UdpSocket};
 use std::os::windows::ffi::OsStrExt;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU64, AtomicUsize, Ordering};
-use std::sync::{mpsc, Mutex, OnceLock, RwLock};
+use std::sync::{mpsc, Arc, Mutex, OnceLock, RwLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use parsec_orbit_plugin_sdk::prelude::*;
@@ -46,6 +46,7 @@ const ATTR_XOR_MAPPED_ADDRESS: u16 = 0x0020;
 const MAX_ADDRESSES_PER_CANDIDATE: usize = 3;
 const DNS_RESOLVE_TIMEOUT: Duration = Duration::from_secs(2);
 const WSAHOST_NOT_FOUND: c_int = 11001;
+const PARSEC_STUN_PORT: u16 = 3478;
 
 static CONTEXT: OnceLock<Context> = OnceLock::new();
 static ORIGINAL_GETADDRINFO: AtomicUsize = AtomicUsize::new(0);
@@ -91,6 +92,13 @@ fn probe_interval() -> Duration {
     Duration::from_secs(seconds)
 }
 
+fn environment_probe_interval() -> Option<u64> {
+    std::env::var("PARSEC_ORBIT_STUN_SWAP_INTERVAL_SECS")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .filter(|value| *value >= 10)
+}
+
 fn trigger_probe() {
     if let Some(waker) = PROBE_WAKER.get() {
         let _ = waker.try_send(());
@@ -106,7 +114,13 @@ struct Candidate {
 
 impl Candidate {
     fn new(display: String, host: String, port: u16) -> Option<Self> {
-        (port != 0 && !host.is_empty() && !host.contains('\0')).then_some(Candidate {
+        let valid_host = !host.is_empty()
+            && !host.chars().any(|character| {
+                character.is_whitespace()
+                    || character.is_control()
+                    || matches!(character, '/' | '\\')
+            });
+        (port == PARSEC_STUN_PORT && valid_host).then_some(Candidate {
             display,
             host,
             port,
@@ -135,7 +149,67 @@ impl Candidate {
         };
 
         let port = port.trim().parse::<u16>().ok()?;
-        Candidate::new(text.to_string(), host.trim().to_string(), port)
+        Candidate::new(text.to_string(), host.to_string(), port)
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SelectionMode {
+    Auto,
+    Manual,
+}
+
+impl SelectionMode {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Auto => "auto",
+            Self::Manual => "manual",
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct ServerStatus {
+    candidate: Candidate,
+    result: Option<(Ipv4Addr, Duration)>,
+}
+
+#[derive(Debug)]
+struct PluginState {
+    context: Option<Context>,
+    mode: SelectionMode,
+    manual_server: String,
+    custom_servers: String,
+    custom_servers_draft: String,
+    custom_servers_dirty: bool,
+    enabled: bool,
+    interval_secs: u64,
+    source: String,
+    status: String,
+    validation_error: String,
+    settings_writable: bool,
+    servers: Vec<ServerStatus>,
+    settings_path: Option<PathBuf>,
+}
+
+impl Default for PluginState {
+    fn default() -> Self {
+        Self {
+            context: None,
+            mode: SelectionMode::Auto,
+            manual_server: String::new(),
+            custom_servers: String::new(),
+            custom_servers_draft: String::new(),
+            custom_servers_dirty: false,
+            enabled: true,
+            interval_secs: 300,
+            source: "Built-in defaults".to_string(),
+            status: "Waiting for first probe".to_string(),
+            validation_error: String::new(),
+            settings_writable: true,
+            servers: Vec::new(),
+            settings_path: None,
+        }
     }
 }
 
@@ -157,38 +231,242 @@ fn dns_timed_out() -> &'static Mutex<HashSet<String>> {
     DNS_TIMED_OUT.get_or_init(|| Mutex::new(HashSet::new()))
 }
 
-fn environment_candidates() -> Option<Vec<Candidate>> {
-    let value = std::env::var("PARSEC_ORBIT_STUN_SERVERS").ok()?;
-    let candidates = value
-        .split(',')
-        .filter_map(Candidate::from_text)
-        .collect::<Vec<_>>();
-    (!candidates.is_empty()).then_some(candidates)
-}
-
-fn file_candidates(cx: &Context) -> Option<Vec<Candidate>> {
-    let path = cx
-        .data_dir()
+fn data_path(cx: &Context, name: &str) -> Option<PathBuf> {
+    cx.data_dir()
         .map(PathBuf::from)
         .or_else(|| std::env::var("APPDATA").ok().map(PathBuf::from))
-        .map(|dir| dir.join("servers.txt"))?;
-    let text = std::fs::read_to_string(path).ok()?;
-    let candidates = text
-        .lines()
-        .filter_map(Candidate::from_text)
-        .collect::<Vec<_>>();
-    (!candidates.is_empty()).then_some(candidates)
+        .map(|dir| dir.join(name))
 }
 
-fn load_candidates(cx: &Context) -> Vec<Candidate> {
-    environment_candidates()
-        .or_else(|| file_candidates(cx))
-        .unwrap_or_else(|| {
+fn read_settings(path: &PathBuf, state: &mut PluginState) {
+    let text = match std::fs::read(path) {
+        Ok(text) => text,
+        Err(error) => {
+            state.source = "settings.json (unreadable)".into();
+            state.validation_error = format!("Could not read settings.json: {error}");
+            state.settings_writable = false;
+            return;
+        }
+    };
+    let Ok(value) = serde_json::from_slice::<serde_json::Value>(&text) else {
+        state.source = "settings.json (invalid)".into();
+        state.validation_error = "Could not parse settings.json".into();
+        state.settings_writable = false;
+        return;
+    };
+    if value.get("format").and_then(|value| value.as_u64()) != Some(1) {
+        state.source = "settings.json (unsupported format)".into();
+        state.validation_error = "Unsupported settings.json format; expected format 1".into();
+        state.settings_writable = false;
+        return;
+    }
+    state.settings_writable = true;
+    state.source = "settings.json".to_string();
+    match value.get("mode").and_then(|value| value.as_str()) {
+        Some("manual") => state.mode = SelectionMode::Manual,
+        Some("auto") => state.mode = SelectionMode::Auto,
+        Some(_) => state.validation_error = "Invalid mode in settings.json".into(),
+        None => {}
+    }
+    if let Some(selected) = value.get("selected").and_then(|value| value.as_str()) {
+        state.manual_server = selected.to_string();
+    }
+    if let Some(servers) = value.get("custom_servers") {
+        if let Some(servers) = servers.as_array() {
+            if servers.iter().all(serde_json::Value::is_string) {
+                state.custom_servers = servers
+                    .iter()
+                    .filter_map(serde_json::Value::as_str)
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                if !state.custom_servers_dirty {
+                    state.custom_servers_draft = state.custom_servers.clone();
+                }
+            } else {
+                state.validation_error =
+                    "custom_servers in settings.json must contain only strings".into();
+            }
+        } else {
+            state.validation_error = "custom_servers in settings.json must be an array".into();
+        }
+    }
+    if let Some(enabled) = value.get("enabled").and_then(|value| value.as_bool()) {
+        state.enabled = enabled;
+    }
+    if let Some(interval) = value.get("interval").and_then(|value| value.as_u64()) {
+        if interval >= 10 {
+            state.interval_secs = interval;
+        } else {
+            state.validation_error = "interval in settings.json must be at least 10".into();
+        }
+    }
+}
+
+fn save_settings(path: &PathBuf, state: &PluginState) -> std::io::Result<()> {
+    let parent = path.parent().ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "settings path has no parent",
+        )
+    })?;
+    std::fs::create_dir_all(parent)?;
+    let custom = state
+        .custom_servers
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty() && !line.starts_with('#'))
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+    let value = serde_json::json!({
+        "format": 1,
+        "mode": state.mode.as_str(),
+        "selected": state.manual_server,
+        "custom_servers": custom,
+        "enabled": state.enabled,
+        "interval": state.interval_secs,
+    });
+    std::fs::write(path, serde_json::to_vec_pretty(&value)?)
+}
+
+fn persist_settings(state: &mut PluginState) {
+    state.validation_error.clear();
+    if !state.settings_writable {
+        state.validation_error =
+            "Refusing to overwrite invalid or unsupported settings.json".into();
+        return;
+    }
+    match state.settings_path.as_ref() {
+        Some(path) => match save_settings(path, state) {
+            Ok(()) => state.status = "Settings saved".to_string(),
+            Err(error) => state.validation_error = format!("Could not save settings.json: {error}"),
+        },
+        None => {
+            state.validation_error =
+                "Could not save settings.json: plugin data directory is unavailable".into()
+        }
+    }
+}
+
+fn read_legacy_servers(path: &PathBuf, state: &mut PluginState) -> Vec<Candidate> {
+    let Ok(text) = std::fs::read_to_string(path) else {
+        return Vec::new();
+    };
+    state.source = "servers.txt (legacy)".to_string();
+    let (servers, invalid) = parse_candidate_list(text.lines());
+    if !invalid.is_empty() {
+        state.validation_error = format!(
+            "Rejected invalid legacy server(s): {}. Use host@3478; other ports cannot be redirected.",
+            invalid.join(", ")
+        );
+    }
+    servers
+}
+
+fn load_candidates(cx: &Context, state: &mut PluginState) -> Vec<Candidate> {
+    let settings_path = data_path(cx, "settings.json");
+    if let Some(path) = &settings_path {
+        if path.exists() {
+            read_settings(path, state);
+        }
+    }
+    let (_, invalid_custom) = parse_candidate_list(state.custom_servers.lines());
+    if !invalid_custom.is_empty() {
+        state.validation_error = format!(
+            "Rejected invalid server(s): {}. Use host@3478; other ports cannot be redirected.",
+            invalid_custom.join(", ")
+        );
+    }
+    if let Some(value) = nonempty_override(std::env::var("PARSEC_ORBIT_STUN_SERVERS").ok()) {
+        state.source = "PARSEC_ORBIT_STUN_SERVERS".to_string();
+        let (candidates, invalid) = parse_candidate_list(value.split(','));
+        if !invalid.is_empty() {
+            state.validation_error = format!(
+                "Rejected invalid server(s): {}. Use host@3478; other ports cannot be redirected.",
+                invalid.join(", ")
+            );
+        }
+        return candidates;
+    }
+
+    let mut candidates = if let Some(path) = &settings_path {
+        if path.exists() {
+            let legacy = data_path(cx, "servers.txt")
+                .map(|legacy_path| read_legacy_servers(&legacy_path, state))
+                .unwrap_or_default();
+            if legacy.is_empty() {
+                state.source = "settings.json".to_string();
+                DEFAULT_SERVERS
+                    .iter()
+                    .filter_map(|text| Candidate::from_text(text))
+                    .collect()
+            } else {
+                state.source = "settings.json + servers.txt (legacy)".to_string();
+                legacy
+            }
+        } else if let Some(legacy_path) = data_path(cx, "servers.txt") {
+            let legacy = read_legacy_servers(&legacy_path, state);
+            if legacy.is_empty() {
+                DEFAULT_SERVERS
+                    .iter()
+                    .filter_map(|text| Candidate::from_text(text))
+                    .collect()
+            } else {
+                legacy
+            }
+        } else {
             DEFAULT_SERVERS
                 .iter()
                 .filter_map(|text| Candidate::from_text(text))
                 .collect()
-        })
+        }
+    } else {
+        DEFAULT_SERVERS
+            .iter()
+            .filter_map(|text| Candidate::from_text(text))
+            .collect()
+    };
+
+    let (custom, invalid) = parse_candidate_list(state.custom_servers.lines());
+    if invalid.is_empty() {
+        if !state.custom_servers_dirty
+            && state
+                .validation_error
+                .starts_with("Rejected invalid server(s):")
+        {
+            state.validation_error.clear();
+        }
+    } else {
+        state.validation_error = format!(
+            "Rejected invalid server(s): {}. Use host@3478; other ports cannot be redirected.",
+            invalid.join(", ")
+        );
+    }
+    candidates.extend(custom);
+    let mut seen = HashSet::new();
+    candidates.retain(|candidate| seen.insert(candidate.display.to_ascii_lowercase()));
+    candidates
+}
+
+fn nonempty_override(value: Option<String>) -> Option<String> {
+    value.filter(|value| !value.trim().is_empty())
+}
+
+fn parse_candidate_list<'a>(
+    entries: impl IntoIterator<Item = &'a str>,
+) -> (Vec<Candidate>, Vec<String>) {
+    let mut candidates = Vec::new();
+    let mut invalid = Vec::new();
+    for entry in entries {
+        let entry = entry.trim();
+        if entry.is_empty() || entry.starts_with('#') {
+            continue;
+        }
+        match Candidate::from_text(entry) {
+            Some(candidate) => candidates.push(candidate),
+            None => invalid.push(entry.to_string()),
+        }
+    }
+    (candidates, invalid)
 }
 
 fn transaction_id() -> [u8; 12] {
@@ -327,83 +605,189 @@ fn probe(candidate: &Candidate, timeout: Duration) -> Option<(Ipv4Addr, Duration
         .min_by_key(|(_, rtt)| rtt.as_millis())
 }
 
-fn refresh(cx: &Context, candidates: &[Candidate]) {
-    let mut best: Option<(Ipv4Addr, Duration)> = None;
-    let mut best_is_parsec = false;
-    for candidate in candidates {
-        let Some(result) = probe(candidate, Duration::from_millis(1200)) else {
-            continue;
-        };
-        info!(
-            cx,
-            "stun swap: {} -> {} ({} ms)",
-            candidate.display,
-            result.0,
-            result.1.as_millis()
-        );
+fn update_ui(cx: &Context, state: &PluginState) {
+    let Some(ui) = UiClient::new(cx) else {
+        return;
+    };
+    let options = server_options(state);
+    let server_status = state
+        .servers
+        .iter()
+        .map(|server| match server.result {
+            Some((ip, rtt)) => format!(
+                "{} — healthy, {} ms, {ip}",
+                server.candidate.display,
+                rtt.as_millis()
+            ),
+            None => format!("{} — unhealthy", server.candidate.display),
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    let json = serde_json::json!({
+        "enabled": state.enabled,
+        "interval": state.interval_secs,
+        "mode": {"value": state.mode.as_str(), "options": [
+            {"label": "Automatic (lowest latency)", "value": "auto"},
+            {"label": "Manual", "value": "manual"}
+        ]},
+        "server": {"value": state.manual_server, "options": options},
+        "source": state.source,
+        "active_server": if state.validation_error.is_empty() {
+            state.status.clone()
+        } else {
+            format!("{} — {}", state.status, state.validation_error)
+        },
+        "server_health": server_status,
+    });
+    let _ = ui.update_state("com.keiko233.stun-swap", &json.to_string());
+}
 
-        // Publish the first healthy candidate immediately so a connection
-        // started during the first probe is already covered.
-        if best.as_ref().is_none_or(|current| result.1 < current.1) {
-            best = Some(result);
-            best_is_parsec = candidate.host.eq_ignore_ascii_case(PARSEC_STUN_V4)
-                || candidate.host.eq_ignore_ascii_case(PARSEC_STUN_V6);
-            if let Ok(mut guard) = selected().write() {
-                *guard = Some(result.0.to_string());
-            }
-        }
+fn server_options(state: &PluginState) -> Vec<serde_json::Value> {
+    let mut options = vec![serde_json::json!({
+        "label": "Choose a server",
+        "value": "",
+    })];
+    options.extend(state.servers.iter().map(|server| {
+        serde_json::json!({
+            "label": format!(
+                "{} [{}]",
+                server.candidate.display,
+                if server.result.is_some() { "healthy" } else { "unhealthy" }
+            ),
+            "value": server.candidate.display,
+        })
+    }));
+    if !state.manual_server.is_empty()
+        && !state
+            .servers
+            .iter()
+            .any(|server| server.candidate.display == state.manual_server)
+    {
+        options.push(serde_json::json!({
+            "label": format!("{} [unavailable]", state.manual_server),
+            "value": state.manual_server,
+        }));
     }
+    options
+}
 
-    match best {
-        Some((_ip, _)) if best_is_parsec => {
-            if let Ok(mut guard) = selected().write() {
-                *guard = None;
-            }
-            info!(
-                cx,
-                "stun swap: Parsec's own STUN is healthy, leaving DNS untouched"
-            );
-        }
-        Some((ip, _)) => info!(cx, "stun swap: selected {ip}"),
-        None => {
-            let previous = selected().read().ok().and_then(|guard| guard.clone());
-            if let Some(ip) = previous {
-                warn!(
-                    cx,
-                    "stun swap: no healthy candidate, keeping previous selection {ip}"
-                );
-            } else {
-                warn!(cx, "stun swap: no healthy candidate, leaving DNS untouched");
-            }
-        }
-    }
+fn update_ui_with_draft(cx: &Context, state: &PluginState) {
+    let Some(ui) = UiClient::new(cx) else {
+        return;
+    };
+    let json = serde_json::json!({"custom_servers": state.custom_servers_draft});
+    let _ = ui.update_state("com.keiko233.stun-swap", &json.to_string());
+}
 
-    if let Some(ui) = UiClient::new(cx) {
-        let status = match &best {
-            Some((ip, rtt)) => format!("{ip} ({} ms)", rtt.as_millis()),
-            None => "Parsec default (no domestic server)".to_string(),
-        };
-        let json = format!(r#"{{"active_server":"{status}"}}"#);
-        let _ = ui.update_state("com.keiko233.stun-swap", &json);
+fn choose_server<'a>(
+    statuses: &'a [ServerStatus],
+    mode: SelectionMode,
+    manual_server: &str,
+) -> Option<(&'a ServerStatus, (Ipv4Addr, Duration))> {
+    match mode {
+        SelectionMode::Auto => statuses
+            .iter()
+            .filter_map(|server| server.result.map(|result| (server, result)))
+            .min_by_key(|(_, (_, rtt))| *rtt),
+        SelectionMode::Manual => statuses
+            .iter()
+            .find(|server| server.candidate.display == manual_server)
+            .and_then(|server| server.result.map(|result| (server, result))),
     }
 }
 
-fn probe_loop(cx: Context, rx: mpsc::Receiver<()>) {
-    if load_candidates(&cx).is_empty() {
-        error!(cx, "stun swap: no candidates configured");
-        return;
+fn refresh(cx: &Context, candidates: &[Candidate], state: &Arc<Mutex<PluginState>>) {
+    let mut statuses = Vec::with_capacity(candidates.len());
+    for candidate in candidates {
+        let result = probe(candidate, Duration::from_millis(1200));
+        if let Some((ip, rtt)) = result {
+            info!(
+                cx,
+                "stun swap: {} healthy, {} ms ({ip})",
+                candidate.display,
+                rtt.as_millis()
+            );
+        } else {
+            info!(cx, "stun swap: {} unhealthy", candidate.display);
+        }
+        statuses.push(ServerStatus {
+            candidate: candidate.clone(),
+            result,
+        });
     }
+
+    let mut guard = state
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let chosen = choose_server(&statuses, guard.mode, &guard.manual_server);
+    let message = match chosen {
+        Some((server, (_ip, rtt)))
+            if server.candidate.host.eq_ignore_ascii_case(PARSEC_STUN_V4)
+                || server.candidate.host.eq_ignore_ascii_case(PARSEC_STUN_V6) =>
+        {
+            if let Ok(mut active) = selected().write() {
+                *active = None;
+            }
+            format!("Parsec default is healthy ({} ms)", rtt.as_millis())
+        }
+        Some((server, (ip, rtt))) => {
+            if let Ok(mut active) = selected().write() {
+                *active = Some(ip.to_string());
+            }
+            format!(
+                "{} → {ip} ({} ms)",
+                server.candidate.display,
+                rtt.as_millis()
+            )
+        }
+        None if guard.mode == SelectionMode::Manual => {
+            if let Ok(mut active) = selected().write() {
+                *active = None;
+            }
+            if guard.manual_server.is_empty() {
+                "No manual server selected; using Parsec DNS".to_string()
+            } else {
+                format!(
+                    "Manual server {} is unhealthy; using Parsec DNS",
+                    guard.manual_server
+                )
+            }
+        }
+        None => {
+            if let Ok(mut active) = selected().write() {
+                *active = None;
+            }
+            warn!(cx, "stun swap: no healthy candidate; using Parsec DNS");
+            "No healthy server; using Parsec DNS".to_string()
+        }
+    };
+    guard.servers = statuses;
+    guard.status = message;
+    update_ui(cx, &guard);
+}
+
+fn probe_loop(cx: Context, rx: mpsc::Receiver<()>, state: Arc<Mutex<PluginState>>) {
     loop {
-        // Reload every pass so a servers.txt edit takes effect without a
-        // Parsec restart.
-        let candidates = load_candidates(&cx);
+        let (candidates, validation_error) = {
+            let mut guard = state
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            let candidates = load_candidates(&cx, &mut guard);
+            UI_ENABLED.store(guard.enabled, Ordering::Release);
+            PROBE_INTERVAL_OVERRIDE.store(guard.interval_secs, Ordering::Release);
+            (candidates, guard.validation_error.clone())
+        };
         if candidates.is_empty() {
+            if !validation_error.is_empty() {
+                error!(cx, "stun swap: {validation_error}");
+            }
             error!(cx, "stun swap: no candidates configured");
+            refresh(&cx, &candidates, &state);
             let interval = probe_interval();
             let _ = rx.recv_timeout(interval);
             continue;
         }
-        refresh(&cx, &candidates);
+        refresh(&cx, &candidates, &state);
         let interval = probe_interval();
         let _ = rx.recv_timeout(interval);
     }
@@ -487,11 +871,53 @@ const STUN_UI_SCHEMA: &str = r#"{
             "default": 300.0
         },
         {
+            "key": "mode",
+            "type": "select",
+            "label": "Selection mode",
+            "default": "auto",
+            "options": [
+                {"label": "Automatic (lowest latency)", "value": "auto"},
+                {"label": "Manual", "value": "manual"}
+            ]
+        },
+        {
+            "key": "server",
+            "type": "select",
+            "label": "Manual server",
+            "description": "Used when selection mode is Manual",
+            "default": "",
+            "options": [{"label": "Choose a server", "value": ""}]
+        },
+        {
+            "key": "custom_servers",
+            "type": "text_input",
+            "label": "Custom servers (one host@3478 per line)",
+            "description": "Enter one server per line, then save. Only port 3478 can be redirected.",
+            "multiline": true,
+            "default": ""
+        },
+        {
+            "key": "save_custom_servers",
+            "type": "button",
+            "label": "Save custom servers"
+        },
+        {
+            "key": "source",
+            "type": "readonly_text",
+            "label": "Server list source",
+            "default": "Built-in defaults"
+        },
+        {
             "key": "active_server",
-            "type": "text",
-            "label": "Active STUN Target",
-            "description": "Currently selected STUN server endpoint (updated on probe)",
+            "type": "text_view",
+            "label": "Active STUN target",
             "default": "Probing..."
+        },
+        {
+            "key": "server_health",
+            "type": "text_view",
+            "label": "Server health",
+            "default": "Waiting for first probe"
         },
         {
             "key": "probe_now",
@@ -502,7 +928,12 @@ const STUN_UI_SCHEMA: &str = r#"{
     ]
 }"#;
 
-unsafe extern "system" fn on_ui_action(_user: *mut c_void, msg: *const u8, len: usize) {
+unsafe extern "system" fn on_ui_action(user: *mut c_void, msg: *const u8, len: usize) {
+    if user.is_null() {
+        return;
+    }
+    // SAFETY: init retains a strong Arc reference to this Mutex for the subscription lifetime.
+    let state_arc = unsafe { &*(user as *const Mutex<PluginState>) };
     let slice = unsafe { std::slice::from_raw_parts(msg, len) };
     if let Ok(val) = serde_json::from_slice::<serde_json::Value>(slice) {
         let key = val.get("key").and_then(|v| v.as_str()).unwrap_or_default();
@@ -510,14 +941,111 @@ unsafe extern "system" fn on_ui_action(_user: *mut c_void, msg: *const u8, len: 
             "enabled" => {
                 if let Some(enabled) = val.get("value").and_then(|v| v.as_bool()) {
                     UI_ENABLED.store(enabled, Ordering::Release);
+                    if let Ok(mut state) = state_arc.lock() {
+                        state.enabled = enabled;
+                        persist_settings(&mut state);
+                        if let Some(cx) = state.context {
+                            update_ui(&cx, &state);
+                        }
+                    }
                 }
             }
             "interval" => {
                 if let Some(sec) = val.get("value").and_then(|v| v.as_f64()) {
-                    PROBE_INTERVAL_OVERRIDE.store(sec as u64, Ordering::Release);
+                    let seconds = sec as u64;
+                    if seconds >= 10 {
+                        PROBE_INTERVAL_OVERRIDE.store(seconds, Ordering::Release);
+                        if let Ok(mut state) = state_arc.lock() {
+                            state.interval_secs = seconds;
+                            persist_settings(&mut state);
+                            if let Some(cx) = state.context {
+                                update_ui(&cx, &state);
+                            }
+                        }
+                    }
                 }
             }
             "probe_now" => {
+                trigger_probe();
+            }
+            "custom_servers" => {
+                let Some(value) = val.get("value").and_then(|value| value.as_str()) else {
+                    return;
+                };
+                if let Ok(mut state) = state_arc.lock() {
+                    state.custom_servers_draft = value.to_string();
+                    state.custom_servers_dirty = true;
+                }
+            }
+            "save_custom_servers" => {
+                let mut state = state_arc
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                let mut should_probe = false;
+                let (candidates, invalid) =
+                    parse_candidate_list(state.custom_servers_draft.lines());
+                if !invalid.is_empty() {
+                    state.validation_error = format!(
+                        "Rejected invalid server(s): {}. Use host@3478; other ports cannot be redirected.",
+                        invalid.join(", ")
+                    );
+                } else {
+                    let previous = state.custom_servers.clone();
+                    state.custom_servers = candidates
+                        .iter()
+                        .map(|candidate| candidate.display.as_str())
+                        .collect::<Vec<_>>()
+                        .join("\n");
+                    persist_settings(&mut state);
+                    if !state.validation_error.is_empty() {
+                        state.custom_servers = previous;
+                    } else {
+                        state.custom_servers_draft = state.custom_servers.clone();
+                        state.custom_servers_dirty = false;
+                        should_probe = true;
+                    }
+                }
+                let cx = state.context;
+                drop(state);
+                if let Some(cx) = cx {
+                    if let Ok(state) = state_arc.lock() {
+                        update_ui(&cx, &state);
+                        if should_probe {
+                            update_ui_with_draft(&cx, &state);
+                        }
+                    }
+                }
+                if should_probe {
+                    trigger_probe();
+                }
+            }
+            "mode" | "server" => {
+                let Some(value) = val.get("value").and_then(|value| value.as_str()) else {
+                    return;
+                };
+                let mut state = state_arc
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                match key {
+                    "mode" => match value {
+                        "auto" => state.mode = SelectionMode::Auto,
+                        "manual" => state.mode = SelectionMode::Manual,
+                        _ => return,
+                    },
+                    "server" => state.manual_server = value.to_string(),
+                    _ => unreachable!(),
+                }
+                if let Ok(mut active) = selected().write() {
+                    *active = None;
+                }
+                persist_settings(&mut state);
+                let cx = state.context;
+                drop(state);
+                if let Some(cx) = cx {
+                    if let Ok(state) = state_arc.lock() {
+                        update_ui(&cx, &state);
+                    }
+                }
                 trigger_probe();
             }
             _ => {}
@@ -573,20 +1101,53 @@ impl Plugin for StunSwap {
             return Err(error);
         }
 
-        if let Some(ui) = UiClient::new(cx) {
-            let _ = ui.register_section(STUN_UI_SCHEMA);
-            let _ = unsafe {
-                ui.on_action("com.keiko233.stun-swap", on_ui_action, std::ptr::null_mut())
-            };
+        let mut initial_state = PluginState {
+            context: Some(*cx),
+            settings_path: data_path(cx, "settings.json"),
+            ..PluginState::default()
+        };
+        if initial_state
+            .settings_path
+            .as_ref()
+            .is_none_or(|path| !path.exists())
+        {
+            if let Some(seconds) = environment_probe_interval() {
+                initial_state.interval_secs = seconds;
+            }
         }
-
+        let _ = load_candidates(cx, &mut initial_state);
+        UI_ENABLED.store(initial_state.enabled, Ordering::Release);
+        PROBE_INTERVAL_OVERRIDE.store(initial_state.interval_secs, Ordering::Release);
+        let state = Arc::new(Mutex::new(initial_state));
         let (tx, rx) = mpsc::sync_channel(1);
         let _ = PROBE_WAKER.set(tx);
 
+        if let Some(ui) = UiClient::new(cx) {
+            let _ = ui.register_section(STUN_UI_SCHEMA);
+            if let Ok(state_guard) = state.lock() {
+                update_ui(cx, &state_guard);
+                update_ui_with_draft(cx, &state_guard);
+            }
+            let callback_state = Arc::into_raw(Arc::clone(&state));
+            if unsafe {
+                ui.on_action(
+                    "com.keiko233.stun-swap",
+                    on_ui_action,
+                    callback_state as *mut c_void,
+                )
+            }
+            .is_err()
+            {
+                // SAFETY: failed subscription means the service retained no callback user pointer.
+                drop(unsafe { Arc::from_raw(callback_state) });
+            }
+        }
+
         let cx = *cx;
+        let worker_state = Arc::clone(&state);
         if let Err(error) = std::thread::Builder::new()
             .name(format!("{}:probe", cx.plugin_id()))
-            .spawn(move || probe_loop(cx, rx))
+            .spawn(move || probe_loop(cx, rx, worker_state))
         {
             error!(cx, "stun swap: could not start probe thread: {error}");
             let _ = hooks.disable(hook);
@@ -644,6 +1205,23 @@ mod tests {
         assert_eq!(Candidate::from_text("# comment"), None);
         assert_eq!(Candidate::from_text(""), None);
         assert_eq!(Candidate::from_text("bad@0"), None);
+        assert_eq!(Candidate::from_text("custom.example@3479"), None);
+        assert_eq!(Candidate::from_text("custom host@3478"), None);
+        assert_eq!(Candidate::from_text("custom host @3478"), None);
+        assert_eq!(Candidate::from_text("folder/server@3478"), None);
+        assert_eq!(Candidate::from_text("folder\\server@3478"), None);
+        assert_eq!(Candidate::from_text("bad\u{7}host@3478"), None);
+    }
+
+    #[test]
+    fn empty_environment_override_is_treated_as_unset() {
+        assert_eq!(nonempty_override(None), None);
+        assert_eq!(nonempty_override(Some(String::new())), None);
+        assert_eq!(nonempty_override(Some("  \t\r\n".into())), None);
+        assert_eq!(
+            nonempty_override(Some("127.0.0.2@3478".into())),
+            Some("127.0.0.2@3478".into())
+        );
     }
 
     #[test]
@@ -798,6 +1376,104 @@ mod tests {
     }
 
     #[test]
+    fn automatic_and_manual_modes_choose_only_healthy_servers() {
+        let server = |text: &str, ip: &str, millis: u64| ServerStatus {
+            candidate: Candidate::from_text(text).unwrap(),
+            result: Some((ip.parse().unwrap(), Duration::from_millis(millis))),
+        };
+        let statuses = [
+            server("slow.example@3478", "192.0.2.1", 30),
+            server("fast.example@3478", "192.0.2.2", 10),
+            ServerStatus {
+                candidate: Candidate::from_text("down.example@3478").unwrap(),
+                result: None,
+            },
+        ];
+
+        assert_eq!(
+            choose_server(&statuses, SelectionMode::Auto, "")
+                .unwrap()
+                .0
+                .candidate
+                .display,
+            "fast.example@3478"
+        );
+        assert_eq!(
+            choose_server(&statuses, SelectionMode::Manual, "slow.example@3478")
+                .unwrap()
+                .0
+                .candidate
+                .display,
+            "slow.example@3478"
+        );
+        assert!(choose_server(&statuses, SelectionMode::Manual, "down.example@3478").is_none());
+    }
+
+    #[test]
+    fn settings_json_persists_user_controls_and_reports_write_errors() {
+        let dir = std::env::temp_dir().join(format!(
+            "parsec-orbit-stun-swap-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("settings.json");
+        let state = PluginState {
+            mode: SelectionMode::Manual,
+            manual_server: "custom.example@3478".to_string(),
+            custom_servers: "custom.example@3478\n".to_string(),
+            enabled: false,
+            interval_secs: 90,
+            ..PluginState::default()
+        };
+
+        save_settings(&path, &state).unwrap();
+        let saved: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        assert_eq!(saved["format"], 1);
+        assert_eq!(saved["mode"], "manual");
+        assert_eq!(saved["selected"], "custom.example@3478");
+        assert_eq!(saved["custom_servers"][0], "custom.example@3478");
+        assert_eq!(saved["enabled"], false);
+        assert_eq!(saved["interval"], 90);
+        let mut restored = PluginState::default();
+        read_settings(&path, &mut restored);
+        assert_eq!(restored.mode, SelectionMode::Manual);
+        assert_eq!(restored.manual_server, "custom.example@3478");
+        assert_eq!(restored.custom_servers, "custom.example@3478");
+        assert!(!restored.enabled);
+        assert_eq!(restored.interval_secs, 90);
+
+        let blocked = dir.join("blocked");
+        std::fs::create_dir(&blocked).unwrap();
+        let mut failed = PluginState {
+            settings_path: Some(blocked),
+            ..PluginState::default()
+        };
+        persist_settings(&mut failed);
+        assert!(failed
+            .validation_error
+            .contains("Could not save settings.json"));
+
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn dynamic_server_options_keep_placeholder_and_unavailable_selection() {
+        let state = PluginState {
+            manual_server: "saved.example@3478".to_string(),
+            ..PluginState::default()
+        };
+        let options = server_options(&state);
+        assert_eq!(options[0]["label"], "Choose a server");
+        assert_eq!(options[0]["value"], "");
+        assert_eq!(options[1]["label"], "saved.example@3478 [unavailable]");
+        assert_eq!(options[1]["value"], "saved.example@3478");
+    }
+
+    #[test]
     fn descriptor_and_manifest_agree() {
         use parsec_orbit_plugin_sdk::ABI_VERSION;
         use std::ffi::CStr;
@@ -844,6 +1520,7 @@ mod tests {
         static REG_SCHEMA: Mutex<Option<String>> = Mutex::new(None);
         static ACTION_CB: Mutex<Option<parsec_orbit_plugin_sdk::MessageCallback>> =
             Mutex::new(None);
+        static ACTION_USER: Mutex<usize> = Mutex::new(0);
 
         unsafe extern "system" fn test_reg(schema: *const u8, len: usize) -> i32 {
             let s = String::from_utf8_lossy(core::slice::from_raw_parts(schema, len)).into_owned();
@@ -854,9 +1531,10 @@ mod tests {
             _id: *const u8,
             _len: usize,
             cb: Option<parsec_orbit_plugin_sdk::MessageCallback>,
-            _user: *mut c_void,
+            user: *mut c_void,
         ) -> i64 {
             *ACTION_CB.lock().unwrap() = cb;
+            *ACTION_USER.lock().unwrap() = user as usize;
             42
         }
 
@@ -886,14 +1564,17 @@ mod tests {
         assert!(reg.contains("com.keiko233.stun-swap"));
         assert!(reg.contains("STUN Swap"));
 
+        let state = Arc::new(Mutex::new(PluginState::default()));
+        let user = Arc::as_ptr(&state) as *mut c_void;
         // Initial state
         assert!(UI_ENABLED.load(Ordering::Acquire));
+        assert!(unsafe { ui.on_action("com.keiko233.stun-swap", on_ui_action, user) }.is_ok());
 
         // Action callback for enabled toggle
         let action_json = r#"{"key":"enabled","type":"change","value":false}"#;
         unsafe {
             on_ui_action(
-                std::ptr::null_mut(),
+                *ACTION_USER.lock().unwrap() as *mut c_void,
                 action_json.as_ptr(),
                 action_json.len(),
             )
@@ -904,7 +1585,7 @@ mod tests {
         let action_json2 = r#"{"key":"interval","type":"change","value":60.0}"#;
         unsafe {
             on_ui_action(
-                std::ptr::null_mut(),
+                *ACTION_USER.lock().unwrap() as *mut c_void,
                 action_json2.as_ptr(),
                 action_json2.len(),
             )
@@ -915,7 +1596,7 @@ mod tests {
         let action_json3 = r#"{"key":"probe_now","type":"click"}"#;
         unsafe {
             on_ui_action(
-                std::ptr::null_mut(),
+                *ACTION_USER.lock().unwrap() as *mut c_void,
                 action_json3.as_ptr(),
                 action_json3.len(),
             )
