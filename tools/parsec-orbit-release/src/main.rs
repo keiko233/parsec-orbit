@@ -5,6 +5,7 @@
 mod args;
 mod check;
 mod manifest;
+mod stage;
 #[cfg(test)]
 mod testing;
 mod version;
@@ -22,6 +23,10 @@ parsec-orbit-release - package, check and publish the Parsec Orbit registry
 Usage: parsec-orbit-release <command> [options]
 
   version [--workspace DIR]           print [workspace.package] version (default: .)
+
+Packaging (after cargo build --release)
+  package --platform <id> --out DIR   zip each official module for a platform, and the loader
+                                      [--workspace DIR] [--target-dir DIR]
 
 Registry (manifest/)
   registry check [--manifest DIR]     validate the sources offline; exit 1 on any problem
@@ -43,6 +48,7 @@ fn run(args: &[String], out: &mut dyn Write) -> Result<(), Error> {
         "help" | "--help" | "-h" => Ok(write!(out, "{USAGE}")?),
         "version" => version::run(rest, out),
         "registry" => registry(rest, out),
+        "package" => stage::run(rest, out),
         "keygen" | "sign" | "verify" | "verify-any" => signing(command, rest, out),
         other => Err(args::usage(format!("unknown command {other:?}"))),
     }

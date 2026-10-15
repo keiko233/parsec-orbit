@@ -44,6 +44,11 @@ impl Args {
             .map(|(_, value)| value.as_str())
     }
 
+    pub fn required(&self, name: &str) -> Result<&str, Error> {
+        self.value(name)
+            .ok_or_else(|| usage(format!("{name} is required")))
+    }
+
     /// Refuses any positional word.
     pub fn no_words(&self) -> Result<(), Error> {
         match self.positional.first() {
@@ -67,6 +72,12 @@ mod tests {
         assert_eq!(parsed.value("--key"), Some("k.key"));
         assert_eq!(parsed.value("--other"), None);
         assert!(parsed.no_words().is_ok());
+    }
+
+    #[test]
+    fn a_required_value_must_be_given() {
+        let parsed = Args::parse(&[], &["--key"]).unwrap();
+        assert!(matches!(parsed.required("--key"), Err(Error::Usage(_))));
     }
 
     #[test]
