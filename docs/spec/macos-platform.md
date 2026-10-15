@@ -74,10 +74,23 @@ Per-service macOS behaviour. A service that a platform does not provide is absen
 | `parsec-orbit.client` | **provided by the loader**, shared ABI and SDK binding; current status always `not-verified` | below |
 | marketplace (`parsec-orbit-market`) | **implemented and tested** | section 9 |
 | `parsec-orbit.webview` (`webview-bridge`) | **partial**, M2 | below |
+| `parsec-orbit.ui` (`parsec-orbit-plugin-ui`) | Programmatic show/hide through an adjacent `parsec-orbit-ui-companion` helper; release packaging deferred | [UI service](ui-service.md) |
 | `high-bitrate-webview` | **blocked** until the WebView URL and DOM are known, M2 | below |
 | `parsec-orbit.hooks` (`hooks`) | **implemented and measured** for bounded, already-bound classic imports, M2 | below |
 | `high-bitrate-native` | **unavailable**; static candidates only, M2 | below |
 | hosting-related behaviour | out of scope | [ADR 0011](../design/decisions/0011-macos-scope.md) |
+
+The UI plugin keeps the service ABI, schemas, callback pointers and authoritative
+registry in the client. It launches the adjacent `parsec-orbit-ui-companion`
+helper for rendering. The helper owns the AppKit main thread and `winio` loop;
+the processes communicate over private inherited stdin/stdout pipes using the
+version 1 bounded JSON-line protocol described in [ui-service.md](ui-service.md).
+Programmatic `show()` and `hide()` are the initial activation contract.
+External CLI and hotkey activation are not implemented unless the renderer adds
+them. Development packaging can build and stage the dylib, manifest and helper
+together; public release artifact allowlists remain unchanged, and macOS helper
+code signing and runtime-state sandbox compatibility remain unverified pending
+parent-process validation.
 
 ### `parsec-orbit.client`
 

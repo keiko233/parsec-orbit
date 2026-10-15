@@ -40,7 +40,7 @@
 * **Plugins** are DLLs speaking the C ABI in [spec/plugin-abi.md](../spec/plugin-abi.md). The same ABI is used for *services*: a plugin can register typed vtables that other plugins query ([spec/services.md](../spec/services.md)).
 * **JS runtime is a plugin** (`kind.js` handler). A JS plugin declares `requires = ["com.parsec-orbit.js-runtime"]`; with the runtime absent (the default install) the loader skips it with a clear message. See [ADR 0003](decisions/0003-js-runtime-is-a-plugin.md).
 * **WebView operations are a plugin too** (`parsec-orbit.webview`), because the DevTools client (HTTP + WebSocket) is not something the bcrypt proxy should carry. The loader keeps only the existing job of opening the DevTools port.
-* **UI operations are a plugin too** (`parsec-orbit.ui`), providing an external native companion window via `winio` on a dedicated thread, driven by a unified declarative schema across the Rust and JS SDKs ([ADR 0016](decisions/0016-orbit-ui-winio.md), [design/orbit-ui.md](orbit-ui.md)). The loader stays light and Win32/GUI-free.
+* **UI operations are a plugin too** (`parsec-orbit.ui`), providing an external native companion window via a separate `parsec-orbit-ui-companion[.exe]` process. The plugin owns the authoritative registry and communicates with the helper over bounded JSON-line IPC on private inherited stdin/stdout pipes ([ADR 0018](decisions/0018-ui-companion-process.md), [UI design](orbit-ui.md)). The helper owns the main-thread `winio` event loop; Windows uses the WinUI 3 backend and its installed runtime ([ADR 0019](decisions/0019-windows-ui-winui3.md)). The loader stays light and Win32/GUI-free.
 
 ### macOS
 
@@ -77,7 +77,9 @@ parsec-orbit-plugin-abi      no_std, zero deps. repr(C) types, constants, servic
 crates/     every Rust crate: the loader and SDK above, the official plugins and
             the verification tools; high-bitrate-native and high-bitrate-webview -> sdk-std
             (official), webview-bridge (-> devtools), js-runtime (Boa), config,
-            hooks (retour), ui (winio)                                              -> sdk-std + heavy deps
+            hooks (retour), ui (serde + JSON protocol; no GUI deps)                 -> sdk-std
+            ui-protocol (shared JSON messages; std is acceptable)                   -> UI plugin + companion
+            ui-companion (winio, process entry point)                               -> UI protocol
 examples/   parsec-orbit-plugin-hello (-> sdk-std), parsec-orbit-plugin-hello-nostd (-> sdk)
 javascript-sdk/  @parsec-orbit/sdk (TypeScript: types, definePlugin, ui helper, mock host)  [npm]
 tests/      parsec-orbit-e2e;  crates/parsec-orbit-verify-*  verification tools
@@ -105,7 +107,7 @@ How the SDK keeps plugins small is specified in [spec/rust-sdk.md](../spec/rust-
   `init`.
 * **Logging**: the loader owns the log file. Plugins log through the host (`log_ex`, with the plugin id as target). The SDK's own macros need no dependencies; the `tracing` feature adds a `tracing::Subscriber` that forwards to the host so ecosystem crates' events end up in the same file. The loader itself adopts `tracing-core` only if the size budget allows ([ADR 0004](decisions/0004-loader-stays-light.md)).
 * **Debug console**: `PARSEC_ORBIT_CONSOLE=1` makes the loader open a console window at start-up and mirror every line of that log into it, plus Parsec's own log, which `parsec-orbit-core` follows (the window and its Win32 calls stay in the loader). `client` and `host` open it in one of the client's two instances instead of both, because a console belongs to a process and the service's instance is a second one. It is opt-in because the client is a GUI process that normally has no console at all, and best effort because a debug aid must never change the load.
-* **Actors, without a runtime**: the heavy plugins are one thread that owns a resource plus a command channel - an actor in shape only, no `ractor` and no async runtime ([ADR 0004](decisions/0004-loader-stays-light.md#amendment-phase-4)). The JS runtime gives each Boa context (which is not `Send`) a thread of its own; the webview bridge gives the DevTools session one thread that reconnects and replays the scripts, and runs subscriber callbacks on a second thread so a callback can call back in.
+* **Actors, without a runtime**: the heavy plugins are one thread that owns a resource plus a command channel - an actor in shape only, no `ractor` and no async runtime ([ADR 0004](decisions/0004-loader-stays-light.md#amendment-phase-4)). The JS runtime gives each Boa context (which is not `Send`) a thread of its own; the webview bridge gives the DevTools session one thread that reconnects and replays the scripts, and runs subscriber callbacks on a second thread so a callback can call back in. The UI plugin launches its helper without waiting for window creation; callbacks are delivered on a separate plugin-owned thread, outside the UI, IPC and host main threads ([ADR 0018](decisions/0018-ui-companion-process.md)).
 
 ## Failure model
 
@@ -115,7 +117,9 @@ disabled, duplicate and not-yet-runtime-backed kinds are skipped. Dependency
 ordering (Phase 2) adds load order and skips dependents of failed plugins. A
 *panic or fault inside plugin code* is not recoverable - plugins are native
 code in the client process ([security notes](../spec/plugin-abi.md#security-notes))
-- so the SDK's panic policy is log-then-abort.
+- so the SDK's panic policy is log-then-abort. The UI renderer runs in a helper,
+so ordinary renderer or transport faults are isolated from the client; a native
+plugin fault or callback fault still occurs in the client and is not contained.
 
 ## Open questions
 

@@ -1,7 +1,8 @@
 //! The static service table and extern "system" entry points for `parsec-orbit.ui`.
 
 use std::ffi::c_void;
-use std::sync::OnceLock;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, OnceLock};
 
 use parsec_orbit_plugin_sdk_std::{
     MessageCallback, ParsecOrbitInterfaceHeader, ParsecOrbitUiV1, ERR_INVALID, OK,
@@ -9,10 +10,55 @@ use parsec_orbit_plugin_sdk_std::{
 
 use crate::registry::Registry;
 
-static REGISTRY: OnceLock<Registry> = OnceLock::new();
+struct State {
+    registry: Arc<Registry>,
+    visible: Arc<AtomicBool>,
+    companion: OnceLock<crate::companion::Companion>,
+}
+
+// Reuses the ABI service's existing process-lifetime registry owner. The GUI
+// lives in its own process; no GUI objects or callback pointers cross the pipe.
+static REGISTRY: OnceLock<State> = OnceLock::new();
+
+fn state() -> &'static State {
+    REGISTRY.get_or_init(|| State {
+        registry: Arc::new(Registry::new()),
+        visible: Arc::new(AtomicBool::new(false)),
+        companion: OnceLock::new(),
+    })
+}
 
 pub fn registry() -> &'static Registry {
-    REGISTRY.get_or_init(Registry::new)
+    &state().registry
+}
+
+/// Starts the bundled renderer after the ABI service has been registered.
+#[cfg(any(windows, target_os = "macos"))]
+pub fn start(cx: parsec_orbit_plugin_sdk_std::Context) -> std::io::Result<()> {
+    use parsec_orbit_plugin_sdk_std::prelude::*;
+    use std::path::Path;
+    let directory = cx.plugin_dir().ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "UI plugin directory is unavailable",
+        )
+    })?;
+    let executable = Path::new(directory).join(if cfg!(windows) {
+        "parsec-orbit-ui-companion.exe"
+    } else {
+        "parsec-orbit-ui-companion"
+    });
+    let owner = state();
+    if owner.companion.get().is_none() {
+        let companion = crate::companion::Companion::start(
+            executable,
+            owner.registry.clone(),
+            owner.visible.clone(),
+            Arc::new(move |message| warn!(cx, "orbit ui: {}", message)),
+        )?;
+        let _ = owner.companion.set(companion);
+    }
+    Ok(())
 }
 
 unsafe fn utf8<'a>(pointer: *const u8, len: usize) -> Option<&'a str> {
@@ -23,52 +69,43 @@ unsafe fn utf8<'a>(pointer: *const u8, len: usize) -> Option<&'a str> {
 }
 
 pub fn toggle() {
-    #[cfg(windows)]
-    crate::window::toggle();
+    if let Some(companion) = state().companion.get() {
+        companion.toggle();
+    } else {
+        state().visible.fetch_xor(true, Ordering::SeqCst);
+    }
 }
 
-/// Tells the window that the set of registered sections changed. The window
-/// rebuilds its tabs from the registry, so a plugin that registers a section
-/// after start-up is picked up without a restart.
-#[cfg(windows)]
 fn sections_changed() {
-    crate::window::notify_sections_changed();
+    if let Some(companion) = state().companion.get() {
+        companion.refresh();
+    }
 }
 
-#[cfg(not(windows))]
-fn sections_changed() {}
-
-/// Tells the window that a section's values changed, so a plugin can push new
-/// state (a probe result, a patch report) and see it on screen.
-#[cfg(windows)]
-fn state_updated(section: &str) {
-    crate::window::notify_state_updated(section);
+fn state_updated(_section: &str) {
+    sections_changed();
 }
-
-#[cfg(not(windows))]
-fn state_updated(_section: &str) {}
 
 unsafe extern "system" fn svc_show() -> i32 {
-    #[cfg(windows)]
-    crate::window::show();
+    if let Some(companion) = state().companion.get() {
+        companion.set_visible(true);
+    } else {
+        state().visible.store(true, Ordering::SeqCst);
+    }
     0
 }
 
 unsafe extern "system" fn svc_hide() -> i32 {
-    #[cfg(windows)]
-    crate::window::hide();
+    if let Some(companion) = state().companion.get() {
+        companion.set_visible(false);
+    } else {
+        state().visible.store(false, Ordering::SeqCst);
+    }
     0
 }
 
 unsafe extern "system" fn svc_is_visible() -> i32 {
-    #[cfg(windows)]
-    if crate::window::is_visible() {
-        1
-    } else {
-        0
-    }
-    #[cfg(not(windows))]
-    0
+    i32::from(state().visible.load(Ordering::SeqCst))
 }
 
 unsafe extern "system" fn svc_register_section(schema: *const u8, len: usize) -> i32 {
