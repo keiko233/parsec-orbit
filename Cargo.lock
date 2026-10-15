@@ -1962,6 +1962,7 @@ version = "0.1.1"
 dependencies = [
  "parsec-orbit-layout",
  "parsec-orbit-plugin-sdk",
+ "parsec-orbit-plugin-sdk-testing",
  "parsec-orbit-registry",
  "serde_json",
 ]

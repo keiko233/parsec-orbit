@@ -16,3 +16,6 @@ parsec-orbit-plugin-sdk = { path = "../../crates/parsec-orbit-plugin-sdk" }
 serde_json = "1"
 parsec-orbit-layout = { path = "../../crates/parsec-orbit-layout" }
 parsec-orbit-registry = { path = "../../crates/parsec-orbit-registry" }
+
+[dev-dependencies]
+parsec-orbit-plugin-sdk-testing = { path = "../../crates/parsec-orbit-plugin-sdk-testing" }
