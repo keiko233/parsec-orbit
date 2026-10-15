@@ -1,42 +1,22 @@
-//! The companion window, drawn with `winio` on its own thread.
-//!
-//! Every panel comes from the registry: plugins register declarative sections
-//! (`parsec-orbit.ui`), the window turns each section into a tab and each item
-//! into a native control, and edits go back through `dispatch_action`. No
-//! plugin links a GUI toolkit, so Rust and JavaScript plugins share the ABI
-//! described in `docs/spec/ui-service.md`.
-//!
-//! The window is created hidden: it costs Parsec's start-up nothing to look at,
-//! and [`show`], the hotkeys or `scripts/orbit-manager.ps1 ui` bring it up.
-
 use std::future::{poll_fn, Future};
 use std::pin::Pin;
-use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
-use std::sync::{Mutex, OnceLock};
+use std::sync::Arc;
 use std::task::Poll;
 
+use parsec_orbit_ui_protocol::{ChildMessage, ParentMessage, SectionState, UiAction, UiItem};
 use serde_json::Value;
-use winio::handle::AsWindow;
 use winio::prelude::*;
 
-use parsec_orbit_plugin_sdk_std::prelude::*;
+use crate::platform::{activate, WakeTarget};
+use crate::{Inbound, Shared};
 
-use crate::schema::{UiAction, UiItem};
-
-/// Messages the window handles; anything may post them from any thread.
-#[derive(Clone, Debug)]
-pub enum OrbitMsg {
-    Show,
-    Hide,
-    Toggle,
-    Close,
-    Refresh,
-    SectionsChanged,
-    StateUpdated(String),
+pub(crate) enum OrbitUiMessage {
+    InputAvailable,
+    UserClose,
     Action { panel: usize, row: usize },
+    Refresh,
 }
 
-/// One native control per declarative item type.
 enum Control {
     Toggle(Child<CheckBox>),
     Slider(Child<Slider>),
@@ -47,8 +27,6 @@ enum Control {
     Text(Child<Label>),
 }
 
-/// Runs `$body` against the widget inside a control. Every arm binds the same
-/// name, and only one arm runs, so the body is written once.
 macro_rules! with_control {
     ($control:expr, $widget:ident, $body:expr) => {
         match $control {
@@ -63,7 +41,6 @@ macro_rules! with_control {
     };
 }
 
-/// One registered item: its label, its control and the last known value.
 struct Row {
     item: UiItem,
     label: Child<Label>,
@@ -76,7 +53,11 @@ impl Row {
         let mut label = Child::<Label>::init(parent).await?;
         label.set_text(&item.label)?;
         let control = match item.item_type.as_str() {
-            "toggle" => Control::Toggle(Child::init(parent).await?),
+            "toggle" => {
+                let mut toggle = Child::<CheckBox>::init(parent).await?;
+                toggle.set_text("")?;
+                Control::Toggle(toggle)
+            }
             "slider" => {
                 let mut slider = Child::<Slider>::init(parent).await?;
                 slider.set_minimum(item.min.unwrap_or(0.0).max(0.0) as usize)?;
@@ -99,7 +80,6 @@ impl Row {
                 button.set_text(&item.label)?;
                 Control::Button(button)
             }
-            // `readonly_text`, the schemas' `text`, and anything unknown.
             _ => Control::Text(Child::init(parent).await?),
         };
         let mut row = Self {
@@ -115,7 +95,7 @@ impl Row {
         Ok(row)
     }
 
-    /// Writes a value into the control without emitting an action.
+    /// Applies parent state without sending an action back to the parent.
     fn set_value(&mut self, value: Value) -> winio::Result<()> {
         match &mut self.control {
             Control::Toggle(widget) => widget.set_checked(value.as_bool().unwrap_or(false))?,
@@ -132,7 +112,7 @@ impl Row {
             }
             Control::Input(widget) => widget.set_text(display_value(&value))?,
             Control::Json(widget) => {
-                widget.set_text(serde_json::to_string_pretty(&value).unwrap_or_default())?
+                widget.set_text(serde_json::to_string_pretty(&value).unwrap_or_default())?;
             }
             Control::Text(widget) => widget.set_text(display_value(&value))?,
             Control::Button(_) => {}
@@ -141,8 +121,6 @@ impl Row {
         Ok(())
     }
 
-    /// Reads what the user has in the control, or `None` when it is not a
-    /// usable value (an unparsable number, broken JSON, a read-only row).
     fn edited_value(&self) -> winio::Result<Option<Value>> {
         Ok(match &self.control {
             Control::Toggle(widget) => Some(Value::Bool(widget.is_checked()?)),
@@ -173,43 +151,40 @@ impl Row {
         })
     }
 
-    /// Forwards this control's events to the window until it is dropped. The
-    /// root loop restarts every listener after each message.
     async fn listen(&mut self, sender: &ComponentSender<OrbitUi>, panel: usize, row: usize) {
-        /// A control's own event type is irrelevant here: any interaction on
-        /// this row means "the user touched row `row` of panel `panel`".
-        fn touched<E>(panel: usize, row: usize) -> impl FnMut(E) -> Option<OrbitMsg> {
-            move |_| Some(OrbitMsg::Action { panel, row })
+        fn touched<E>(panel: usize, row: usize) -> impl FnMut(E) -> Option<OrbitUiMessage> {
+            move |_| Some(OrbitUiMessage::Action { panel, row })
         }
+
         match &mut self.control {
             Control::Toggle(widget) => {
                 widget
-                    .start(sender, touched(panel, row), || OrbitMsg::Refresh)
+                    .start(sender, touched(panel, row), || OrbitUiMessage::Refresh)
                     .await
             }
             Control::Slider(widget) => {
                 widget
-                    .start(sender, touched(panel, row), || OrbitMsg::Refresh)
+                    .start(sender, touched(panel, row), || OrbitUiMessage::Refresh)
                     .await
             }
             Control::Select(widget) => {
                 widget
-                    .start(sender, touched(panel, row), || OrbitMsg::Refresh)
+                    .start(sender, touched(panel, row), || OrbitUiMessage::Refresh)
                     .await
             }
             Control::Input(widget) => {
                 widget
-                    .start(sender, touched(panel, row), || OrbitMsg::Refresh)
+                    .start(sender, touched(panel, row), || OrbitUiMessage::Refresh)
                     .await
             }
             Control::Json(widget) => {
                 widget
-                    .start(sender, touched(panel, row), || OrbitMsg::Refresh)
+                    .start(sender, touched(panel, row), || OrbitUiMessage::Refresh)
                     .await
             }
             Control::Button(widget) => {
                 widget
-                    .start(sender, touched(panel, row), || OrbitMsg::Refresh)
+                    .start(sender, touched(panel, row), || OrbitUiMessage::Refresh)
                     .await
             }
             Control::Text(_) => std::future::pending().await,
@@ -225,107 +200,181 @@ fn display_value(value: &Value) -> String {
     }
 }
 
-/// A registered section: its tab, the scrolling area and its rows.
 struct Panel {
     id: String,
     tab: Child<TabViewItem>,
     scroll: Child<ScrollView>,
     rows: Vec<Row>,
+    #[cfg(target_os = "macos")]
+    reset_scroll: bool,
 }
 
-pub struct OrbitUi {
+pub(crate) struct OrbitUi {
+    context: Arc<Shared>,
     window: Child<Window>,
     tabs: Child<TabView>,
     overview: Child<TabViewItem>,
     overview_text: Child<Label>,
+    sections: Vec<SectionState>,
     panels: Vec<Panel>,
+    visible: bool,
+    revision: u64,
 }
 
-/// The window's message queue. `None` until the UI thread has built the
-/// window, and again after it has gone away.
-static UI_SENDER: Mutex<Option<ComponentSender<OrbitUi>>> = Mutex::new(None);
-/// The window itself, so another thread can end the event loop's wait.
-static UI_HWND: AtomicIsize = AtomicIsize::new(0);
-/// Kept here rather than asked of `winio`, so `show`/`hide`/`is_visible` answer
-/// from any thread without touching the window.
-static IS_VISIBLE: AtomicBool = AtomicBool::new(false);
-static STARTED: OnceLock<()> = OnceLock::new();
-
 impl OrbitUi {
-    /// Rebuilds every tab from the registry. Cheap enough to run whenever a
-    /// plugin registers or removes a section, which happens during start-up.
-    async fn rebuild(&mut self) -> winio::Result<()> {
+    async fn rebuild(&mut self, sections: Vec<SectionState>) -> winio::Result<()> {
         self.tabs.clear()?;
         self.panels.clear();
-        // The first item of a `TabView` is the one it shows, so the overview
-        // goes in first and the panels stay hidden until the user picks one.
         self.tabs.push(&self.overview)?;
-        let sections = crate::service::registry().list_sections();
         self.overview_text.set_text(format!(
-            "Parsec Orbit {}\n\
-             \n\
-             {} configuration section(s) registered by plugins.\n\
-             \n\
-             Ctrl+Alt+O or Ctrl+F12 shows and hides this window.\n\
-             Closing it hides it; the plugins keep running.",
+            "Parsec Orbit {}\n\n\
+             {} configuration section(s) registered by plugins.\n\n\
+             Closing this window hides it; plugins keep running.",
             env!("CARGO_PKG_VERSION"),
             sections.len()
         ))?;
-        for section in sections {
+        for section in &sections {
             let mut tab = Child::<TabViewItem>::init(()).await?;
-            tab.set_text(&section.title)?;
+            tab.set_text(&section.schema.title)?;
             self.tabs.push(&tab)?;
             let mut scroll = Child::<ScrollView>::init(&tab).await?;
             scroll.set_vscroll(true)?;
-            let state = crate::service::registry()
-                .get_state(&section.id)
-                .unwrap_or_default();
             let mut rows = Vec::new();
-            for item in section.items {
-                let value = state
+            for item in &section.schema.items {
+                let value = section
+                    .values
                     .get(&item.key)
                     .cloned()
                     .or_else(|| item.default.clone())
                     .unwrap_or(Value::Null);
-                rows.push(Row::new(&scroll, item, value).await?);
+                rows.push(Row::new(&scroll, item.clone(), value).await?);
             }
             self.panels.push(Panel {
-                id: section.id,
+                id: section.schema.id.clone(),
                 tab,
                 scroll,
                 rows,
+                #[cfg(target_os = "macos")]
+                reset_scroll: true,
             });
         }
         self.tabs.set_selection(0)?;
+        self.sections = sections;
         Ok(())
     }
 
-    fn set_visible(&mut self, visible: bool) -> winio::Result<()> {
-        self.window.set_visible(visible)?;
-        if visible {
-            // Safety: the UI thread owns this live window and asks Win32 to
-            // restore and focus it so a hotkey brings it to the front.
-            unsafe {
-                use windows_sys::Win32::UI::WindowsAndMessaging::{
-                    SetForegroundWindow, ShowWindow, SW_RESTORE,
-                };
-                let hwnd = self.window.as_window().as_win32();
-                ShowWindow(hwnd, SW_RESTORE);
-                SetForegroundWindow(hwnd);
-            }
+    fn set_visible(&mut self, visible: bool) -> winio::Result<bool> {
+        if self.visible == visible {
+            return Ok(false);
         }
-        IS_VISIBLE.store(visible, Ordering::SeqCst);
-        Ok(())
+        self.window.set_visible(visible)?;
+        self.visible = visible;
+        if visible {
+            activate(&self.window);
+        }
+        Ok(true)
+    }
+
+    fn request_visibility(&mut self, visible: bool, revision: u64) -> winio::Result<bool> {
+        if revision < self.revision {
+            return Ok(false);
+        }
+        self.revision = revision;
+        if visible && self.visible {
+            activate(&self.window);
+            Ok(false)
+        } else {
+            self.set_visible(visible)
+        }
+    }
+
+    async fn apply_snapshot(
+        &mut self,
+        sections: Vec<SectionState>,
+        visible: bool,
+        revision: u64,
+    ) -> winio::Result<bool> {
+        if revision < self.revision {
+            return Ok(false);
+        }
+        self.revision = revision;
+        let same_schema = self
+            .sections
+            .iter()
+            .map(|section| &section.schema)
+            .eq(sections.iter().map(|section| &section.schema));
+        let mut changed = false;
+        if same_schema {
+            self.sections = sections;
+            for (panel, section) in self.panels.iter_mut().zip(&self.sections) {
+                for row in &mut panel.rows {
+                    let value = section
+                        .values
+                        .get(&row.item.key)
+                        .cloned()
+                        .or_else(|| row.item.default.clone())
+                        .unwrap_or(Value::Null);
+                    if row.value != value {
+                        row.set_value(value)?;
+                        changed = true;
+                    }
+                }
+            }
+        } else {
+            self.rebuild(sections).await?;
+            changed = true;
+        }
+        changed |= self.set_visible(visible)?;
+        Ok(changed)
+    }
+
+    fn apply_action(&mut self, panel_index: usize, row_index: usize) -> winio::Result<bool> {
+        let Some(panel) = self.panels.get_mut(panel_index) else {
+            return Ok(false);
+        };
+        let section_id = panel.id.clone();
+        let Some(row) = panel.rows.get_mut(row_index) else {
+            return Ok(false);
+        };
+        let clicked = row.item.item_type == "button";
+        let Some(value) = row.edited_value()? else {
+            return Ok(false);
+        };
+        if !clicked && row.value == value {
+            // Native controls may report a change notification after a
+            // programmatic setter. The cached value filters that event.
+            return Ok(false);
+        }
+
+        let key = row.item.key.clone();
+        // The native widget already contains the edit. Writing it back on
+        // every keystroke reformats numbers ("7" -> "7.0") and moves the text
+        // caret; only programmatic snapshots should replace editable text.
+        if let Control::Slider(widget) = &row.control {
+            row.label
+                .set_text(format!("{}: {}", row.item.label, widget.pos()?))?;
+        }
+        row.value = value.clone();
+        if let Some(section) = self.sections.get_mut(panel_index) {
+            section.values.insert(key.clone(), value.clone());
+        }
+        self.context.write(ChildMessage::Action(UiAction {
+            section: section_id,
+            key,
+            action_type: if clicked { "click" } else { "change" }.to_string(),
+            value: Some(value),
+        }));
+        Ok(true)
     }
 }
 
 impl Component for OrbitUi {
-    type Init<'a> = ();
-    type Message = OrbitMsg;
+    type Init<'a> = Arc<Shared>;
+    type Message = OrbitUiMessage;
     type Event = ();
     type Error = winio::Error;
 
-    async fn init(_: Self::Init<'_>, sender: &ComponentSender<Self>) -> winio::Result<Self> {
+    async fn init(context: Self::Init<'_>, sender: &ComponentSender<Self>) -> winio::Result<Self> {
         let mut window = Child::<Window>::init(()).await?;
         window.set_text("Parsec Orbit")?;
         window.set_size(Size::new(880.0, 580.0))?;
@@ -335,24 +384,26 @@ impl Component for OrbitUi {
         overview.set_text("Overview")?;
         let overview_text = Child::<Label>::init(&overview).await?;
         let mut ui = Self {
+            context: Arc::clone(&context),
             window,
             tabs,
             overview,
             overview_text,
+            sections: Vec::new(),
             panels: Vec::new(),
+            visible: false,
+            revision: 0,
         };
-        // Published before the first snapshot, so a section registered while
-        // the window is being built still lands as a rebuild message.
-        UI_HWND.store(ui.window.as_window().as_win32() as isize, Ordering::SeqCst);
-        *UI_SENDER.lock().unwrap() = Some(sender.clone());
-        ui.rebuild().await?;
-        ui.set_visible(IS_VISIBLE.load(Ordering::SeqCst))?;
+        ui.rebuild(Vec::new()).await?;
+        let wake = WakeTarget::for_window(&ui.window);
+        context.connect(sender, wake);
+        context.write(ChildMessage::Ready {
+            version: parsec_orbit_ui_protocol::VERSION,
+        });
         Ok(ui)
     }
 
     async fn start(&mut self, sender: &ComponentSender<Self>) -> ! {
-        // The root loop drops `start` whenever a message arrives and calls it
-        // again, so these listeners are rebuilt on every round.
         let Self {
             window,
             tabs,
@@ -366,25 +417,31 @@ impl Component for OrbitUi {
                     sender,
                     |event| {
                         Some(match event {
-                            WindowEvent::Close => OrbitMsg::Close,
-                            _ => OrbitMsg::Refresh,
+                            WindowEvent::Close => OrbitUiMessage::UserClose,
+                            _ => OrbitUiMessage::Refresh,
                         })
                     },
-                    || OrbitMsg::Refresh,
+                    || OrbitUiMessage::Refresh,
                 )
                 .await;
         }));
         listeners.push(Box::pin(async {
-            tabs.start(sender, |_| Some(OrbitMsg::Refresh), || OrbitMsg::Refresh)
-                .await;
+            tabs.start(
+                sender,
+                |_| Some(OrbitUiMessage::Refresh),
+                || OrbitUiMessage::Refresh,
+            )
+            .await;
         }));
         for (index, panel) in panels.iter_mut().enumerate() {
             let scroll = &mut panel.scroll;
             listeners.push(Box::pin(async {
-                scroll.start(sender, |_| None, || OrbitMsg::Refresh).await;
+                scroll
+                    .start(sender, |_| None, || OrbitUiMessage::Refresh)
+                    .await;
             }));
-            for (row, model) in panel.rows.iter_mut().enumerate() {
-                listeners.push(Box::pin(model.listen(sender, index, row)));
+            for (row_index, row) in panel.rows.iter_mut().enumerate() {
+                listeners.push(Box::pin(row.listen(sender, index, row_index)));
             }
         }
         poll_fn(|context| {
@@ -394,59 +451,48 @@ impl Component for OrbitUi {
             Poll::<()>::Pending
         })
         .await;
-        unreachable!("the listeners never finish")
+        unreachable!("control listeners do not complete")
     }
 
     async fn update(
         &mut self,
-        message: OrbitMsg,
-        _: &ComponentSender<Self>,
+        message: OrbitUiMessage,
+        sender: &ComponentSender<Self>,
     ) -> winio::Result<bool> {
         match message {
-            OrbitMsg::Show => self.set_visible(true)?,
-            OrbitMsg::Hide | OrbitMsg::Close => self.set_visible(false)?,
-            OrbitMsg::Toggle => self.set_visible(!IS_VISIBLE.load(Ordering::SeqCst))?,
-            OrbitMsg::SectionsChanged => self.rebuild().await?,
-            OrbitMsg::StateUpdated(id) => {
-                let Some(state) = crate::service::registry().get_state(&id) else {
-                    return Ok(false);
-                };
-                for panel in self.panels.iter_mut().filter(|panel| panel.id == id) {
-                    for row in &mut panel.rows {
-                        if let Some(value) = state.get(&row.item.key) {
-                            if row.value != *value {
-                                row.set_value(value.clone())?;
-                            }
+            OrbitUiMessage::InputAvailable => {
+                let mut changed = false;
+                for message in self.context.take_input() {
+                    match message {
+                        Inbound::Eof | Inbound::Frame(ParentMessage::Shutdown) => {
+                            sender.output(());
+                            return Ok(false);
+                        }
+                        Inbound::Frame(ParentMessage::Snapshot {
+                            sections,
+                            visible,
+                            revision,
+                        }) => {
+                            changed |= self.apply_snapshot(sections, visible, revision).await?;
+                        }
+                        Inbound::Frame(ParentMessage::Visibility { visible, revision }) => {
+                            changed |= self.request_visibility(visible, revision)?;
                         }
                     }
                 }
+                Ok(changed)
             }
-            OrbitMsg::Action { panel, row } => {
-                let Some(section) = self.panels.get_mut(panel) else {
-                    return Ok(false);
-                };
-                let section_id = section.id.clone();
-                let Some(model) = section.rows.get_mut(row) else {
-                    return Ok(false);
-                };
-                // A button reports every click; a control only reports a value
-                // the user actually changed.
-                let clicked = model.item.item_type == "button";
-                if let Some(value) = model.edited_value()? {
-                    if clicked || model.value != value {
-                        model.set_value(value.clone())?;
-                        crate::service::registry().dispatch_action(&UiAction {
-                            section: section_id,
-                            key: model.item.key.clone(),
-                            action_type: if clicked { "click" } else { "change" }.to_string(),
-                            value: Some(value),
-                        });
-                    }
-                }
+            OrbitUiMessage::UserClose => {
+                self.set_visible(false)?;
+                self.context.write(ChildMessage::Visibility {
+                    visible: false,
+                    revision: self.revision,
+                });
+                Ok(true)
             }
-            OrbitMsg::Refresh => {}
+            OrbitUiMessage::Action { panel, row } => self.apply_action(panel, row),
+            OrbitUiMessage::Refresh => Ok(true),
         }
-        Ok(true)
     }
 
     async fn update_children(&mut self) -> winio::Result<bool> {
@@ -470,8 +516,11 @@ impl Component for OrbitUi {
         self.overview_text
             .set_size(Size::new((size.width - 64.0).max(100.0), 260.0))?;
         for panel in &mut self.panels {
+            #[cfg(target_os = "macos")]
+            let size = crate::platform::tab_content_size(&self.tabs)?;
+            #[cfg(windows)]
             let size = panel.tab.size()?;
-            panel.scroll.set_size(size)?;
+            panel.scroll.set_loc(Point::new(0.0, 0.0))?;
             let width = (size.width - 64.0).max(100.0);
             let mut y = 20.0;
             for row in &mut panel.rows {
@@ -494,6 +543,14 @@ impl Component for OrbitUi {
                 )?;
                 y += height + 48.0;
             }
+            // AppKit sizes the document view from the child frames, so lay out
+            // every row before asking the scroll view to recompute its bounds.
+            panel.scroll.set_size(size)?;
+            #[cfg(target_os = "macos")]
+            if panel.reset_scroll {
+                crate::platform::scroll_to_top(&panel.scroll);
+                panel.reset_scroll = false;
+            }
         }
         Ok(())
     }
@@ -513,91 +570,4 @@ impl Component for OrbitUi {
         }
         Ok(())
     }
-}
-
-/// Tells the window a section's values changed, if it is running.
-pub fn notify_state_updated(section: &str) {
-    post(OrbitMsg::StateUpdated(section.to_string()));
-}
-
-/// Tells the window the set of registered sections changed, if it is running.
-pub fn notify_sections_changed() {
-    post(OrbitMsg::SectionsChanged);
-}
-
-fn post(message: OrbitMsg) {
-    if let Some(sender) = UI_SENDER.lock().unwrap().as_ref() {
-        sender.post(message);
-        wake();
-    }
-}
-
-/// Wakes the window thread after a message was queued.
-///
-/// The window runs `winio`'s event loop, which sits in
-/// `MsgWaitForMultipleObjectsEx` when it has nothing to do; the queue's own
-/// waker only counts while the loop is inside a poll, so a post from another
-/// thread can go unnoticed until the next window message. Parking an empty
-/// message on the window is what ends the wait, and the loop then drains the
-/// queue, including the message posted just before.
-fn wake() {
-    let handle = UI_HWND.load(Ordering::SeqCst);
-    if handle == 0 {
-        return;
-    }
-    unsafe {
-        use windows_sys::Win32::UI::WindowsAndMessaging::{PostMessageW, WM_NULL};
-        PostMessageW(handle as _, WM_NULL, 0, 0);
-    }
-}
-
-pub fn show() {
-    if UI_SENDER.lock().unwrap().is_some() {
-        post(OrbitMsg::Show);
-    } else {
-        IS_VISIBLE.store(true, Ordering::SeqCst);
-    }
-}
-
-pub fn hide() {
-    if UI_SENDER.lock().unwrap().is_some() {
-        post(OrbitMsg::Hide);
-    } else {
-        IS_VISIBLE.store(false, Ordering::SeqCst);
-    }
-}
-
-pub fn toggle() {
-    if UI_SENDER.lock().unwrap().is_some() {
-        post(OrbitMsg::Toggle);
-    } else {
-        IS_VISIBLE.fetch_xor(true, Ordering::SeqCst);
-    }
-}
-
-pub fn is_visible() -> bool {
-    IS_VISIBLE.load(Ordering::SeqCst)
-}
-
-/// Starts the window thread once. Called from the plugin's `init`, so the
-/// loader's worker thread is never blocked by a window.
-pub fn ensure_started(cx: parsec_orbit_plugin_sdk_std::Context) {
-    STARTED.get_or_init(|| {
-        let result = cx.spawn("window", move || {
-            let result = App::builder()
-                .name("Parsec Orbit")
-                .build()
-                .and_then(|app| app.block_on(OrbitUi::run_until_event(())));
-            UI_HWND.store(0, Ordering::SeqCst);
-            *UI_SENDER.lock().unwrap() = None;
-            IS_VISIBLE.store(false, Ordering::SeqCst);
-            match result {
-                Ok(()) => info!(cx, "orbit ui: window thread finished"),
-                Err(error) => error!(cx, "orbit ui: window thread failed: {error}"),
-            }
-        });
-        if let Err(error) = result {
-            error!(cx, "orbit ui: could not start the window thread: {error}");
-        }
-    });
 }

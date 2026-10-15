@@ -1978,10 +1978,9 @@ name = "parsec-orbit-plugin-ui"
 version = "0.1.1"
 dependencies = [
  "parsec-orbit-plugin-sdk-std",
- "serde",
+ "parsec-orbit-ui-protocol",
  "serde_json",
  "windows-sys 0.61.2",
- "winio",
 ]
 
 [[package]]
@@ -1990,6 +1989,28 @@ version = "0.1.1"
 dependencies = [
  "parsec-orbit-devtools",
  "parsec-orbit-plugin-sdk-std",
+ "serde_json",
+]
+
+[[package]]
+name = "parsec-orbit-ui-companion"
+version = "0.1.1"
+dependencies = [
+ "objc2",
+ "objc2-app-kit",
+ "objc2-core-foundation",
+ "objc2-foundation",
+ "parsec-orbit-ui-protocol",
+ "serde_json",
+ "windows-sys 0.61.2",
+ "winio",
+]
+
+[[package]]
+name = "parsec-orbit-ui-protocol"
+version = "0.1.1"
+dependencies = [
+ "serde",
  "serde_json",
 ]
 

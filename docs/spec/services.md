@@ -3,7 +3,8 @@
 Status: the registry, interface headers and kind handlers are implemented
 (host revision 2). The core service tables below are implemented and provided
 by the plugins named with them: `parsec-orbit.webview` by the webview-bridge
-plugin and `parsec-orbit.js` by the JS runtime plugin. Implements
+plugin, `parsec-orbit.js` by the JS runtime plugin, and `parsec-orbit.ui` by
+the UI plugin with its separate renderer helper. Implements
 [ADR 0001](../design/decisions/0001-typed-service-vtables.md).
 
 Applies to both platforms; platform differences are in [macos-platform.md](macos-platform.md#6-services-and-official-plugins).
@@ -48,6 +49,9 @@ Name: `parsec-orbit.kind.<kind>` (for example `parsec-orbit.kind.js`). Registere
 `load_plugin` is called on the loader worker thread, after the handler plugin and all of the target's other dependencies are initialised. The handler logs its own failure reasons; a non-zero return marks the plugin *failed*.
 
 ## Core services
+
+The `parsec-orbit.ui` service's process boundary, callback delivery and recovery
+contract are specified in [ui-service.md](ui-service.md).
 
 The C layouts are in [plugin-abi.md](plugin-abi.md#core-service-tables) and in `parsec-orbit-plugin-abi`; the typed Rust bindings are `services::{WebView, WebViewClient, Js, JsClient}` in the SDK. This section is what the functions mean.
 

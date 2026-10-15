@@ -175,3 +175,10 @@ universal parsing, full metadata, recovery/locking and assessment. Hooks are
 a separate optional plugin, not added to the injected loader. The historical
 360 KiB reference is still exceeded by the 571,472 B loader; no final macOS
 budget or size optimization is claimed here.
+
+## Independent UI companion (macOS arm64)
+
+The service plugin and separate winio renderer sizes, build profile, artifact
+digests and validation limits are recorded in the
+[UI companion checkpoint](ui-companion-checkpoint.md#release-profile-sizes).
+GUI dependencies belong only to the helper; the loader and core are unchanged.

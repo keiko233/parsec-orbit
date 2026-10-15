@@ -16,7 +16,7 @@ Untagged statements are requirements, not observations. A passing disposable-cop
 
 ## 1. Scope and terms
 
-macOS `aarch64`, Parsec 150.x, client mode only. Hosting, x86_64 execution and an out-of-process plugin companion remain out of scope. The selected signing route is local ad-hoc signing, including end-user installation (maintainer decision, 2026-10-15); end-user scripts are deferred. Retaining an unmodified x86_64 slice in the vendor universal container is not x86_64 support.
+macOS `aarch64`, Parsec 150.x, client mode only. Hosting, x86_64 execution and moving arbitrary plugin execution out of the client remain out of scope. The `parsec-orbit.ui` renderer helper is a narrowly scoped child process that owns only the UI window; the UI plugin and other plugins still execute in the client. The selected signing route is local ad-hoc signing, including end-user installation (maintainer decision, 2026-10-15); end-user scripts are deferred. Retaining an unmodified x86_64 slice in the vendor universal container is not x86_64 support.
 
 | Term | Meaning |
 | --- | --- |

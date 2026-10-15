@@ -3,6 +3,7 @@
 //! Provides `parsec-orbit.ui`: an external companion window powered by `compio-rs/winio`
 //! driven by unified declarative schemas across Rust and JavaScript.
 
+pub mod companion;
 pub mod registry;
 pub mod schema;
 pub mod service;
@@ -11,8 +12,6 @@ pub mod service;
 pub mod hotkey;
 #[cfg(windows)]
 pub mod instance;
-#[cfg(windows)]
-pub mod window;
 
 use parsec_orbit_plugin_sdk_std::prelude::*;
 use parsec_orbit_plugin_sdk_std::services::Ui;
@@ -42,8 +41,16 @@ impl Plugin for OrbitUiPlugin {
                 return Ok(());
             }
             let cx = *cx;
-            window::ensure_started(cx);
+            #[cfg(not(test))]
+            if let Err(error) = service::start(cx) {
+                warn!(cx, "orbit ui: could not start companion: {}", error);
+            }
             cx.spawn("hotkey", || hotkey::run(service::toggle))?;
+        }
+
+        #[cfg(all(target_os = "macos", not(test)))]
+        if let Err(error) = service::start(*cx) {
+            warn!(cx, "orbit ui: could not start companion: {}", error);
         }
 
         Ok(())
