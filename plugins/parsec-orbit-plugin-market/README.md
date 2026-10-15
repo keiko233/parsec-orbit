@@ -1,7 +1,7 @@
 # Market
 
 Official [Parsec Orbit](../../README.md) plugin. It browses, installs, updates
-and removes plugins from the signed registries, inside the client. The section
+and removes plugins from the signed registries, inside the client. The page
 is `Market` in the Orbit window (`com.parsec-orbit.market`); it needs the
 companion window service (`parsec-orbit.ui`).
 
@@ -10,7 +10,7 @@ companion window service (`parsec-orbit.ui`).
 1. List the registries in `<Orbit root>/market/sources.toml` (see
    [registry.md](../../docs/spec/registry.md#sourcestoml)). The keys of the
    publishers you trust go in `<Orbit root>/market/trusted-keys.toml`.
-2. Open the Market section and press **Refresh**. Only an index signed by a
+2. Open the Market page and press **Refresh**. Only an index signed by a
    trusted key is listed.
 3. Pick a plugin. **Install** adds it (and the libraries it requires) to the
    plugins folder. **Update** stages a newer release; **Remove** deletes a
@@ -23,7 +23,7 @@ anything, so it is safe while Parsec runs.
 ## Files
 
 * `plugin.toml` - the manifest the loader reads.
-* `src/controller.rs` - the state of the section and what each action asks for.
+* `src/controller.rs` - the state of the page and what each action asks for.
 * `src/worker.rs` - the registry client, run on one thread.
 * `src/lib.rs` - the plugin entry point.
 

@@ -22,13 +22,13 @@ use std::sync::mpsc::{channel, Sender};
 use std::sync::OnceLock;
 
 use parsec_orbit_plugin_sdk::prelude::*;
-use parsec_orbit_plugin_sdk::services::UiClient;
+use parsec_orbit_plugin_sdk::services::ui::UiClient;
 use parsec_orbit_registry::index::PlatformId;
 use parsec_orbit_registry::source::Real;
 use parsec_orbit_registry::sources;
 
-use controller::{Action, SECTION_ID};
-use worker::{SectionPublisher, Worker};
+use controller::{Action, PAGE_ID};
+use worker::{PagePublisher, Worker};
 
 /// The one queue the UI callback feeds. There is one market per process.
 static ACTIONS: OnceLock<Sender<Action>> = OnceLock::new();
@@ -46,32 +46,26 @@ fn root_of_data_dir(data_dir: &Path, plugin_id: &str) -> Option<PathBuf> {
     data.parent().map(Path::to_path_buf)
 }
 
-/// Puts the section on the Orbit UI service.
+/// Puts the page on the Orbit UI service.
 struct UiPublisher {
     ui: UiClient,
 }
 
-impl SectionPublisher for UiPublisher {
-    fn register(&self, schema: &str) -> std::result::Result<(), String> {
+impl PagePublisher for UiPublisher {
+    fn register(&self, page: &str) -> std::result::Result<(), String> {
         self.ui
-            .register_section(schema)
-            .map_err(|error| format!("register_section failed with {}", error.code()))
+            .register_page(page)
+            .map_err(|error| format!("register_page failed with {}", error.code()))
     }
 
-    fn unregister(&self, section_id: &str) -> std::result::Result<(), String> {
+    fn update(&self, page_id: &str, patch: &str) -> std::result::Result<(), String> {
         self.ui
-            .unregister_section(section_id)
-            .map_err(|error| format!("unregister_section failed with {}", error.code()))
-    }
-
-    fn update_state(&self, section_id: &str, state: &str) -> std::result::Result<(), String> {
-        self.ui
-            .update_state(section_id, state)
-            .map_err(|error| format!("update_state failed with {}", error.code()))
+            .update_page(page_id, patch)
+            .map_err(|error| format!("update_page failed with {}", error.code()))
     }
 }
 
-/// The UI's action callback for the market section. It runs on the UI delivery
+/// The UI's action callback for the market page. It runs on the UI delivery
 /// thread, so it only queues the action.
 unsafe extern "system" fn on_market_action(_user: *mut c_void, message: *const u8, len: usize) {
     // Safety: the UI service passes a message of `len` bytes that lives for
@@ -104,7 +98,7 @@ impl Plugin for MarketPlugin {
             return Ok(());
         };
 
-        // The section is the only thing the market has to show; without the UI
+        // The page is the only thing the market has to show; without the UI
         // service there is nowhere to show it, so nothing is started.
         let Some(ui) = UiClient::new(cx) else {
             warn!(
@@ -138,12 +132,11 @@ impl Plugin for MarketPlugin {
             .name(format!("{}:market", cx.plugin_id()))
             .spawn(move || worker.run(actions))?;
 
-        if let Err(error) =
-            unsafe { ui.on_action(SECTION_ID, on_market_action, std::ptr::null_mut()) }
+        if let Err(error) = unsafe { ui.on_action(PAGE_ID, on_market_action, std::ptr::null_mut()) }
         {
             warn!(
                 cx,
-                "the market section does not report its actions: {}",
+                "the market page does not report its actions: {}",
                 error.code()
             );
         }
@@ -165,7 +158,7 @@ parsec_orbit_plugin_sdk::declare_plugin! {
 mod tests {
     use super::*;
     use parsec_orbit_plugin_sdk::{
-        MessageCallback, ParsecOrbitInterfaceHeader, ParsecOrbitUiV1, ABI_VERSION,
+        MessageCallback, ParsecOrbitInterfaceHeader, ParsecOrbitUiV2, ABI_VERSION,
     };
     use parsec_orbit_plugin_sdk_testing::MockHost;
     use std::ffi::CStr;
@@ -263,52 +256,53 @@ mod tests {
 
     static REGISTERED: Mutex<Vec<String>> = Mutex::new(Vec::new());
     static SUBSCRIBED: Mutex<Vec<String>> = Mutex::new(Vec::new());
-    static STATES: Mutex<Vec<String>> = Mutex::new(Vec::new());
+    static PATCHES: Mutex<Vec<String>> = Mutex::new(Vec::new());
 
-    unsafe extern "system" fn fake_register(schema: *const u8, len: usize) -> i32 {
-        let text = String::from_utf8_lossy(unsafe { std::slice::from_raw_parts(schema, len) });
+    unsafe extern "system" fn fake_register(page: *const u8, len: usize) -> i32 {
+        let text = String::from_utf8_lossy(unsafe { std::slice::from_raw_parts(page, len) });
         REGISTERED.lock().unwrap().push(text.into_owned());
         0
     }
 
-    unsafe extern "system" fn fake_update_state(
-        _section: *const u8,
+    unsafe extern "system" fn fake_update_page(
+        _page: *const u8,
         _id_len: usize,
-        state: *const u8,
+        patch: *const u8,
         len: usize,
     ) -> i32 {
-        let text = String::from_utf8_lossy(unsafe { std::slice::from_raw_parts(state, len) });
-        STATES.lock().unwrap().push(text.into_owned());
+        let text = String::from_utf8_lossy(unsafe { std::slice::from_raw_parts(patch, len) });
+        PATCHES.lock().unwrap().push(text.into_owned());
         0
     }
 
     unsafe extern "system" fn fake_on_action(
-        section: *const u8,
+        page: *const u8,
         len: usize,
         _cb: Option<MessageCallback>,
         _user: *mut c_void,
     ) -> i64 {
-        let text = String::from_utf8_lossy(unsafe { std::slice::from_raw_parts(section, len) });
+        let text = String::from_utf8_lossy(unsafe { std::slice::from_raw_parts(page, len) });
         SUBSCRIBED.lock().unwrap().push(text.into_owned());
         1
     }
 
-    static FAKE_UI: ParsecOrbitUiV1 = ParsecOrbitUiV1 {
-        header: ParsecOrbitInterfaceHeader::new(std::mem::size_of::<ParsecOrbitUiV1>(), 1, 0),
+    static FAKE_UI: ParsecOrbitUiV2 = ParsecOrbitUiV2 {
+        header: ParsecOrbitInterfaceHeader::new(std::mem::size_of::<ParsecOrbitUiV2>(), 2, 0),
         show: None,
         hide: None,
         is_visible: None,
-        register_section: Some(fake_register),
-        unregister_section: None,
-        update_state: Some(fake_update_state),
+        navigate: None,
+        register_page: Some(fake_register),
+        unregister_page: None,
+        update_page: Some(fake_update_page),
         on_action: Some(fake_on_action),
         off_action: None,
     };
 
-    /// The plugin registers its section, subscribes to its actions, and the
-    /// section it shows starts from the state of an empty market.
+    /// The plugin registers its page, subscribes to its actions, and the
+    /// page it shows starts from the state of an empty market.
     #[test]
-    fn init_registers_the_section_and_subscribes_to_it() {
+    fn init_registers_the_page_and_subscribes_to_it() {
         let data = std::env::temp_dir()
             .join("ParsecOrbit-test-ui")
             .join("data")
@@ -321,20 +315,20 @@ mod tests {
 
         let registered = REGISTERED.lock().unwrap();
         assert_eq!(registered.len(), 1, "registered once");
-        let schema: serde_json::Value = serde_json::from_str(&registered[0]).unwrap();
-        assert_eq!(schema["id"], SECTION_ID);
-        assert_eq!(schema["title"], "Market");
+        let page: serde_json::Value = serde_json::from_str(&registered[0]).unwrap();
+        assert_eq!(page["id"], PAGE_ID);
+        assert_eq!(page["title"], "Market");
         drop(registered);
 
-        assert_eq!(SUBSCRIBED.lock().unwrap().as_slice(), [SECTION_ID]);
+        assert_eq!(SUBSCRIBED.lock().unwrap().as_slice(), [PAGE_ID]);
         assert!(host.logged("market"), "the start is logged");
         assert!(
-            STATES
+            PATCHES
                 .lock()
                 .unwrap()
                 .iter()
-                .any(|state| state.contains("market/sources.toml")),
-            "with no sources listed, the first state says so"
+                .any(|patch| patch.contains("market/sources.toml")),
+            "with no sources listed, the first patch says so"
         );
         assert!(ACTIONS.get().is_some(), "the queue is open");
     }

@@ -1972,6 +1972,7 @@ dependencies = [
  "parsec-orbit-plugin-sdk",
  "parsec-orbit-plugin-sdk-testing",
  "parsec-orbit-registry",
+ "parsec-orbit-ui-protocol",
  "serde_json",
 ]
 

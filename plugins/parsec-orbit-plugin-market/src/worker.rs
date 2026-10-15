@@ -1,9 +1,9 @@
-//! The market's worker: the registry client, the section and the actions, on
+//! The market's worker: the registry client, the page and the actions, on
 //! one thread.
 //!
 //! [`Worker::handle`] takes a UI action, asks the [`Controller`] what it means,
 //! runs the resulting commands (network and disk: the only place this plugin
-//! blocks) and pushes the section back to the UI. The UI callback only enqueues
+//! blocks) and pushes the page state back to the UI. The UI callback only enqueues
 //! the action; [`Worker::run`] drains the queue on the worker's own thread.
 //!
 //! Installs go to `<root>/plugins`, which the loader reads at start-up. An
@@ -21,18 +21,17 @@ use parsec_orbit_registry::source::Fetch;
 use parsec_orbit_registry::sources::Source;
 use parsec_orbit_registry::{trust, LOADER_API};
 
-use crate::controller::{Action, Command, Controller, Entry, Event, State, SECTION_ID};
+use crate::controller::{Action, Command, Controller, Entry, Event, State, PAGE_ID};
 
 /// Folder of the market's own files in the Orbit root: keys, cache.
 const MARKET_DIR: &str = "market";
 
-/// Puts the section on the UI. The Orbit UI in production; a recorder in tests.
-pub trait SectionPublisher {
-    /// Registers the section, which must not be registered yet.
-    fn register(&self, schema: &str) -> Result<(), String>;
-    fn unregister(&self, section_id: &str) -> Result<(), String>;
-    /// Pushes the values of the section (a JSON object keyed by control).
-    fn update_state(&self, section_id: &str, state: &str) -> Result<(), String>;
+/// Puts the page on the UI. The Orbit UI in production; a recorder in tests.
+pub trait PagePublisher {
+    /// Registers the page, which must not be registered yet.
+    fn register(&self, page: &str) -> Result<(), String>;
+    /// Applies a patch of values and presentation to the registered page.
+    fn update(&self, page_id: &str, patch: &str) -> Result<(), String>;
 }
 
 /// The plugins of one index, and the index itself, as last loaded.
@@ -40,7 +39,7 @@ struct Loaded {
     index: LoadedIndex,
 }
 
-pub struct Worker<P: SectionPublisher> {
+pub struct Worker<P: PagePublisher> {
     root: PathBuf,
     plugins_dir: PathBuf,
     pending_dir: PathBuf,
@@ -49,14 +48,14 @@ pub struct Worker<P: SectionPublisher> {
     fetch: Box<dyn Fetch + Send>,
     publisher: P,
     controller: Controller,
-    /// The schema the UI has, so that only a changed list re-registers.
-    published: Option<String>,
+    /// Whether the UI has the page; it is registered once, then patched.
+    published: bool,
     loaded: Option<Loaded>,
 }
 
-impl<P: SectionPublisher> Worker<P> {
+impl<P: PagePublisher> Worker<P> {
     /// A worker for the Orbit root `root`. `platform` is `None` on a computer
-    /// the market serves no packages for. The section is shown at once.
+    /// the market serves no packages for. The page is shown at once.
     pub fn new(
         root: PathBuf,
         sources: Vec<Source>,
@@ -81,7 +80,7 @@ impl<P: SectionPublisher> Worker<P> {
             fetch,
             publisher,
             controller,
-            published: None,
+            published: false,
             loaded: None,
         };
         worker.publish();
@@ -97,7 +96,7 @@ impl<P: SectionPublisher> Worker<P> {
     }
 
     /// Applies one UI action: the controller decides, the commands run, and the
-    /// section is pushed after each step.
+    /// page state is pushed after each step.
     pub fn handle(&mut self, action: &Action) {
         let commands = self.controller.handle(action);
         self.publish();
@@ -308,32 +307,26 @@ impl<P: SectionPublisher> Worker<P> {
             .with_cache(market_dir.join("cache")))
     }
 
-    /// Pushes the section to the UI: the schema when its options changed, then
-    /// the values. A failed registration is shown in the status line; the next
-    /// push tries again.
+    /// Pushes the page to the UI: registers it the first time, then applies the
+    /// current state as a patch. A failed registration is shown in the status
+    /// line; the next push tries again.
     fn publish(&mut self) {
-        let schema = self.controller.schema();
-        if self.published.as_deref() != Some(schema.as_str()) {
-            if self.published.is_some() {
-                let _ = self.publisher.unregister(SECTION_ID);
-            }
-            match self.publisher.register(&schema) {
-                Ok(()) => self.published = Some(schema),
+        if !self.published {
+            match self.publisher.register(&self.controller.page()) {
+                Ok(()) => self.published = true,
                 Err(error) => {
-                    self.published = None;
                     self.controller.apply(Event::Status(format!(
-                        "The Orbit UI did not take the market section: {error}"
+                        "The Orbit UI did not take the market page: {error}"
                     )));
+                    return;
                 }
             }
         }
-        let _ = self
-            .publisher
-            .update_state(SECTION_ID, &self.controller.state());
+        let _ = self.publisher.update(PAGE_ID, &self.controller.patch());
     }
 }
 
-/// The list the section shows: the plugins of `index` that this computer can
+/// The list the page shows: the plugins of `index` that this computer can
 /// install, with their states. A plugin with no release for `platform` and
 /// `api`, or with only withdrawn ones, is not listed. `updates` are the ids of
 /// the installed plugins with a newer release ([`Market::updates`]).
@@ -439,9 +432,8 @@ mod tests {
 
     #[derive(Default)]
     struct Calls {
-        schemas: Vec<String>,
-        unregistered: usize,
-        states: Vec<String>,
+        pages: Vec<String>,
+        patches: Vec<String>,
         /// Registrations to refuse before accepting one.
         refuse: usize,
     }
@@ -451,68 +443,73 @@ mod tests {
     struct Recorder(Arc<Mutex<Calls>>);
 
     impl Recorder {
-        fn last_state(&self) -> Value {
+        fn last_patch(&self) -> Value {
             let calls = self.0.lock().unwrap();
-            serde_json::from_str(calls.states.last().expect("a state was pushed")).unwrap()
+            serde_json::from_str(calls.patches.last().expect("a patch was pushed")).unwrap()
+        }
+
+        /// The values of the last patch, with the status line as `status`.
+        fn last_state(&self) -> Value {
+            let patch = self.last_patch();
+            let mut state = patch["values"].clone();
+            state["status"] = patch["props"]["status"]["message"].clone();
+            state
         }
 
         fn status(&self) -> String {
             self.last_state()["status"].as_str().unwrap().to_string()
         }
 
-        fn last_schema(&self) -> Value {
-            let calls = self.0.lock().unwrap();
-            serde_json::from_str(calls.schemas.last().expect("a schema was registered")).unwrap()
+        fn page_count(&self) -> usize {
+            self.0.lock().unwrap().pages.len()
         }
 
-        fn schema_count(&self) -> usize {
-            self.0.lock().unwrap().schemas.len()
-        }
-
-        fn unregistered(&self) -> usize {
-            self.0.lock().unwrap().unregistered
+        fn patch_count(&self) -> usize {
+            self.0.lock().unwrap().patches.len()
         }
 
         fn refuse_next(&self, times: usize) {
             self.0.lock().unwrap().refuse = times;
         }
 
-        /// The plugin ids offered by the picker in the last schema.
+        /// The plugin choices of the last patch, as `(id, label)`.
+        fn choices(&self) -> Vec<(String, String)> {
+            self.last_patch()["props"]["plugin"]["options"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|option| {
+                    (
+                        option["value"].as_str().unwrap().to_string(),
+                        option["label"].as_str().unwrap().to_string(),
+                    )
+                })
+                .collect()
+        }
+
+        /// The plugin ids offered by the picker in the last patch.
         fn offered(&self) -> Vec<String> {
-            let schema = self.last_schema();
-            schema["items"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .find(|item| item["key"] == "plugin")
-                .unwrap()["options"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .map(|option| option["value"].as_str().unwrap().to_string())
+            self.choices()
+                .into_iter()
+                .map(|(id, _)| id)
                 .filter(|id| !id.is_empty())
                 .collect()
         }
     }
 
-    impl SectionPublisher for Recorder {
-        fn register(&self, schema: &str) -> Result<(), String> {
+    impl PagePublisher for Recorder {
+        fn register(&self, page: &str) -> Result<(), String> {
             let mut calls = self.0.lock().unwrap();
             if calls.refuse > 0 {
                 calls.refuse -= 1;
                 return Err("refused by the test".to_string());
             }
-            calls.schemas.push(schema.to_string());
+            calls.pages.push(page.to_string());
             Ok(())
         }
 
-        fn unregister(&self, _section_id: &str) -> Result<(), String> {
-            self.0.lock().unwrap().unregistered += 1;
-            Ok(())
-        }
-
-        fn update_state(&self, _section_id: &str, state: &str) -> Result<(), String> {
-            self.0.lock().unwrap().states.push(state.to_string());
+        fn update(&self, _page_id: &str, patch: &str) -> Result<(), String> {
+            self.0.lock().unwrap().patches.push(patch.to_string());
             Ok(())
         }
     }
@@ -719,17 +716,12 @@ mod tests {
             ["com.example.alpha", "com.example.app", "com.example.delta"]
         );
         assert_eq!(recorder.status(), "Listed 4 plugin(s) from Test.");
-        let schema = recorder.last_schema();
-        let delta = schema["items"][3]["options"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|option| option["value"] == "com.example.delta")
+        let delta = recorder
+            .choices()
+            .into_iter()
+            .find(|(id, _)| id == "com.example.delta")
             .unwrap();
-        assert_eq!(
-            delta["label"],
-            "Plugin com.example.delta v1.0.0 (available)"
-        );
+        assert_eq!(delta.1, "Plugin com.example.delta v1.0.0 (available)");
     }
 
     #[test]
@@ -912,7 +904,7 @@ mod tests {
         assert!(recorder.status().contains("Restart Parsec"));
         // The list now shows the plugin as installed.
         assert_eq!(
-            recorder.last_schema()["items"][3]["options"][1]["label"],
+            recorder.choices()[1].1,
             "Plugin com.example.app v1.0.0 (installed)"
         );
     }
@@ -943,10 +935,7 @@ mod tests {
             .as_str()
             .unwrap()
             .contains("Trust:"));
-        assert!(recorder.last_schema()["items"][3]["options"][0]["label"]
-            .as_str()
-            .unwrap()
-            .ends_with("(update)"));
+        assert!(recorder.choices()[0].1.ends_with("(update)"));
 
         click(&mut worker, "update");
         assert!(
@@ -1064,29 +1053,29 @@ mod tests {
         assert!(!root.pending("com.example.alpha").exists());
     }
 
-    // ---- the section -------------------------------------------------------------
+    // ---- the page ----------------------------------------------------------------
 
     #[test]
-    fn the_section_is_registered_once_and_again_only_when_its_options_change() {
+    fn the_page_is_registered_once_and_every_change_is_a_patch() {
         let root = Root::new("register");
         let files = Files::default();
         first_registry(&root, &files);
         let recorder = Recorder::default();
         let mut worker = worker(&root, &files, &recorder);
-        assert_eq!(recorder.schema_count(), 1, "shown at start-up");
-        assert_eq!(recorder.unregistered(), 0);
+        assert_eq!(recorder.page_count(), 1, "shown at start-up");
+        assert_eq!(recorder.patch_count(), 1);
 
+        // A new list changes the choices, not the registration.
         refresh(&mut worker);
-        assert_eq!(recorder.schema_count(), 2, "the list changed");
-        assert_eq!(
-            recorder.unregistered(),
-            1,
-            "a registered section is replaced"
-        );
+        assert_eq!(recorder.page_count(), 1);
+        assert!(recorder.patch_count() > 1);
+        assert_eq!(recorder.offered().len(), 3);
 
-        // Selection and status change the values, not the schema.
+        // Selection and status are patches too.
+        let patches = recorder.patch_count();
         choose(&mut worker, "com.example.alpha");
-        assert_eq!(recorder.schema_count(), 2);
+        assert_eq!(recorder.page_count(), 1);
+        assert!(recorder.patch_count() > patches);
     }
 
     #[test]
@@ -1097,13 +1086,12 @@ mod tests {
         let recorder = Recorder::default();
         recorder.refuse_next(1);
         let mut worker = worker(&root, &files, &recorder);
-        assert!(recorder
-            .status()
-            .contains("did not take the market section"));
+        assert_eq!(recorder.page_count(), 0);
 
-        // The next push registers the section.
+        // The next push registers the page and shows the report.
         choose(&mut worker, "com.example.alpha");
-        assert_eq!(recorder.schema_count(), 1);
+        assert_eq!(recorder.page_count(), 1);
+        assert!(recorder.status().contains("did not take the market page"));
     }
 
     #[test]
