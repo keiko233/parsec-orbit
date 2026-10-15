@@ -830,7 +830,7 @@ fn bandwidth_script() -> String {
     .unwrap();
     let marker = "const EXTRA_MBPS = [";
     let start = template.find(marker).unwrap() + marker.len();
-    let end = start + template[start..].find("];\n").unwrap();
+    let end = start + template[start..].find("];").unwrap();
     let rendered = defaults
         .iter()
         .map(i32::to_string)
