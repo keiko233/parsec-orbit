@@ -42,6 +42,7 @@ open questions at the end.
 * [design/size-report.md](design/size-report.md) - measured sizes: runtime spike, plugins, loader
 * [design/releasing.md](design/releasing.md) - how releases and crate publishing are done
 * [design/network-installer.md](design/network-installer.md) - signed release manifests and the install/upgrade/uninstall script
+* [design/uu-relay-research.md](design/uu-relay-research.md) - Windows HPR-to-UU TURN feasibility, static evidence, open questions and experiment gates
 * [design/decisions/](design/decisions/) - decision records (`NNNN-title.md`)
 * [design/macos/](design/macos/) - macOS support research: constraints, client internals, the loader-as-host design and its dynamic smoke test
 * [guides/macos-console.md](guides/macos-console.md) - independent terminal log viewer
