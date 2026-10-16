@@ -83,135 +83,159 @@ export interface Config {
   set(key: string, value: unknown): Promise<void>;
 }
 
-/** Boolean switch checkbox. Payload shape: `boolean`. */
-export interface ToggleItem {
-  key: string;
-  type: "toggle";
-  label: string;
-  description?: string;
-  default?: boolean;
-}
 
-/** Text input with optional `placeholder` and multiline editing. Payload shape: `string`. */
-export interface TextInputItem {
-  key: string;
-  type: "text_input";
-  label: string;
-  description?: string;
-  placeholder?: string;
-  multiline?: boolean;
-  default?: string;
-}
+/** Semantic icon names. Each renderer maps them to its platform symbol set. */
+export type UiIconName =
+  | "home" | "plugin" | "log" | "network" | "video" | "audio" | "input" | "gamepad"
+  | "display" | "speed" | "security" | "server" | "settings" | "info" | "warning"
+  | "error" | "success" | "refresh" | "folder" | "copy" | "play" | "stop" | "restart"
+  | "download" | "delete" | "edit" | "link" | "clock" | "tools";
 
-/** Numeric input with optional `min`, `max`, `step`. Payload shape: `number`. */
-export interface NumberInputItem {
-  key: string;
-  type: "number_input";
-  label: string;
-  description?: string;
-  min?: number;
-  max?: number;
-  step?: number;
-  default?: number;
-}
+/** How serious a banner or a setting's status is. */
+export type UiSeverity = "info" | "success" | "warning" | "error";
 
-/** One option of a `select` dropdown. */
-export interface SelectOption {
+/** How prominent a command button is. Default `"standard"`. */
+export type UiButtonStyle = "standard" | "accent" | "destructive";
+
+/** One choice of a `select` control. `value` is a string or an integer. */
+export interface UiOption {
   label: string;
   value: string | number;
-}
-
-/** State update for a select whose available options can change at runtime. */
-export interface SelectState {
-  value: string | number;
-  options: SelectOption[];
-}
-
-/** Dropdown selector. Payload shape: `string` or `number`. */
-export interface SelectItem {
-  key: string;
-  type: "select";
-  label: string;
-  description?: string;
-  options: SelectOption[];
-  default?: string | number;
-}
-
-/** Action button triggering a click event. Payload shape: `null`. */
-export interface ButtonItem {
-  key: string;
-  type: "button";
-  label: string;
   description?: string;
 }
 
-/** Multiline JSON editor for complex configuration. Payload shape: `object` or `array`. */
-export interface JsonEditorItem {
+/** The control of a setting; its `type` fixes the value type. */
+export type UiControl =
+  /** A switch. Value: `boolean`. */
+  | { type: "toggle"; default: boolean; on_text?: string; off_text?: string }
+  /** A numeric field with spin buttons. Value: `number`. */
+  | {
+      type: "number";
+      default: number;
+      min?: number;
+      max?: number;
+      step?: number;
+      unit?: string;
+      integer?: boolean;
+    }
+  /** A range slider showing its value. Value: `number`. */
+  | { type: "slider"; default: number; min: number; max: number; step?: number; unit?: string }
+  /** A choice from a fixed list. Value: the selected option's `value`. */
+  | { type: "select"; default: string | number; options: UiOption[] }
+  /** Editable text. Value: `string`. `commit` defaults to `"submit"` (Enter or focus loss). */
+  | {
+      type: "text";
+      default?: string;
+      placeholder?: string;
+      multiline?: boolean;
+      rows?: number;
+      monospace?: boolean;
+      commit?: "submit" | "change";
+    }
+  /** A full-width editor for structured values. Value: object or array. */
+  | { type: "json"; default?: Record<string, unknown> | unknown[] }
+  /** A command button on the setting's row. Emits `click`; holds no value. */
+  | { type: "button"; text: string; style?: UiButtonStyle; icon?: UiIconName }
+  /** Read-only text. Value: `string`. Never emits an action. */
+  | { type: "value"; default?: string; monospace?: boolean; copyable?: boolean }
+  /** A read-only, scrolling, monospace region of at most 256 KiB. Value: `string`. */
+  | { type: "log"; default?: string; rows?: number };
+
+/** One thing the user can see or change. */
+export interface UiSetting {
+  /** Identity within the page, also the key in actions and patches. */
   key: string;
-  type: "json_editor";
   label: string;
   description?: string;
-  default?: Record<string, unknown> | unknown[];
+  icon?: UiIconName;
+  control: UiControl;
+  /** Shown when the setting is expanded. One level only. */
+  settings?: UiSetting[];
 }
 
-/** Read-only status value display. Payload shape: `string`. */
-export interface ReadonlyTextItem {
+/** A command button in an `actions` block. */
+export interface UiButton {
   key: string;
-  type: "readonly_text";
-  label: string;
-  description?: string;
-  default?: string;
+  text: string;
+  icon?: UiIconName;
+  style?: UiButtonStyle;
 }
 
-/** Read-only multiline text view. Payload shape: `string`. */
-export interface TextViewItem {
-  key: string;
-  type: "text_view";
-  label: string;
-  description?: string;
-  default?: string;
-}
+/** One block of a page. */
+export type UiBlock =
+  /** An inline notice. */
+  | { type: "banner"; key: string; severity: UiSeverity; title?: string; message: string }
+  /** A titled run of settings. */
+  | { type: "group"; title?: string; description?: string; settings: UiSetting[] }
+  /** A row of command buttons. */
+  | { type: "actions"; buttons: UiButton[] };
 
-/** One control in a {@link UiSection}, discriminated by `type`. */
-export type UiItem =
-  | ToggleItem
-  | TextInputItem
-  | NumberInputItem
-  | SelectItem
-  | ButtonItem
-  | JsonEditorItem
-  | ReadonlyTextItem
-  | TextViewItem;
-
-/** A visual panel or tab registered with the UI service. */
-export interface UiSection {
+/** One navigation destination registered with the UI service. */
+export interface UiPage {
+  schema: 2;
+  /** 1-128 characters of `A-Z a-z 0-9 _ . -`. The `orbit.` prefix is reserved. */
   id: string;
   title: string;
   description?: string;
+  icon?: UiIconName;
+  /** Plugin pages always belong to the `plugins` group; `orbit` is reserved. */
+  group?: "plugins";
+  /** Lower comes first within a group. Default `0`. */
   order?: number;
-  items: UiItem[];
+  blocks: UiBlock[];
+}
+
+/** Status text shown with a setting, such as a validation error. */
+export interface UiStatus {
+  severity: UiSeverity;
+  text: string;
+}
+
+/** Presentation changes for one element; absent members change nothing. */
+export interface UiProps {
+  enabled?: boolean;
+  visible?: boolean;
+  /** Shows progress and disables the control. */
+  busy?: boolean;
+  label?: string;
+  description?: string;
+  /** The text of a button. */
+  text?: string;
+  /** Replaces a `select`'s options. */
+  options?: UiOption[];
+  /** `null` clears the status. */
+  status?: UiStatus | null;
+  /** Banner only. */
+  severity?: UiSeverity;
+  title?: string;
+  message?: string;
+}
+
+/** The argument of {@link Ui.updatePage}. A patch applies entirely or not at all. */
+export interface UiPatch {
+  /** New control values by setting key. */
+  values?: Record<string, unknown>;
+  /** Presentation changes by banner, setting or button key. */
+  props?: Record<string, UiProps>;
+  /** Whether this page has changes that apply only after a client restart. */
+  restart_required?: boolean;
 }
 
 /** A user interaction with a control in the UI window. */
 export interface UiAction {
-  section: string;
+  page: string;
   key: string;
+  /** `"change"` carries the new value; `"click"` carries `null`. */
   type: "change" | "click";
   value?: unknown;
 }
 
 /**
- * Control values pushed to the rendered UI, by control key. A select may use
- * {@link SelectState}.
- */
-export type UiState = Record<string, unknown>;
-
-/**
  * Native companion window. Needs `permissions = ["ui"]` in `plugin.toml`;
  * without it `host.ui` is `undefined`.
  *
- * Everything maps onto the `parsec-orbit.ui` service, which has to be
- * installed (list `com.parsec-orbit.ui` in `requires`).
+ * Everything maps onto the `parsec-orbit.ui` service, version 2, which has to
+ * be installed (list `com.parsec-orbit.ui` in `requires`).
  */
 export interface Ui {
   /** Whether the companion window is currently visible. */
@@ -220,17 +244,16 @@ export interface Ui {
   show(): Promise<void>;
   /** Hides the companion window without stopping its event loop. */
   hide(): Promise<void>;
-  /** Registers a declarative section schema. */
-  registerSection(section: UiSection): Promise<void>;
-  /** Removes a registered section and unmounts its controls. */
-  unregisterSection(id: string): Promise<void>;
-  /**
-   * Pushes updated control values to the rendered UI. Select controls may
-   * receive a {@link SelectState}.
-   */
-  updateState(sectionId: string, state: UiState): Promise<void>;
-  /** Calls `handler` for each user interaction with a control. */
-  onAction(handler: (action: UiAction) => void): Unsubscribe;
+  /** Selects a registered page in the window. Does not change visibility. */
+  navigate(pageId: string): Promise<void>;
+  /** Registers a declarative page. Rejects when the page breaks a schema rule. */
+  registerPage(page: UiPage): Promise<void>;
+  /** Removes a registered page and unmounts its controls. */
+  unregisterPage(id: string): Promise<void>;
+  /** Applies a patch of values, presentation properties and the restart flag. */
+  updatePage(pageId: string, patch: UiPatch): Promise<void>;
+  /** Calls `handler` for each user interaction with a control on the page. */
+  onAction(pageId: string, handler: (action: UiAction) => void): Unsubscribe;
 }
 
 /** What `setup` receives. */

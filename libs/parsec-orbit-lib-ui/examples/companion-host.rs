@@ -21,17 +21,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     )
     .canonicalize()?;
     let registry = Arc::new(Registry::new());
-    assert_eq!(registry.register_section(r#"{
-        "id":"demo","title":"Plugin settings","items":[
-            {"key":"enabled","type":"toggle","label":"Enable plugin","default":true},
-            {"key":"name","type":"text_input","label":"Name / 中文输入","default":"Orbit"},
-            {"key":"limit","type":"number_input","label":"Limit","min":0,"max":100,"default":50},
-            {"key":"slider","type":"slider","label":"Quality","min":0,"max":100,"default":50},
-            {"key":"codec","type":"select","label":"Codec","options":[{"label":"HEVC","value":"hevc"},{"label":"AV1","value":"av1"}],"default":"hevc"},
-            {"key":"apply","type":"button","label":"Apply"},
-            {"key":"json","type":"json_editor","label":"JSON","default":{"enabled":true}},
-            {"key":"status","type":"readonly_text","label":"Status","default":"Ready"}
-        ]}"#), 0);
+    registry
+        .register_page(
+            r#"{
+        "schema":2,"id":"demo","title":"Plugin settings","icon":"plugin",
+        "description":"A page with one control of every kind.",
+        "blocks":[
+            {"type":"banner","key":"note","severity":"info","title":"Demo","message":"Disposable host; nothing here is saved."},
+            {"type":"group","title":"Controls","settings":[
+                {"key":"enabled","label":"Enable plugin","description":"A switch.","control":{"type":"toggle","default":true}},
+                {"key":"name","label":"Name / 中文输入","control":{"type":"text","default":"Orbit"}},
+                {"key":"limit","label":"Limit","control":{"type":"number","min":0,"max":100,"unit":"Mbps","default":50}},
+                {"key":"slider","label":"Quality","control":{"type":"slider","min":0,"max":100,"default":50}},
+                {"key":"codec","label":"Codec","control":{"type":"select","options":[{"label":"HEVC","value":"hevc"},{"label":"AV1","value":"av1"}],"default":"hevc"}},
+                {"key":"notes","label":"Notes","control":{"type":"text","multiline":true,"rows":4}},
+                {"key":"json","label":"JSON","control":{"type":"json","default":{"enabled":true}}},
+                {"key":"status","label":"Status","control":{"type":"value","default":"Ready"}}
+            ]},
+            {"type":"actions","buttons":[{"key":"apply","text":"Apply","style":"accent"}]}
+        ]}"#,
+            false,
+        )
+        .map_err(|failure| failure.reason)?;
     registry.on_action("demo", action, std::ptr::null_mut());
     let visible = Arc::new(AtomicBool::new(false));
     let companion = Companion::start(

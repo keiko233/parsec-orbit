@@ -1,22 +1,21 @@
-//! The Market section: what it shows, and what a user's action asks for.
+//! The Market page: what it shows, and what a user's action asks for.
 //!
-//! [`Controller`] holds the state of the section. A UI action
-//! ([`Action`], the `{"section","key","type","value"}` event of
+//! [`Controller`] holds the state of the page. A UI action
+//! ([`Action`], the `{"page","key","type","value"}` event of
 //! `docs/spec/ui-service.md`) becomes zero or more [`Command`]s for the worker,
 //! and the worker's results come back as [`Event`]s. Nothing here does I/O or
 //! starts a thread, so every rule is a plain test.
 //!
-//! Two outputs go to the UI. [`Controller::schema`] is the section for
-//! `register_section`; it depends only on the list of plugins and the sources,
-//! because the dropdown options are fixed at registration. [`Controller::state`]
-//! is the values for `update_state`; status and details live there, so a status
-//! line never re-registers the section. The keys are in
-//! `docs/spec/registry.md` ("In-client market plugin").
+//! Two outputs go to the UI. [`Controller::page`] is the page for
+//! `register_page`; it depends only on the configured sources and is registered
+//! once. [`Controller::patch`] is the patch for `update_page`: the values, the
+//! plugin choices, the status line and which buttons apply to the selected
+//! plugin. The keys are in `docs/spec/registry.md` ("In-client market plugin").
 
 use serde_json::{json, Value};
 
-/// The section this plugin registers.
-pub const SECTION_ID: &str = "com.parsec-orbit.market";
+/// The page this plugin registers.
+pub const PAGE_ID: &str = "com.parsec-orbit.market";
 
 /// The trust line in the details. The market only loads indexes that a trusted
 /// key signed, so every listed plugin is trusted in this sense.
@@ -35,10 +34,10 @@ pub struct Action {
 
 impl Action {
     /// Parses a delivered event. `None` for text that is not JSON, for an event of
-    /// another section, or for one without a key and a type.
+    /// another page, or for one without a key and a type.
     pub fn parse(text: &str) -> Option<Action> {
         let event: Value = serde_json::from_str(text).ok()?;
-        if event.get("section")?.as_str()? != SECTION_ID {
+        if event.get("page")?.as_str()? != PAGE_ID {
             return None;
         }
         Some(Action {
@@ -164,7 +163,7 @@ impl Filter {
     }
 }
 
-/// The state of the Market section.
+/// The state of the Market page.
 #[derive(Debug, Clone)]
 pub struct Controller {
     /// Names of the configured sources, in file order.
@@ -263,8 +262,10 @@ impl Controller {
         }
     }
 
-    /// The section schema for `register_section`.
-    pub fn schema(&self) -> String {
+    /// The page for `register_page`. Everything that changes goes through
+    /// [`Controller::patch`] (the status line included, which the first patch
+    /// fills in), so the page is the same for the life of the plugin.
+    pub fn page(&self) -> String {
         let sources = if self.sources.is_empty() {
             vec![json!({"label": "No source configured", "value": NOTHING})]
         } else {
@@ -273,6 +274,77 @@ impl Controller {
                 .map(|name| json!({"label": name, "value": name}))
                 .collect()
         };
+        let filters: Vec<Value> = [
+            Filter::All,
+            Filter::Installed,
+            Filter::Updates,
+            Filter::Official,
+        ]
+        .iter()
+        .map(|filter| json!({"label": filter.label(), "value": filter.key()}))
+        .collect();
+        json!({
+            "schema": 2,
+            "id": PAGE_ID,
+            "title": "Market",
+            "icon": "download",
+            "order": 100,
+            "description": "Browse, install, update and remove plugins from the signed registry.",
+            "blocks": [
+                {"type": "banner", "key": "status", "severity": "info", "message": ""},
+                {"type": "group", "title": "Source", "settings": [
+                    {
+                        "key": "source",
+                        "label": "Source",
+                        "description": "The registry the list comes from (market/sources.toml).",
+                        "control": {
+                            "type": "select",
+                            "default": self.sources.first().cloned().unwrap_or_default(),
+                            "options": sources,
+                        },
+                    },
+                    {
+                        "key": "filter",
+                        "label": "Show",
+                        "control": {"type": "select", "default": Filter::All.key(), "options": filters},
+                    },
+                    {
+                        "key": "show_libs",
+                        "label": "Show libraries",
+                        "description": "Libraries are installed as dependencies of the plugins that need them.",
+                        "control": {"type": "toggle", "default": false},
+                    },
+                ]},
+                {"type": "group", "title": "Plugins", "settings": [
+                    {
+                        "key": "plugin",
+                        "label": "Plugin",
+                        "control": {
+                            "type": "select",
+                            "default": NOTHING,
+                            "options": [{"label": "No plugins listed", "value": NOTHING}],
+                        },
+                    },
+                    {
+                        "key": "details",
+                        "label": "Details",
+                        "control": {"type": "value", "default": "Select a plugin to see its details."},
+                    },
+                ]},
+                {"type": "actions", "buttons": [
+                    {"key": "install", "text": "Install", "icon": "download", "style": "accent"},
+                    {"key": "update", "text": "Update"},
+                    {"key": "remove", "text": "Remove", "icon": "delete", "style": "destructive"},
+                    {"key": "refresh", "text": "Refresh", "icon": "refresh"},
+                ]},
+            ],
+        })
+        .to_string()
+    }
+
+    /// The patch for `update_page`: values, the plugin choices, the status line,
+    /// and which buttons the selected plugin allows.
+    pub fn patch(&self) -> String {
         let plugins = {
             let visible = self.visible();
             if visible.is_empty() {
@@ -289,85 +361,28 @@ impl Controller {
                     .collect()
             }
         };
-        let filters: Vec<Value> = [
-            Filter::All,
-            Filter::Installed,
-            Filter::Updates,
-            Filter::Official,
-        ]
-        .iter()
-        .map(|filter| json!({"label": filter.label(), "value": filter.key()}))
-        .collect();
+        let selected = self.selected_entry();
         json!({
-            "id": SECTION_ID,
-            "title": "Market",
-            "description": "Browse, install, update and remove plugins from the signed registry",
-            "order": 100,
-            "items": [
-                {
-                    "key": "source",
-                    "type": "select",
-                    "label": "Source",
-                    "description": "The registry the list comes from (market/sources.toml)",
-                    "options": sources,
-                    "default": self.sources.first().cloned().unwrap_or_default(),
-                },
-                {
-                    "key": "filter",
-                    "type": "select",
-                    "label": "Show",
-                    "options": filters,
-                    "default": Filter::All.key(),
-                },
-                {
-                    "key": "show_libs",
-                    "type": "toggle",
-                    "label": "Show libraries",
-                    "description": "Libraries are installed as dependencies of the plugins that need them",
-                    "default": false,
-                },
-                {
-                    "key": "plugin",
-                    "type": "select",
-                    "label": "Plugin",
-                    "options": plugins,
-                    "default": NOTHING,
-                },
-                {
-                    "key": "details",
-                    "type": "readonly_text",
-                    "label": "Details",
-                    "default": "Select a plugin to see its details.",
-                },
-                {"key": "install", "type": "button", "label": "Install"},
-                {"key": "update", "type": "button", "label": "Update"},
-                {"key": "remove", "type": "button", "label": "Remove"},
-                {"key": "refresh", "type": "button", "label": "Refresh"},
-                {
-                    "key": "status",
-                    "type": "readonly_text",
-                    "label": "Status",
-                    "default": "",
-                },
-            ],
+            "values": {
+                "source": self.source.clone().unwrap_or_else(|| NOTHING.to_string()),
+                "filter": self.filter.key(),
+                "show_libs": self.show_libs,
+                "plugin": self.selected.clone().unwrap_or_else(|| NOTHING.to_string()),
+                "details": self.details(),
+            },
+            "props": {
+                "plugin": {"options": plugins},
+                "status": {"message": self.status, "visible": !self.status.is_empty()},
+                "install": {"enabled": selected.is_some_and(|entry| entry.state == State::Available)},
+                "update": {"enabled": selected.is_some_and(|entry| entry.state == State::Update)},
+                "remove": {"enabled": selected.is_some_and(|entry| entry.installed.is_some())},
+                "refresh": {"enabled": self.source.is_some()},
+            },
         })
         .to_string()
     }
 
-    /// The values for `update_state`: a JSON object keyed by control.
-    pub fn state(&self) -> String {
-        json!({
-            "source": self.source.clone().unwrap_or_else(|| NOTHING.to_string()),
-            "filter": self.filter.key(),
-            "show_libs": self.show_libs,
-            "plugin": self.selected.clone().unwrap_or_else(|| NOTHING.to_string()),
-            "details": self.details(),
-            "status": self.status,
-        })
-        .to_string()
-    }
-
-    /// The details of the selected plugin, as one line.
+    /// The details of the selected plugin, one fact per line.
     pub fn details(&self) -> String {
         let Some(entry) = self.selected_entry() else {
             return "Select a plugin to see its details.".to_string();
@@ -390,7 +405,7 @@ impl Controller {
             "no"
         };
         format!(
-            "Summary: {} | Author: {} | License: {} | Requires: {} | Size: {} | Source: {} | Trust: {} | Yanked: {}",
+            "Summary: {}\nAuthor: {}\nLicense: {}\nRequires: {}\nSize: {}\nSource: {}\nTrust: {}\nYanked: {}",
             text(&entry.summary),
             text(&entry.author),
             text(&entry.license),
@@ -529,24 +544,16 @@ mod tests {
         controller.handle(&act("plugin", "change", json!(id)));
     }
 
-    fn schema_json(controller: &Controller) -> Value {
-        serde_json::from_str(&controller.schema()).expect("the schema is JSON")
+    fn page_json(controller: &Controller) -> Value {
+        serde_json::from_str(&controller.page()).expect("the page is JSON")
     }
 
-    fn section_items(schema: &Value) -> Vec<Value> {
-        schema["items"].as_array().expect("items").clone()
+    fn patch_json(controller: &Controller) -> Value {
+        serde_json::from_str(&controller.patch()).expect("the patch is JSON")
     }
 
-    fn item<'a>(items: &'a [Value], key: &str) -> &'a Value {
-        items
-            .iter()
-            .find(|item| item["key"] == key)
-            .unwrap_or_else(|| panic!("no item {key}"))
-    }
-
-    fn plugin_options(schema: &Value) -> Vec<(String, String)> {
-        let items = section_items(schema);
-        item(&items, "plugin")["options"]
+    fn plugin_options(controller: &Controller) -> Vec<(String, String)> {
+        patch_json(controller)["props"]["plugin"]["options"]
             .as_array()
             .unwrap()
             .iter()
@@ -559,54 +566,56 @@ mod tests {
             .collect()
     }
 
+    /// The values the page shows, with the status line, as one object.
     fn state_json(controller: &Controller) -> Value {
-        serde_json::from_str(&controller.state()).expect("the state is JSON")
+        let patch = patch_json(controller);
+        let mut state = patch["values"].clone();
+        state["status"] = patch["props"]["status"]["message"].clone();
+        state
     }
 
-    // ---- the schema ------------------------------------------------------------
+    fn enabled(controller: &Controller, button: &str) -> bool {
+        patch_json(controller)["props"][button]["enabled"]
+            .as_bool()
+            .unwrap()
+    }
 
-    /// The shape `register_section` accepts (`docs/spec/ui-service.md`, and the
-    /// `UiSection` type in `libs/parsec-orbit-lib-ui`, which this crate cannot
-    /// depend on): an id, a title, and items with a key, a type and a label.
+    /// The page as the service would validate and register it.
+    fn registered(controller: &Controller) -> parsec_orbit_ui_protocol::PageState {
+        parsec_orbit_ui_protocol::PageState::new(
+            parsec_orbit_ui_protocol::UiPage::parse(&controller.page(), false)
+                .unwrap_or_else(|error| panic!("the page breaks the schema: {error}")),
+        )
+    }
+
+    fn apply_patch(page: &mut parsec_orbit_ui_protocol::PageState, controller: &Controller) {
+        let patch = serde_json::from_str(&controller.patch()).unwrap();
+        page.apply_patch(patch)
+            .unwrap_or_else(|error| panic!("the service refuses the patch: {error}"));
+    }
+
+    // ---- the page ------------------------------------------------------------------
+
+    /// The service validates the page the market registers; this is its rulebook,
+    /// shared through the protocol crate.
     #[test]
-    fn the_schema_is_the_ui_section_shape() {
-        let schema = schema_json(&controller(vec![entry("a", State::Available)]));
-        assert_eq!(schema["id"], SECTION_ID);
-        assert!(schema["title"].as_str().is_some_and(|t| !t.is_empty()));
-        let items = section_items(&schema);
-        let mut keys = Vec::new();
-        for item in &items {
-            let key = item["key"].as_str().expect("a key");
-            assert!(!keys.contains(&key), "{key} twice");
-            keys.push(key);
-            assert!(item["label"].as_str().is_some(), "{key} has no label");
-            let kind = item["type"].as_str().expect("a type");
-            assert!(
-                [
-                    "toggle",
-                    "text_input",
-                    "number_input",
-                    "slider",
-                    "select",
-                    "button",
-                    "json_editor",
-                    "readonly_text",
-                    "text"
-                ]
-                .contains(&kind),
-                "{kind} is not an item type"
-            );
-            if kind == "select" {
-                let options = item["options"].as_array().expect("a select has options");
-                assert!(!options.is_empty(), "{key} has no options");
-                assert!(options
-                    .iter()
-                    .all(|option| option["label"].is_string() && option.get("value").is_some()));
-            }
-        }
+    fn the_page_satisfies_the_service_schema_with_the_keys_of_the_design() {
+        let page = registered(&controller(vec![entry("a", State::Available)]));
+        assert_eq!(page.page.id, PAGE_ID);
+        let keys: Vec<_> = page
+            .page
+            .elements()
+            .iter()
+            .map(|element| match element {
+                parsec_orbit_ui_protocol::schema::Element::Banner(b) => b.key.clone(),
+                parsec_orbit_ui_protocol::schema::Element::Setting(s) => s.key.clone(),
+                parsec_orbit_ui_protocol::schema::Element::Button(b) => b.key.clone(),
+            })
+            .collect();
         assert_eq!(
             keys,
             [
+                "status",
                 "source",
                 "filter",
                 "show_libs",
@@ -615,30 +624,38 @@ mod tests {
                 "install",
                 "update",
                 "remove",
-                "refresh",
-                "status"
+                "refresh"
             ]
         );
+        assert_eq!(page.values["source"], "Main");
+        assert_eq!(page.values["filter"], "all");
     }
 
     #[test]
-    fn the_schema_has_the_item_types_of_the_design() {
-        let schema = schema_json(&controller(Vec::new()));
-        let items = section_items(&schema);
-        let kind = |key: &str| item(&items, key)["type"].as_str().unwrap().to_string();
-        assert_eq!(kind("source"), "select");
-        assert_eq!(kind("filter"), "select");
-        assert_eq!(kind("show_libs"), "toggle");
-        assert_eq!(kind("plugin"), "select");
-        assert_eq!(kind("details"), "readonly_text");
-        for button in ["install", "update", "remove", "refresh"] {
-            assert_eq!(kind(button), "button");
+    fn every_patch_is_accepted_by_the_registered_page() {
+        let mut library = entry("lib", State::Yanked);
+        library.library = true;
+        let mut controller = controller(vec![
+            entry("new", State::Available),
+            entry("upd", State::Update),
+            library,
+        ]);
+        let mut page = registered(&controller);
+        apply_patch(&mut page, &controller);
+        for action in [
+            act("plugin", "change", json!("upd")),
+            act("show_libs", "change", json!(true)),
+            act("filter", "change", json!("installed")),
+            act("install", "click", Value::Null),
+            act("source", "change", json!("Mirror")),
+        ] {
+            controller.handle(&action);
+            apply_patch(&mut page, &controller);
         }
-        assert_eq!(kind("status"), "readonly_text");
-        assert_eq!(
-            item(&items, "filter")["options"].as_array().unwrap().len(),
-            4
-        );
+        controller.apply(Event::Listing(Vec::new()));
+        apply_patch(&mut page, &controller);
+        assert_eq!(page.values["plugin"], NOTHING);
+        assert_eq!(page.props["plugin"].options.as_ref().unwrap().len(), 1);
     }
 
     #[test]
@@ -646,15 +663,15 @@ mod tests {
         let mut library = entry("lib", State::Available);
         library.library = true;
         let mut controller = controller(vec![entry("a", State::Available), library]);
-        assert_eq!(plugin_options(&schema_json(&controller)).len(), 1);
+        assert_eq!(plugin_options(&controller).len(), 1);
 
         controller.handle(&act("show_libs", "change", json!(true)));
-        let options = plugin_options(&schema_json(&controller));
+        let options = plugin_options(&controller);
         assert_eq!(options.len(), 2);
         assert!(options.iter().any(|(id, _)| id == "lib"));
 
         controller.handle(&act("show_libs", "change", json!(false)));
-        assert_eq!(plugin_options(&schema_json(&controller)).len(), 1);
+        assert_eq!(plugin_options(&controller).len(), 1);
     }
 
     #[test]
@@ -663,9 +680,8 @@ mod tests {
             entry("a", State::Available),
             entry("b", State::Update),
         ]);
-        let options = plugin_options(&schema_json(&controller));
         assert_eq!(
-            options,
+            plugin_options(&controller),
             [
                 ("a".to_string(), "Plugin a v1.1.0 (available)".to_string()),
                 ("b".to_string(), "Plugin b v1.1.0 (update)".to_string()),
@@ -677,40 +693,56 @@ mod tests {
     fn an_empty_list_offers_a_placeholder() {
         let controller = controller(Vec::new());
         assert_eq!(
-            plugin_options(&schema_json(&controller)),
+            plugin_options(&controller),
             [(NOTHING.to_string(), "No plugins listed".to_string())]
         );
     }
 
     #[test]
-    fn status_and_details_do_not_change_the_schema() {
-        // A change of schema re-registers the section, which resets the user's
-        // place; status text and the details line must never cause one.
+    fn status_and_details_never_change_the_registered_page() {
+        // The page is registered once; selection, status and the list are patches.
         let mut controller = controller(vec![entry("a", State::Available)]);
-        let before = controller.schema();
+        let before = controller.page();
         controller.apply(Event::Status("Loading Main...".to_string()));
         controller.handle(&act("plugin", "change", json!("a")));
         controller.handle(&act("install", "click", Value::Null));
-        assert_eq!(controller.schema(), before);
+        assert_eq!(controller.page(), before);
     }
 
     #[test]
-    fn the_schema_fixes_the_source_names_and_the_default() {
-        let controller = controller(Vec::new());
-        let schema = schema_json(&controller);
-        let items = section_items(&schema);
-        let sources = item(&items, "source");
+    fn the_page_fixes_the_source_names_and_the_default() {
+        let page = page_json(&controller(Vec::new()));
+        let sources = &page["blocks"][1]["settings"][0]["control"];
         assert_eq!(sources["options"][0]["label"], "Main");
         assert_eq!(sources["options"][1]["label"], "Mirror");
         assert_eq!(sources["default"], "Main");
 
-        let none = Controller::new(Vec::new());
-        let schema = schema_json(&none);
-        let items = section_items(&schema);
+        let page = page_json(&Controller::new(Vec::new()));
         assert_eq!(
-            item(&items, "source")["options"][0]["label"],
+            page["blocks"][1]["settings"][0]["control"]["options"][0]["label"],
             "No source configured"
         );
+    }
+
+    #[test]
+    fn the_buttons_follow_the_selected_plugin() {
+        let mut controller = controller(vec![
+            entry("new", State::Available),
+            entry("upd", State::Update),
+            entry("ins", State::Installed),
+        ]);
+        let enabled_set = |controller: &Controller| -> [bool; 4] {
+            ["install", "update", "remove", "refresh"].map(|key| enabled(controller, key))
+        };
+        select(&mut controller, "new");
+        assert_eq!(enabled_set(&controller), [true, false, false, true]);
+        select(&mut controller, "upd");
+        assert_eq!(enabled_set(&controller), [false, true, true, true]);
+        select(&mut controller, "ins");
+        assert_eq!(enabled_set(&controller), [false, false, true, true]);
+
+        let none = Controller::new(Vec::new());
+        assert_eq!(enabled_set(&none), [false, false, false, false]);
     }
 
     // ---- actions -----------------------------------------------------------------
@@ -718,23 +750,23 @@ mod tests {
     #[test]
     fn an_action_is_read_from_the_ui_event() {
         let action = Action::parse(
-            r#"{"section":"com.parsec-orbit.market","key":"filter","type":"change","value":"updates"}"#,
+            r#"{"page":"com.parsec-orbit.market","key":"filter","type":"change","value":"updates"}"#,
         )
         .unwrap();
         assert_eq!(action, act("filter", "change", json!("updates")));
 
         let click = Action::parse(
-            r#"{"section":"com.parsec-orbit.market","key":"install","type":"click","value":null}"#,
+            r#"{"page":"com.parsec-orbit.market","key":"install","type":"click","value":null}"#,
         )
         .unwrap();
         assert_eq!(click.value, Value::Null);
 
         assert!(Action::parse(
-            r#"{"section":"com.parsec-orbit.native","key":"filter","type":"change","value":"all"}"#
+            r#"{"page":"com.parsec-orbit.native","key":"filter","type":"change","value":"all"}"#
         )
         .is_none());
         assert!(Action::parse("not json").is_none());
-        assert!(Action::parse(r#"{"section":"com.parsec-orbit.market","key":"filter"}"#).is_none());
+        assert!(Action::parse(r#"{"page":"com.parsec-orbit.market","key":"filter"}"#).is_none());
     }
 
     #[test]
@@ -742,7 +774,7 @@ mod tests {
         let mut controller = controller(vec![entry("a", State::Available)]);
         let commands = controller.handle(&act("source", "change", json!("Mirror")));
         assert_eq!(commands, [Command::Refresh("Mirror".to_string())]);
-        assert!(plugin_options(&schema_json(&controller))[0].0 == NOTHING);
+        assert!(plugin_options(&controller)[0].0 == NOTHING);
         assert_eq!(state_json(&controller)["source"], "Mirror");
     }
 
@@ -753,7 +785,7 @@ mod tests {
             .handle(&act("source", "change", json!("Nowhere")))
             .is_empty());
         assert_eq!(state_json(&controller)["source"], "Main");
-        assert_eq!(plugin_options(&schema_json(&controller)).len(), 1);
+        assert_eq!(plugin_options(&controller).len(), 1);
     }
 
     #[test]
@@ -790,7 +822,7 @@ mod tests {
         controller.handle(&act("show_libs", "change", json!(true)));
         let shown = |controller: &mut Controller, filter: &str| -> Vec<String> {
             controller.handle(&act("filter", "change", json!(filter)));
-            plugin_options(&schema_json(controller))
+            plugin_options(controller)
                 .into_iter()
                 .map(|(id, _)| id)
                 .filter(|id| !id.is_empty())
@@ -903,9 +935,7 @@ mod tests {
             details.contains("Yanked: the installed version was withdrawn"),
             "{details}"
         );
-        assert!(plugin_options(&schema_json(&controller))[0]
-            .1
-            .ends_with("(yanked)"));
+        assert!(plugin_options(&controller)[0].1.ends_with("(yanked)"));
     }
 
     // ---- results and state -----------------------------------------------------------
@@ -923,7 +953,7 @@ mod tests {
         select(&mut controller, "a");
         assert_eq!(
             controller.details(),
-            "Summary: Does a thing | Author: Someone | License: MIT | Requires: com.parsec-orbit.ui, x.y | Size: 1.5 MiB | Source: Main | Trust: signed by a trusted key | Yanked: no"
+            "Summary: Does a thing\nAuthor: Someone\nLicense: MIT\nRequires: com.parsec-orbit.ui, x.y\nSize: 1.5 MiB\nSource: Main\nTrust: signed by a trusted key\nYanked: no"
         );
     }
 
@@ -954,7 +984,7 @@ mod tests {
     }
 
     #[test]
-    fn the_state_carries_every_value_the_section_shows() {
+    fn the_state_carries_every_value_the_page_shows() {
         let mut controller = controller(vec![entry("a", State::Available)]);
         select(&mut controller, "a");
         controller.apply(Event::Status("Listed 1 plugin from Main.".to_string()));

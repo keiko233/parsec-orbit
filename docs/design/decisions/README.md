@@ -36,3 +36,6 @@ accepted records retain their original names; use the full link to distinguish t
 | [0024](0024-restructured-ui-companion.md) | Integrate the UI companion with the crate role layout | Accepted |
 | [0025](0025-ui-settings-and-shared-log-tail.md) | Built-in UI settings and shared bounded log following | Accepted |
 | [0026](0026-ui-hotkeys-belong-to-the-user.md) | Reserve desktop UI activation for the user process | Accepted |
+| [0027](0027-windows-fluent-xaml-shell.md) | Render the Windows companion as a Fluent XAML shell over winio | Accepted |
+| [0028](0028-ui-service-abi-v2.md) | Describe UI by pages, groups and settings in service version 2 | Accepted |
+| [0029](0029-native-design-language.md) | Follow each platform's design language and system appearance | Accepted |

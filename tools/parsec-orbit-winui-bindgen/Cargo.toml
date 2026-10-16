@@ -1,0 +1,15 @@
+[package]
+name = "parsec-orbit-winui-bindgen"
+description = "Generates the WinUI 3 bindings the Orbit UI companion uses beyond winio's own"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[[bin]]
+name = "parsec-orbit-winui-bindgen"
+path = "src/main.rs"
+
+[dependencies]
+windows-bindgen = "=0.62.1"

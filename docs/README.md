@@ -19,7 +19,7 @@
 | [spec/js-sdk.md](spec/js-sdk.md) | Implemented | JS plugin model, `@parsec-orbit/sdk` TypeScript API, WebView operations |
 | [spec/marketplace.md](spec/marketplace.md) | Implemented | Plugin index, sha256, signatures, safe installation, `parsec-orbit-market` |
 | [spec/registry.md](spec/registry.md) | Partly implemented | Format-1 index additions (serial, yanked, mirrors, platform), cache, `host.json`, `trusted-keys.toml` |
-| [spec/ui-service.md](spec/ui-service.md) | Draft | Declarative UI service (parsec-orbit.ui), winio companion window, schema, SDK bindings |
+| [spec/ui-service.md](spec/ui-service.md) | Draft (2.0) | Declarative UI service (parsec-orbit.ui), winio companion window, page schema, SDK bindings |
 | [spec/ui-settings.md](spec/ui-settings.md) | Implemented | Overview, Windows restart-and-apply, bounded Log panel |
 | [spec/high-bitrate.md](spec/high-bitrate.md) | Implemented | Shared editable native/WebView bandwidth choices |
 | [spec/stun-swap.md](spec/stun-swap.md) | Implemented | STUN latency display, manual selection and custom servers |

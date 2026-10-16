@@ -19,9 +19,12 @@ use std::ffi::c_void;
 use std::sync::{Arc, Mutex};
 
 use parsec_orbit_plugin_sdk::prelude::*;
-use parsec_orbit_plugin_sdk::services::{ConfigClient, UiClient};
+use parsec_orbit_plugin_sdk::services::ui::UiClient;
+use parsec_orbit_plugin_sdk::services::ConfigClient;
 
 const CONFIG_OWNER: &str = "com.parsec-orbit.native";
+const PAGE_ID: &str = "com.parsec-orbit.native";
+const STATUS_KEY: &str = "patch_status";
 const CONFIG_KEY: &str = "extra_bandwidth_mbps";
 const ENABLED_KEY: &str = "enabled";
 const MAX_EXTRA_OPTIONS: usize = 128;
@@ -89,53 +92,94 @@ fn load_enabled(config: Option<ConfigClient>) -> bool {
     }
 }
 
-fn native_ui_schema(extras: &[i32], enabled: bool) -> String {
-    let extras = serde_json::to_string(extras).expect("integer list serializes as JSON");
-    let enabled = enabled.to_string();
-    format!(
-        r#"{{
-    "id": "com.parsec-orbit.native",
-    "title": "High Bitrate",
-    "description": "Bandwidth limit options for the native (libmatoya) client UI",
-    "order": 10,
-    "items": [
-        {{
-            "key": "enabled",
-            "type": "toggle",
-            "label": "Extend the bandwidth ladder",
-            "description": "Append the options above 50 Mbps to Parsec's Bandwidth Limit dropdown",
-            "default": {enabled}
-        }},
-        {{
-            "key": "extra_bandwidth_mbps",
-            "type": "json_editor",
-            "label": "Additional bandwidth options (Mbps)",
-            "description": "Enter integer Mbps values above 50. Values are sorted and duplicates removed; changes apply after restarting the client.",
-            "default": {extras}
-        }},
-        {{
-            "key": "patch_status",
-            "type": "readonly_text",
-            "label": "Patch status",
-            "description": "What the in-memory patch did, written by the plugin",
-            "default": "Waiting for the client UI..."
-        }}
-    ]
-}}"#
-    )
+/// The additional options as the page shows them: `85, 125`.
+fn format_extras(extras: &[i32]) -> String {
+    extras
+        .iter()
+        .map(i32::to_string)
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
-/// Logs a line and shows it in the Orbit UI's status row.
-fn report(cx: &Context, message: &str) {
-    info!(cx, "{message}");
+/// Reads what the user typed: integers separated by commas or spaces.
+fn parse_extras(text: &str) -> std::result::Result<Vec<i32>, String> {
+    text.split(|c: char| c == ',' || c.is_whitespace())
+        .filter(|token| !token.is_empty())
+        .map(|token| {
+            token
+                .parse::<i32>()
+                .map_err(|_| format!("\"{token}\" is not an integer"))
+        })
+        .collect()
+}
+
+fn native_ui_page(extras: &[i32], enabled: bool) -> String {
+    serde_json::json!({
+        "schema": 2,
+        "id": PAGE_ID,
+        "title": "High Bitrate",
+        "icon": "speed",
+        "order": 10,
+        "description": "Bandwidth limit options for the native (libmatoya) client UI.",
+        "blocks": [
+            {"type": "group", "title": "Bandwidth ladder", "settings": [
+                {
+                    "key": ENABLED_KEY,
+                    "label": "Extend the bandwidth ladder",
+                    "description": "Append the options above 50 Mbps to Parsec's Bandwidth Limit dropdown.",
+                    "control": {"type": "toggle", "default": enabled}
+                },
+                {
+                    "key": CONFIG_KEY,
+                    "label": "Additional options",
+                    "description": "Mbps values above 50, separated by commas. Values are sorted and duplicates removed; up to 128.",
+                    "control": {
+                        "type": "text",
+                        "placeholder": "85, 125, 200",
+                        "default": format_extras(extras)
+                    }
+                }
+            ]},
+            {"type": "group", "title": "Status", "settings": [
+                {
+                    "key": STATUS_KEY,
+                    "label": "Patch status",
+                    "description": "What the in-memory patch did.",
+                    "control": {"type": "value", "default": "Waiting for the client UI..."}
+                }
+            ]}
+        ]
+    })
+    .to_string()
+}
+
+fn update_page(cx: &Context, patch: serde_json::Value) {
     if let Some(ui) = UiClient::new(cx) {
-        let escaped = message.replace('\\', "\\\\").replace('"', "\\\"");
-        let json = format!(r#"{{"patch_status":"{escaped}"}}"#);
-        let _ = ui.update_state("com.parsec-orbit.native", &json);
+        let _ = ui.update_page(PAGE_ID, &patch.to_string());
     }
 }
 
-/// Handles the section's controls. The state remains alive for the plugin's
+/// Logs a line and shows it as the patch status.
+fn report(cx: &Context, message: &str) {
+    info!(cx, "{message}");
+    update_page(cx, serde_json::json!({"values": {STATUS_KEY: message}}));
+}
+
+/// Shows the outcome of an edit beside the setting. A saved change applies
+/// only after the client restarts, which the page announces.
+fn outcome(cx: &Context, key: &str, saved: bool, message: &str) {
+    info!(cx, "{message}");
+    let severity = if saved { "success" } else { "error" };
+    let mut patch = serde_json::json!({
+        "props": {key: {"status": {"severity": severity, "text": message}}}
+    });
+    if saved {
+        patch["restart_required"] = serde_json::json!(true);
+    }
+    update_page(cx, patch);
+}
+
+/// Handles the page's controls. The state remains alive for the plugin's
 /// process lifetime, matching the UI service callback lifetime.
 unsafe extern "system" fn on_native_action(user: *mut c_void, msg: *const u8, len: usize) {
     if user.is_null() {
@@ -152,81 +196,98 @@ unsafe extern "system" fn on_native_action(user: *mut c_void, msg: *const u8, le
     };
     let value = action.get("value");
     match action.get("key").and_then(|key| key.as_str()) {
-        Some("enabled") => {
+        Some(ENABLED_KEY) => {
+            let cx = &settings.cx;
             let Some(enabled) = value.and_then(|value| value.as_bool()) else {
-                report(
-                    &settings.cx,
-                    "Settings were not saved: enabled must be a boolean.",
-                );
+                outcome(cx, ENABLED_KEY, false, "Not saved: expected on or off.");
                 return;
             };
             let Some(config) = settings.config else {
-                report(
-                    &settings.cx,
-                    "Settings were not saved: config service is unavailable.",
+                outcome(
+                    cx,
+                    ENABLED_KEY,
+                    false,
+                    "Not saved: the config service is unavailable.",
                 );
                 return;
             };
             match config.set(ENABLED_KEY, if enabled { "true" } else { "false" }) {
                 Ok(()) => {
                     *settings.enabled.lock().unwrap() = enabled;
-                    report(
-                        &settings.cx,
-                        "Enabled setting saved; restart the client to apply it.",
+                    outcome(
+                        cx,
+                        ENABLED_KEY,
+                        true,
+                        "Saved. Restart the client to apply it.",
                     );
                 }
-                Err(error) => report(
-                    &settings.cx,
-                    &format!(
-                        "Enabled setting was not saved (config error {}).",
-                        error.code()
-                    ),
+                Err(error) => outcome(
+                    cx,
+                    ENABLED_KEY,
+                    false,
+                    &format!("Not saved (config error {}).", error.code()),
                 ),
             }
         }
         Some(CONFIG_KEY) => {
-            let parsed =
-                value.and_then(|value| serde_json::from_value::<Vec<i32>>(value.clone()).ok());
-            let Some(parsed) = parsed else {
-                report(
-                    &settings.cx,
-                    "Options were not saved: enter a JSON array of integers.",
+            let cx = &settings.cx;
+            let Some(text) = value.and_then(|value| value.as_str()) else {
+                outcome(
+                    cx,
+                    CONFIG_KEY,
+                    false,
+                    "Not saved: expected a list of numbers.",
                 );
                 return;
             };
-            let extras = match normalize_extras(parsed) {
+            let extras = match parse_extras(text)
+                .and_then(|parsed| normalize_extras(parsed).map_err(str::to_string))
+            {
                 Ok(extras) => extras,
                 Err(error) => {
-                    report(&settings.cx, &format!("Options were not saved: {error}."));
+                    outcome(cx, CONFIG_KEY, false, &format!("Not saved: {error}."));
                     return;
                 }
             };
             let Ok(json) = serde_json::to_string(&extras) else {
-                report(
-                    &settings.cx,
-                    "Options were not saved: could not encode the integer list.",
+                outcome(
+                    cx,
+                    CONFIG_KEY,
+                    false,
+                    "Not saved: could not encode the integer list.",
                 );
                 return;
             };
-            if let Some(config) = settings.config {
-                match config.set(CONFIG_KEY, &json) {
-                    Ok(()) => {
-                        *settings.extras.lock().unwrap() = extras;
-                        report(
-                            &settings.cx,
-                            "Options saved; restart the client to apply them.",
-                        );
-                    }
-                    Err(error) => report(
-                        &settings.cx,
-                        &format!("Options were not saved (config error {}).", error.code()),
-                    ),
-                }
-            } else {
-                report(
-                    &settings.cx,
-                    "Options were not saved: config service is unavailable.",
+            let Some(config) = settings.config else {
+                outcome(
+                    cx,
+                    CONFIG_KEY,
+                    false,
+                    "Not saved: the config service is unavailable.",
                 );
+                return;
+            };
+            match config.set(CONFIG_KEY, &json) {
+                Ok(()) => {
+                    // The page shows the normalized list: sorted, without duplicates.
+                    update_page(
+                        cx,
+                        serde_json::json!({"values": {CONFIG_KEY: format_extras(&extras)}}),
+                    );
+                    *settings.extras.lock().unwrap() = extras;
+                    outcome(
+                        cx,
+                        CONFIG_KEY,
+                        true,
+                        "Saved. Restart the client to apply the options.",
+                    );
+                }
+                Err(error) => outcome(
+                    cx,
+                    CONFIG_KEY,
+                    false,
+                    &format!("Not saved (config error {}).", error.code()),
+                ),
             }
         }
         _ => {}
@@ -269,14 +330,12 @@ impl Plugin for Native {
         });
 
         if let Some(ui) = UiClient::new(cx) {
-            let schema = native_ui_schema(&extras, persisted_enabled);
-            let _ = ui.register_section(&schema);
+            let page = native_ui_page(&extras, persisted_enabled);
+            let _ = ui.register_page(&page);
             // Plugins are not unloaded during this process; keep the callback
             // state alive for the UI service's subscription lifetime.
             let callback_state = Arc::into_raw(settings.clone()) as *mut c_void;
-            let _ = unsafe {
-                ui.on_action("com.parsec-orbit.native", on_native_action, callback_state)
-            };
+            let _ = unsafe { ui.on_action(PAGE_ID, on_native_action, callback_state) };
         }
         if let Some(error) = load_error {
             report(cx, &format!("Using default bandwidth options: {error}."));
@@ -452,29 +511,30 @@ mod tests {
     }
 
     #[test]
-    fn native_registers_ui_section() {
+    fn native_registers_ui_page() {
         use std::sync::Mutex;
 
-        static REG_SCHEMA: Mutex<Option<String>> = Mutex::new(None);
-        unsafe extern "system" fn test_reg(schema: *const u8, len: usize) -> i32 {
-            let s = String::from_utf8_lossy(core::slice::from_raw_parts(schema, len)).into_owned();
-            *REG_SCHEMA.lock().unwrap() = Some(s);
+        static REG_PAGE: Mutex<Option<String>> = Mutex::new(None);
+        unsafe extern "system" fn test_reg(page: *const u8, len: usize) -> i32 {
+            let s = String::from_utf8_lossy(core::slice::from_raw_parts(page, len)).into_owned();
+            *REG_PAGE.lock().unwrap() = Some(s);
             0
         }
 
-        static MOCK_UI: parsec_orbit_plugin_sdk::ParsecOrbitUiV1 =
-            parsec_orbit_plugin_sdk::ParsecOrbitUiV1 {
+        static MOCK_UI: parsec_orbit_plugin_sdk::ParsecOrbitUiV2 =
+            parsec_orbit_plugin_sdk::ParsecOrbitUiV2 {
                 header: parsec_orbit_plugin_sdk::ParsecOrbitInterfaceHeader::new(
-                    std::mem::size_of::<parsec_orbit_plugin_sdk::ParsecOrbitUiV1>(),
-                    1,
+                    std::mem::size_of::<parsec_orbit_plugin_sdk::ParsecOrbitUiV2>(),
+                    2,
                     0,
                 ),
                 show: None,
                 hide: None,
                 is_visible: None,
-                register_section: Some(test_reg),
-                unregister_section: None,
-                update_state: None,
+                navigate: None,
+                register_page: Some(test_reg),
+                unregister_page: None,
+                update_page: None,
                 on_action: None,
                 off_action: None,
             };
@@ -483,22 +543,42 @@ mod tests {
         host.provide("parsec-orbit.ui", &MOCK_UI.header);
 
         let ui = UiClient::new(&host.context()).expect("ui client");
-        let schema = native_ui_schema(&default_extras(), true);
-        assert!(ui.register_section(&schema).is_ok());
-        let reg = REG_SCHEMA.lock().unwrap().take().unwrap();
+        let page = native_ui_page(&default_extras(), true);
+        assert!(ui.register_page(&page).is_ok());
+        let reg = REG_PAGE.lock().unwrap().take().unwrap();
         assert!(reg.contains("com.parsec-orbit.native"));
         assert!(reg.contains("High Bitrate"));
     }
 
-    /// The editable list shown by the UI is the same list that is applied.
+    /// The page must pass the service's own validation, or registration is refused.
     #[test]
-    fn editable_schema_accepts_custom_integer_options() {
-        let schema = native_ui_schema(&[85, 125], true);
-        let value: serde_json::Value = serde_json::from_str(&schema).unwrap();
-        let items = value["items"].as_array().unwrap();
-        let option = items.iter().find(|item| item["key"] == CONFIG_KEY).unwrap();
-        assert_eq!(option["type"], "json_editor");
-        assert_eq!(option["default"], serde_json::json!([85, 125]));
+    fn the_page_satisfies_the_service_schema() {
+        for (extras, enabled) in [
+            (default_extras(), true),
+            (vec![85, 125], false),
+            (vec![], true),
+        ] {
+            let page = native_ui_page(&extras, enabled);
+            let parsed = parsec_orbit_ui_protocol::UiPage::parse(&page, false)
+                .unwrap_or_else(|error| panic!("{error}: {page}"));
+            let values = parsed.initial_values();
+            assert_eq!(values[ENABLED_KEY], serde_json::json!(enabled));
+            assert_eq!(
+                values[CONFIG_KEY],
+                serde_json::json!(format_extras(&extras))
+            );
+        }
+    }
+
+    #[test]
+    fn extra_options_are_read_and_shown_as_a_comma_separated_list() {
+        assert_eq!(parse_extras("85, 125"), Ok(vec![85, 125]));
+        assert_eq!(parse_extras("85 125,200"), Ok(vec![85, 125, 200]));
+        assert_eq!(parse_extras(" "), Ok(vec![]));
+        assert!(parse_extras("85, fast").unwrap_err().contains("\"fast\""));
+        assert!(parse_extras("85.5").is_err());
+        assert_eq!(format_extras(&[85, 125]), "85, 125");
+        assert_eq!(format_extras(&[]), "");
         assert_eq!(normalize_extras(vec![125, 85, 85]), Ok(vec![85, 125]));
     }
 
@@ -511,8 +591,45 @@ mod tests {
         assert!(normalize_extras(vec![51; MAX_EXTRA_OPTIONS + 1]).is_err());
     }
 
+    /// A provider that records every patch it is sent. It is shared, so the
+    /// tests that use it hold `SERIAL` for their whole run.
+    static PATCHES: Mutex<Vec<String>> = Mutex::new(Vec::new());
+    static SERIAL: Mutex<()> = Mutex::new(());
+
+    unsafe extern "system" fn record_patch(
+        _page: *const u8,
+        _page_len: usize,
+        patch: *const u8,
+        patch_len: usize,
+    ) -> i32 {
+        let patch = std::str::from_utf8(std::slice::from_raw_parts(patch, patch_len)).unwrap();
+        PATCHES.lock().unwrap().push(patch.to_string());
+        0
+    }
+
+    static RECORDING_UI: parsec_orbit_plugin_sdk::ParsecOrbitUiV2 =
+        parsec_orbit_plugin_sdk::ParsecOrbitUiV2 {
+            header: parsec_orbit_plugin_sdk::ParsecOrbitInterfaceHeader::new(
+                std::mem::size_of::<parsec_orbit_plugin_sdk::ParsecOrbitUiV2>(),
+                2,
+                0,
+            ),
+            show: None,
+            hide: None,
+            is_visible: None,
+            navigate: None,
+            register_page: None,
+            unregister_page: None,
+            update_page: Some(record_patch),
+            on_action: None,
+            off_action: None,
+        };
+
     #[test]
     fn editing_options_persists_the_shared_json_value() {
+        let _serial = SERIAL
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         static STORED: Mutex<Vec<(String, String)>> = Mutex::new(Vec::new());
 
         unsafe extern "system" fn set(
@@ -545,8 +662,10 @@ mod tests {
                 keys: None,
             };
 
+        PATCHES.lock().unwrap().clear();
         let host = MockHost::new("com.parsec-orbit.native");
         host.provide("parsec-orbit.config", &CONFIG_TABLE.header);
+        host.provide("parsec-orbit.ui", &RECORDING_UI.header);
         let settings = NativeSettings {
             config: ConfigClient::new(&host.context()).map(|config| config.for_owner(CONFIG_OWNER)),
             extras: Mutex::new(default_extras()),
@@ -560,7 +679,7 @@ mod tests {
                 json.len(),
             )
         };
-        action(r#"{"key":"extra_bandwidth_mbps","value":[125,85,85]}"#);
+        action(r#"{"key":"extra_bandwidth_mbps","value":"125, 85, 85"}"#);
         action(r#"{"key":"enabled","value":false}"#);
 
         assert_eq!(
@@ -572,54 +691,71 @@ mod tests {
         );
         assert_eq!(*settings.extras.lock().unwrap(), [85, 125]);
         assert!(!*settings.enabled.lock().unwrap());
+
+        // The page shows the normalized list and announces that a restart is needed.
+        let patches = PATCHES.lock().unwrap().clone();
+        let patches: Vec<serde_json::Value> = patches
+            .iter()
+            .map(|patch| serde_json::from_str(patch).unwrap())
+            .collect();
+        assert!(patches
+            .iter()
+            .any(|patch| patch["values"][CONFIG_KEY] == "85, 125"));
+        let saved: Vec<_> = patches
+            .iter()
+            .filter(|patch| patch["restart_required"] == true)
+            .collect();
+        assert_eq!(saved.len(), 2);
+        assert_eq!(
+            saved[0]["props"][CONFIG_KEY]["status"]["severity"],
+            serde_json::json!("success")
+        );
     }
 
     #[test]
-    fn the_ui_actions_set_the_patch_switches() {
-        fn action(settings: &NativeSettings, json: &str) {
-            unsafe {
-                on_native_action(
-                    settings as *const NativeSettings as *mut c_void,
-                    json.as_ptr(),
-                    json.len(),
-                )
-            };
-        }
-
+    fn invalid_edits_show_an_error_and_change_nothing() {
+        let _serial = SERIAL
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        PATCHES.lock().unwrap().clear();
+        let host = MockHost::new("com.parsec-orbit.native");
+        host.provide("parsec-orbit.ui", &RECORDING_UI.header);
         let settings = NativeSettings {
             config: None,
             extras: Mutex::new(default_extras()),
             enabled: Mutex::new(true),
-            cx: MockHost::new("com.parsec-orbit.native").context(),
+            cx: host.context(),
+        };
+        let action = |json: &str| unsafe {
+            on_native_action(
+                &settings as *const NativeSettings as *mut c_void,
+                json.as_ptr(),
+                json.len(),
+            )
         };
 
+        // Without the config service nothing can be persisted.
         action(
-            &settings,
-            r#"{"section":"com.parsec-orbit.native","key":"enabled","type":"change","value":false}"#,
+            r#"{"page":"com.parsec-orbit.native","key":"enabled","type":"change","value":false}"#,
         );
         assert!(*settings.enabled.lock().unwrap());
-        action(
-            &settings,
-            r#"{"section":"com.parsec-orbit.native","key":"enabled","type":"change","value":true}"#,
-        );
-        assert!(*settings.enabled.lock().unwrap());
-
-        action(
-            &settings,
-            r#"{"section":"com.parsec-orbit.native","key":"extra_bandwidth_mbps","type":"change","value":[85,125]}"#,
-        );
+        action(r#"{"key":"extra_bandwidth_mbps","type":"change","value":"85, 125"}"#);
+        assert_eq!(*settings.extras.lock().unwrap(), default_extras());
+        // Bad input is reported against the setting.
+        action(r#"{"key":"extra_bandwidth_mbps","type":"change","value":"40"}"#);
+        action(r#"{"key":"extra_bandwidth_mbps","type":"change","value":"fast"}"#);
+        // Unknown keys and malformed action data leave settings untouched.
+        action(r#"{"key":"patch_status","type":"change"}"#);
+        action("not json");
         assert_eq!(*settings.extras.lock().unwrap(), default_extras());
 
-        action(
-            &settings,
-            r#"{"section":"com.parsec-orbit.native","key":"extra_bandwidth_mbps","type":"change","value":[85,125]}"#,
-        );
-
-        // Unknown keys and malformed action data leave settings untouched.
-        action(
-            &settings,
-            r#"{"section":"com.parsec-orbit.native","key":"patch_status","type":"change"}"#,
-        );
-        action(&settings, "not json");
+        let patches = PATCHES.lock().unwrap().clone();
+        assert!(!patches.is_empty());
+        assert!(patches
+            .iter()
+            .any(|patch| patch.contains(r#""severity":"error""#)));
+        assert!(patches
+            .iter()
+            .all(|patch| !patch.contains("restart_required")));
     }
 }

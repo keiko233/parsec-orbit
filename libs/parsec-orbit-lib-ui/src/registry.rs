@@ -1,4 +1,4 @@
-//! Thread-safe state registry for registered UI sections, values, and action subscribers.
+//! Thread-safe registry of UI pages, their state and action subscribers.
 
 use std::collections::HashMap;
 use std::ffi::c_void;
@@ -7,9 +7,8 @@ use std::sync::{Arc, Condvar, Mutex, RwLock};
 use std::thread::ThreadId;
 
 use parsec_orbit_plugin_sdk::{MessageCallback, ERR_EXISTS, ERR_INVALID, ERR_NOT_FOUND, OK};
-use serde_json::Value;
-
-use crate::schema::{UiAction, UiSection};
+use parsec_orbit_ui_protocol::schema::UiNavGroup;
+use parsec_orbit_ui_protocol::{PageState, UiAction, UiPage, UiPatch};
 
 struct SubscriptionState {
     active: bool,
@@ -17,7 +16,7 @@ struct SubscriptionState {
 }
 
 struct ActionSubscription {
-    section_id: String,
+    page_id: String,
     cb: MessageCallback,
     user: *mut c_void,
     state: Mutex<SubscriptionState>,
@@ -98,11 +97,39 @@ impl PendingAction {
     }
 }
 
-/// Manages UI section schemas, state properties, and action subscribers.
+/// Most pages that may be registered at once.
+pub const MAX_PAGES: usize = 64;
+/// Largest accepted `update_page` patch, in bytes.
+pub const MAX_PATCH_BYTES: usize = 1024 * 1024;
+
+/// A refused request: the ABI code and the reason the service logs.
+#[derive(Debug, PartialEq, Eq)]
+pub struct Failure {
+    pub code: i32,
+    pub reason: String,
+}
+
+impl Failure {
+    fn invalid(reason: impl Into<String>) -> Self {
+        Self {
+            code: ERR_INVALID,
+            reason: reason.into(),
+        }
+    }
+
+    fn with(code: i32, reason: &str) -> Self {
+        Self {
+            code,
+            reason: reason.into(),
+        }
+    }
+}
+
+/// Manages UI pages, their state and action subscribers.
 pub struct Registry {
     lifecycle: Mutex<()>,
-    sections: RwLock<HashMap<String, UiSection>>,
-    states: RwLock<HashMap<String, HashMap<String, Value>>>,
+    pages: RwLock<HashMap<String, PageState>>,
+    selected: Mutex<Option<String>>,
     subscriptions: RwLock<HashMap<i64, Arc<ActionSubscription>>>,
     next_subscription_id: AtomicI64,
 }
@@ -117,62 +144,47 @@ impl Registry {
     pub fn new() -> Self {
         Self {
             lifecycle: Mutex::new(()),
-            sections: RwLock::new(HashMap::new()),
-            states: RwLock::new(HashMap::new()),
+            pages: RwLock::new(HashMap::new()),
+            selected: Mutex::new(None),
             subscriptions: RwLock::new(HashMap::new()),
             next_subscription_id: AtomicI64::new(1),
         }
     }
 
-    /// Registers a declarative section schema.
-    pub fn register_section(&self, schema_json: &str) -> i32 {
-        let section: UiSection = match serde_json::from_str(schema_json) {
-            Ok(sec) => sec,
-            Err(_) => return ERR_INVALID,
-        };
-
-        if section.id.trim().is_empty() {
-            return ERR_INVALID;
-        }
-
+    /// Registers a declarative page. `reserved` admits the `orbit.` prefix and
+    /// group, which only the UI service's own pages may use.
+    pub fn register_page(&self, page_json: &str, reserved: bool) -> Result<(), Failure> {
+        let page = UiPage::parse(page_json, reserved).map_err(Failure::invalid)?;
         let _lifecycle = self.lifecycle.lock().unwrap();
-        let mut sections = self.sections.write().unwrap();
-        if sections.contains_key(&section.id) {
-            return ERR_EXISTS;
+        let mut pages = self.pages.write().unwrap();
+        if pages.contains_key(&page.id) {
+            return Err(Failure::with(ERR_EXISTS, "page id is already registered"));
         }
-
-        let mut initial_state = HashMap::new();
-        for item in &section.items {
-            if let Some(def) = &item.default {
-                initial_state.insert(item.key.clone(), def.clone());
-            }
+        if pages.len() >= MAX_PAGES {
+            return Err(Failure::invalid(format!(
+                "at most {MAX_PAGES} pages may be registered"
+            )));
         }
-
-        let id = section.id.clone();
-        sections.insert(id.clone(), section);
-        drop(sections);
-
-        let mut states = self.states.write().unwrap();
-        states.insert(id, initial_state);
-
-        OK
+        pages.insert(page.id.clone(), PageState::new(page));
+        Ok(())
     }
 
-    /// Unregisters a section by its ID.
-    pub fn unregister_section(&self, section_id: &str) -> i32 {
+    /// Unregisters a page by its ID.
+    pub fn unregister_page(&self, page_id: &str) -> i32 {
         let removed = {
             let _lifecycle = self.lifecycle.lock().unwrap();
-            let mut sections = self.sections.write().unwrap();
-            if sections.remove(section_id).is_none() {
+            if self.pages.write().unwrap().remove(page_id).is_none() {
                 return ERR_NOT_FOUND;
             }
-            drop(sections);
-
-            self.states.write().unwrap().remove(section_id);
+            let mut selected = self.selected.lock().unwrap();
+            if selected.as_deref() == Some(page_id) {
+                *selected = None;
+            }
+            drop(selected);
             let mut subs = self.subscriptions.write().unwrap();
             let ids: Vec<_> = subs
                 .iter()
-                .filter_map(|(id, sub)| (sub.section_id == section_id).then_some(*id))
+                .filter_map(|(id, sub)| (sub.page_id == page_id).then_some(*id))
                 .collect();
             ids.into_iter()
                 .filter_map(|id| subs.remove(&id))
@@ -185,37 +197,50 @@ impl Registry {
         OK
     }
 
-    /// Updates state values for a registered section.
-    pub fn update_state(&self, section_id: &str, state_json: &str) -> i32 {
-        let updates: HashMap<String, Value> = match serde_json::from_str(state_json) {
-            Ok(map) => map,
-            Err(_) => return ERR_INVALID,
-        };
-
+    /// Applies a patch to a registered page, entirely or not at all.
+    pub fn update_page(&self, page_id: &str, patch_json: &str) -> Result<(), Failure> {
+        if patch_json.len() > MAX_PATCH_BYTES {
+            return Err(Failure::invalid(format!(
+                "patch exceeds {MAX_PATCH_BYTES} bytes"
+            )));
+        }
+        // serde would also read a struct from a JSON array; a patch is an object.
+        if !patch_json.trim_start().starts_with('{') {
+            return Err(Failure::invalid("a patch is a JSON object"));
+        }
+        let patch: UiPatch = serde_json::from_str(patch_json)
+            .map_err(|error| Failure::invalid(error.to_string()))?;
         let _lifecycle = self.lifecycle.lock().unwrap();
-        let sections = self.sections.read().unwrap();
-        if !sections.contains_key(section_id) {
+        let mut pages = self.pages.write().unwrap();
+        let page = pages
+            .get_mut(page_id)
+            .ok_or_else(|| Failure::with(ERR_NOT_FOUND, "page is not registered"))?;
+        page.apply_patch(patch).map_err(Failure::invalid)
+    }
+
+    /// Selects a registered page for the window to show.
+    pub fn navigate(&self, page_id: &str) -> i32 {
+        let _lifecycle = self.lifecycle.lock().unwrap();
+        if !self.pages.read().unwrap().contains_key(page_id) {
             return ERR_NOT_FOUND;
         }
-        drop(sections);
-
-        let mut states = self.states.write().unwrap();
-        let entry = states.entry(section_id.to_string()).or_default();
-        for (k, v) in updates {
-            entry.insert(k, v);
-        }
-
+        *self.selected.lock().unwrap() = Some(page_id.to_owned());
         OK
     }
 
-    /// Subscribes to action events emitted by a section.
-    pub fn on_action(&self, section_id: &str, cb: MessageCallback, user: *mut c_void) -> i64 {
+    /// The page most recently selected with [`Registry::navigate`], if it still exists.
+    pub fn selected(&self) -> Option<String> {
+        self.selected.lock().unwrap().clone()
+    }
+
+    /// Subscribes to action events emitted by a page.
+    pub fn on_action(&self, page_id: &str, cb: MessageCallback, user: *mut c_void) -> i64 {
         let id = self.next_subscription_id.fetch_add(1, Ordering::SeqCst);
         let mut subs = self.subscriptions.write().unwrap();
         subs.insert(
             id,
             Arc::new(ActionSubscription {
-                section_id: section_id.to_string(),
+                page_id: page_id.to_string(),
                 cb,
                 user,
                 state: Mutex::new(SubscriptionState {
@@ -240,7 +265,7 @@ impl Registry {
         }
     }
 
-    /// Dispatches an action event to all registered subscribers of the action's section.
+    /// Dispatches an action event to all registered subscribers of the action's page.
     pub fn dispatch_action(&self, action: &UiAction) {
         if let Some(pending) = self.prepare_action(action) {
             pending.deliver();
@@ -255,7 +280,7 @@ impl Registry {
             .read()
             .unwrap()
             .iter()
-            .filter(|(_, sub)| sub.section_id == action.section)
+            .filter(|(_, sub)| sub.page_id == action.page)
             .map(|(id, sub)| (*id, Arc::clone(sub)))
             .collect();
         subs.sort_by_key(|(id, _)| *id);
@@ -265,26 +290,43 @@ impl Registry {
         })
     }
 
-    /// Returns a snapshot of all registered sections, sorted by order.
-    pub fn list_sections(&self) -> Vec<UiSection> {
+    /// Whether an action from the renderer names a live element and carries a fitting value.
+    pub fn accepts_action(&self, action: &UiAction) -> bool {
         let _lifecycle = self.lifecycle.lock().unwrap();
-        let sections = self.sections.read().unwrap();
-        let mut list: Vec<UiSection> = sections.values().cloned().collect();
-        list.sort_by_key(|s| s.order.unwrap_or(100));
+        self.pages
+            .read()
+            .unwrap()
+            .get(&action.page)
+            .is_some_and(|page| page.accepts_action(action))
+    }
+
+    /// A snapshot of all pages in navigation order: the `orbit` group first, then by
+    /// `order`, title and id.
+    pub fn list_pages(&self) -> Vec<PageState> {
+        let _lifecycle = self.lifecycle.lock().unwrap();
+        let mut list: Vec<PageState> = self.pages.read().unwrap().values().cloned().collect();
+        list.sort_by_key(|state| {
+            (
+                state.page.nav_group() != UiNavGroup::Orbit,
+                state.page.order.unwrap_or(0),
+                state.page.title.to_lowercase(),
+                state.page.id.clone(),
+            )
+        });
         list
     }
 
-    /// Returns a copy of the state values for a section.
-    pub fn get_state(&self, section_id: &str) -> Option<HashMap<String, Value>> {
+    /// A copy of one page's state.
+    pub fn get_page(&self, page_id: &str) -> Option<PageState> {
         let _lifecycle = self.lifecycle.lock().unwrap();
-        let states = self.states.read().unwrap();
-        states.get(section_id).cloned()
+        self.pages.read().unwrap().get(page_id).cloned()
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::{json, Value};
     use std::sync::mpsc;
     use std::sync::Barrier;
     use std::time::Duration;
@@ -319,9 +361,11 @@ mod tests {
         calls.fetch_add(1, Ordering::SeqCst);
     }
 
-    unsafe extern "system" fn update_state_cb(user: *mut c_void, _: *const u8, _: usize) {
+    unsafe extern "system" fn update_page_cb(user: *mut c_void, _: *const u8, _: usize) {
         let registry = unsafe { &*(user as *const Registry) };
-        assert_eq!(registry.update_state("test.sec", r#"{"updated":true}"#), OK);
+        registry
+            .update_page("test.sec", r#"{"values":{"updated":true}}"#)
+            .unwrap();
     }
 
     unsafe extern "system" fn blocking_cb(user: *mut c_void, _: *const u8, _: usize) {
@@ -330,27 +374,42 @@ mod tests {
         barriers.1.wait();
     }
 
+    fn page(id: &str) -> String {
+        json!({
+            "schema": 2, "id": id, "title": "Title",
+            "blocks": [{"type": "group", "settings": [
+                {"key": "bitrate", "label": "Bitrate",
+                 "control": {"type": "number", "min": 0, "max": 500, "default": 50}},
+                {"key": "updated", "label": "Updated",
+                 "control": {"type": "toggle", "default": false}}
+            ]}]
+        })
+        .to_string()
+    }
+
+    fn code(result: Result<(), Failure>) -> i32 {
+        result.err().map_or(OK, |failure| failure.code)
+    }
+
     #[test]
     fn registry_crud_and_events() {
         let reg = Registry::new();
-        let schema = r#"{
-            "id": "test.sec",
-            "title": "Title",
-            "items": [{"key": "bitrate", "type": "number_input", "label": "Bitrate", "default": 50}]
-        }"#;
+        assert_eq!(code(reg.register_page(&page("test.sec"), false)), OK);
+        assert_eq!(
+            code(reg.register_page(&page("test.sec"), false)),
+            ERR_EXISTS
+        );
+        assert_eq!(code(reg.register_page("not json", false)), ERR_INVALID);
 
-        assert_eq!(reg.register_section(schema), OK);
-        assert_eq!(reg.register_section(schema), ERR_EXISTS);
-
-        let state = reg.get_state("test.sec").expect("state exists");
-        assert_eq!(state.get("bitrate").unwrap(), &Value::from(50));
+        let state = reg.get_page("test.sec").expect("state exists");
+        assert_eq!(state.values["bitrate"], Value::from(50));
 
         let received: Mutex<Option<String>> = Mutex::new(None);
         let sub = reg.on_action("test.sec", test_cb, &received as *const _ as *mut c_void);
         assert!(sub > 0);
 
         reg.dispatch_action(&UiAction {
-            section: "test.sec".to_string(),
+            page: "test.sec".to_string(),
             key: "bitrate".to_string(),
             action_type: "change".to_string(),
             value: Some(Value::from(80)),
@@ -359,12 +418,113 @@ mod tests {
         let received = received.lock().unwrap().take().expect("callback received");
         assert!(received.contains("\"key\":\"bitrate\""));
         assert!(received.contains("\"value\":80"));
+        assert!(received.contains("\"page\":\"test.sec\""));
 
         assert_eq!(reg.off_action(sub), OK);
         assert_eq!(reg.off_action(sub), ERR_NOT_FOUND);
 
-        assert_eq!(reg.unregister_section("test.sec"), OK);
-        assert_eq!(reg.unregister_section("test.sec"), ERR_NOT_FOUND);
+        assert_eq!(reg.unregister_page("test.sec"), OK);
+        assert_eq!(reg.unregister_page("test.sec"), ERR_NOT_FOUND);
+    }
+
+    #[test]
+    fn updates_navigation_and_actions_follow_the_registered_page() {
+        let reg = Registry::new();
+        assert_eq!(reg.navigate("test.sec"), ERR_NOT_FOUND);
+        assert_eq!(code(reg.update_page("test.sec", "{}")), ERR_NOT_FOUND);
+        assert_eq!(code(reg.register_page(&page("test.sec"), false)), OK);
+
+        assert_eq!(
+            code(reg.update_page("test.sec", r#"{"values":{"bitrate":90}}"#)),
+            OK
+        );
+        assert_eq!(
+            reg.get_page("test.sec").unwrap().values["bitrate"],
+            json!(90)
+        );
+        // Unknown keys, type mismatches and unknown members are refused.
+        for bad in [
+            r#"{"values":{"nope":1}}"#,
+            r#"{"values":{"bitrate":"x"}}"#,
+            r#"{"values":{"bitrate":900}}"#,
+            r#"{"colour":1}"#,
+            "[]",
+        ] {
+            assert_eq!(code(reg.update_page("test.sec", bad)), ERR_INVALID, "{bad}");
+        }
+        assert_eq!(
+            reg.get_page("test.sec").unwrap().values["bitrate"],
+            json!(90)
+        );
+
+        assert_eq!(reg.navigate("test.sec"), OK);
+        assert_eq!(reg.selected().as_deref(), Some("test.sec"));
+        let change = |value: Value| UiAction {
+            page: "test.sec".into(),
+            key: "bitrate".into(),
+            action_type: "change".into(),
+            value: Some(value),
+        };
+        assert!(reg.accepts_action(&change(json!(10))));
+        assert!(!reg.accepts_action(&change(json!(501))));
+        assert!(!reg.accepts_action(&UiAction {
+            page: "other".into(),
+            ..change(json!(10))
+        }));
+
+        assert_eq!(reg.unregister_page("test.sec"), OK);
+        assert_eq!(reg.selected(), None);
+        assert!(!reg.accepts_action(&change(json!(10))));
+    }
+
+    #[test]
+    fn reserved_pages_need_the_service_and_the_page_count_is_bounded() {
+        let reg = Registry::new();
+        assert_eq!(
+            code(reg.register_page(&page("orbit.fake"), false)),
+            ERR_INVALID
+        );
+        assert_eq!(code(reg.register_page(&page("orbit.real"), true)), OK);
+        for n in 1..MAX_PAGES {
+            assert_eq!(code(reg.register_page(&page(&format!("p{n}")), false)), OK);
+        }
+        assert_eq!(
+            code(reg.register_page(&page("one.too.many"), false)),
+            ERR_INVALID
+        );
+    }
+
+    #[test]
+    fn pages_list_in_navigation_order() {
+        let reg = Registry::new();
+        let titled = |id: &str, title: &str, order: Option<i32>, group: Option<&str>| {
+            let mut value = json!({"schema": 2, "id": id, "title": title, "blocks": []});
+            if let Some(order) = order {
+                value["order"] = json!(order);
+            }
+            if let Some(group) = group {
+                value["group"] = json!(group);
+            }
+            value.to_string()
+        };
+        for (id, title, order, group) in [
+            ("b", "Beta", None, None),
+            ("a", "alpha", None, None),
+            ("late", "Aardvark", Some(10), None),
+            ("orbit.log", "Log", Some(2), Some("orbit")),
+            ("orbit.overview", "Overview", Some(1), Some("orbit")),
+        ] {
+            assert_eq!(
+                code(reg.register_page(&titled(id, title, order, group), true)),
+                OK
+            );
+        }
+        let ids: Vec<_> = reg
+            .list_pages()
+            .into_iter()
+            .map(|state| state.page.id)
+            .collect();
+        assert_eq!(ids, ["orbit.overview", "orbit.log", "a", "b", "late"]);
     }
 
     #[test]
@@ -492,7 +652,7 @@ mod tests {
         let (done_tx, done_rx) = mpsc::channel();
         let cancel_dispatch = std::thread::spawn(move || {
             cancel_registry.dispatch_action(&UiAction {
-                section: "cancel.sec".to_string(),
+                page: "cancel.sec".to_string(),
                 key: "cancel".to_string(),
                 action_type: "click".to_string(),
                 value: None,
@@ -513,25 +673,22 @@ mod tests {
     }
 
     #[test]
-    fn callback_can_reenter_update_state() {
+    fn callback_can_reenter_update_page() {
         let reg = Registry::new();
-        assert_eq!(
-            reg.register_section(r#"{"id":"test.sec","title":"Test","items":[]}"#),
-            OK
-        );
-        reg.on_action("test.sec", update_state_cb, &reg as *const _ as *mut c_void);
+        assert_eq!(code(reg.register_page(&page("test.sec"), false)), OK);
+        reg.on_action("test.sec", update_page_cb, &reg as *const _ as *mut c_void);
 
         reg.dispatch_action(&test_action());
 
         assert_eq!(
-            reg.get_state("test.sec").unwrap().get("updated"),
+            reg.get_page("test.sec").unwrap().values.get("updated"),
             Some(&Value::Bool(true))
         );
     }
 
     fn test_action() -> UiAction {
         UiAction {
-            section: "test.sec".to_string(),
+            page: "test.sec".to_string(),
             key: "test".to_string(),
             action_type: "change".to_string(),
             value: None,

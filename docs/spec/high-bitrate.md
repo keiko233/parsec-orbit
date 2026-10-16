@@ -7,14 +7,18 @@ load-order dependency, retaining their defaults when it is absent.
 
 The native High Bitrate panel edits the additional choices appended to Parsec's
 built-in bandwidth list, whose maximum is 50 Mbps. For example, adding `85`
-offers 85 Mbps in Parsec's own dropdown. Accept at most 128 input entries, each
-an `i32` integer greater than 50, then sort and deduplicate. An empty array
+offers 85 Mbps in Parsec's own dropdown. The panel shows the choices as one
+comma-separated line (`85, 125`) and accepts commas or spaces between numbers.
+Accept at most 128 input entries, each an `i32` integer greater than 50, then
+sort and deduplicate; the panel then shows the normalized line. An empty line
 adds no choices. The original default values remain
 `[60,75,100,125,150,200,250,300,400,500]`, embedded from one shared asset.
 
-Validate before persisting. Report invalid inputs, missing config service,
-save failures and successful saves in the native panel's patch status. A
-failed save must not replace the active in-memory list. Both the list and the
+Validate before persisting. Report invalid inputs, a missing config service,
+save failures and successful saves as the status of the edited setting, and
+mark the page as needing a restart after a save. The panel's patch status shows
+what the in-memory patch did. A failed save must not replace the active
+in-memory list. Both the list and the
 enabled setting survive restarting when the config service is installed.
 `PARSEC_ORBIT_PATCHES=0`, `off`, or `false` still disables patching regardless
 of stored settings.

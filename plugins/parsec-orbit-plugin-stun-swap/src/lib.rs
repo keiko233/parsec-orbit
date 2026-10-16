@@ -19,7 +19,8 @@ use std::sync::{mpsc, Arc, Mutex, OnceLock, RwLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use parsec_orbit_plugin_sdk::prelude::*;
-use parsec_orbit_plugin_sdk::services::{HooksClient, UiClient};
+use parsec_orbit_plugin_sdk::services::ui::UiClient;
+use parsec_orbit_plugin_sdk::services::HooksClient;
 use parsec_orbit_plugin_sdk::{ERR_NOT_FOUND, ERR_NOT_READY};
 use windows_sys::Win32::System::LibraryLoader::LoadLibraryW;
 
@@ -605,12 +606,9 @@ fn probe(candidate: &Candidate, timeout: Duration) -> Option<(Ipv4Addr, Duration
         .min_by_key(|(_, rtt)| rtt.as_millis())
 }
 
-fn update_ui(cx: &Context, state: &PluginState) {
-    let Some(ui) = UiClient::new(cx) else {
-        return;
-    };
-    let options = server_options(state);
-    let server_status = state
+/// What the page shows for the current state, as an `update_page` patch.
+fn ui_patch(state: &PluginState) -> serde_json::Value {
+    let server_health = state
         .servers
         .iter()
         .map(|server| match server.result {
@@ -623,23 +621,36 @@ fn update_ui(cx: &Context, state: &PluginState) {
         })
         .collect::<Vec<_>>()
         .join("\n");
-    let json = serde_json::json!({
-        "enabled": state.enabled,
-        "interval": state.interval_secs,
-        "mode": {"value": state.mode.as_str(), "options": [
-            {"label": "Automatic (lowest latency)", "value": "auto"},
-            {"label": "Manual", "value": "manual"}
-        ]},
-        "server": {"value": state.manual_server, "options": options},
-        "source": state.source,
-        "active_server": if state.validation_error.is_empty() {
-            state.status.clone()
-        } else {
-            format!("{} — {}", state.status, state.validation_error)
+    let validation = if state.validation_error.is_empty() {
+        serde_json::Value::Null
+    } else {
+        serde_json::json!({"severity": "error", "text": state.validation_error})
+    };
+    serde_json::json!({
+        "values": {
+            "enabled": state.enabled,
+            // The slider shows 10 to 600 seconds; an environment override may lie outside.
+            "interval": state.interval_secs.clamp(MIN_INTERVAL_SECS, MAX_INTERVAL_SECS),
+            "mode": state.mode.as_str(),
+            "server": state.manual_server,
+            "source": state.source,
+            "active_server": state.status,
+            "server_health": server_health,
         },
-        "server_health": server_status,
-    });
-    let _ = ui.update_state("com.keiko233.stun-swap", &json.to_string());
+        "props": {
+            "server": {
+                "options": server_options(state),
+                "enabled": state.mode == SelectionMode::Manual,
+            },
+            "custom_servers": {"status": validation},
+        },
+    })
+}
+
+fn update_ui(cx: &Context, state: &PluginState) {
+    if let Some(ui) = UiClient::new(cx) {
+        let _ = ui.update_page(PAGE_ID, &ui_patch(state).to_string());
+    }
 }
 
 fn server_options(state: &PluginState) -> Vec<serde_json::Value> {
@@ -675,8 +686,8 @@ fn update_ui_with_draft(cx: &Context, state: &PluginState) {
     let Some(ui) = UiClient::new(cx) else {
         return;
     };
-    let json = serde_json::json!({"custom_servers": state.custom_servers_draft});
-    let _ = ui.update_state("com.keiko233.stun-swap", &json.to_string());
+    let patch = serde_json::json!({"values": {"custom_servers": state.custom_servers_draft}});
+    let _ = ui.update_page(PAGE_ID, &patch.to_string());
 }
 
 fn choose_server<'a>(
@@ -847,84 +858,85 @@ unsafe extern "system" fn getaddrinfo_detour(
     unsafe { original(node, service, hints, result) }
 }
 
-const STUN_UI_SCHEMA: &str = r#"{
+const PAGE_ID: &str = "com.keiko233.stun-swap";
+const MIN_INTERVAL_SECS: u64 = 10;
+const MAX_INTERVAL_SECS: u64 = 600;
+
+const STUN_UI_PAGE: &str = r#"{
+    "schema": 2,
     "id": "com.keiko233.stun-swap",
     "title": "STUN Swap",
-    "description": "Redirects Parsec STUN lookups to healthy mainland China STUN servers",
+    "icon": "network",
     "order": 20,
-    "items": [
-        {
-            "key": "enabled",
-            "type": "toggle",
-            "label": "Enable STUN Redirection",
-            "description": "Intercept stun.parsec.app lookups and answer with chosen low-latency server",
-            "default": true
-        },
-        {
-            "key": "interval",
-            "type": "slider",
-            "label": "Probe Interval (seconds)",
-            "description": "Frequency of background latency probes",
-            "min": 10.0,
-            "max": 600.0,
-            "step": 10.0,
-            "default": 300.0
-        },
-        {
-            "key": "mode",
-            "type": "select",
-            "label": "Selection mode",
-            "default": "auto",
-            "options": [
-                {"label": "Automatic (lowest latency)", "value": "auto"},
-                {"label": "Manual", "value": "manual"}
-            ]
-        },
-        {
-            "key": "server",
-            "type": "select",
-            "label": "Manual server",
-            "description": "Used when selection mode is Manual",
-            "default": "",
-            "options": [{"label": "Choose a server", "value": ""}]
-        },
-        {
-            "key": "custom_servers",
-            "type": "text_input",
-            "label": "Custom servers (one host@3478 per line)",
-            "description": "Enter one server per line, then save. Only port 3478 can be redirected.",
-            "multiline": true,
-            "default": ""
-        },
-        {
-            "key": "save_custom_servers",
-            "type": "button",
-            "label": "Save custom servers"
-        },
-        {
-            "key": "source",
-            "type": "readonly_text",
-            "label": "Server list source",
-            "default": "Built-in defaults"
-        },
-        {
-            "key": "active_server",
-            "type": "text_view",
-            "label": "Active STUN target",
-            "default": "Probing..."
-        },
-        {
-            "key": "server_health",
-            "type": "text_view",
-            "label": "Server health",
-            "default": "Waiting for first probe"
-        },
-        {
-            "key": "probe_now",
-            "type": "button",
-            "label": "Probe Now",
-            "description": "Trigger an immediate round of latency probes across all servers"
-        }
+    "description": "Redirects Parsec STUN lookups to healthy mainland China STUN servers.",
+    "blocks": [
+        {"type": "group", "title": "Redirection", "settings": [
+            {
+                "key": "enabled",
+                "label": "Enable STUN redirection",
+                "description": "Intercept stun.parsec.app lookups and answer with the chosen low-latency server.",
+                "control": {"type": "toggle", "default": true}
+            },
+            {
+                "key": "mode",
+                "label": "Selection mode",
+                "control": {"type": "select", "default": "auto", "options": [
+                    {"label": "Automatic (lowest latency)", "value": "auto"},
+                    {"label": "Manual", "value": "manual"}
+                ]}
+            },
+            {
+                "key": "server",
+                "label": "Manual server",
+                "description": "Used when the selection mode is Manual.",
+                "control": {"type": "select", "default": "", "options": [
+                    {"label": "Choose a server", "value": ""}
+                ]}
+            },
+            {
+                "key": "interval",
+                "label": "Probe interval",
+                "description": "How often the servers are probed in the background.",
+                "control": {"type": "slider", "default": 300, "min": 10, "max": 600, "step": 10, "unit": "s"}
+            }
+        ]},
+        {"type": "group", "title": "Servers", "settings": [
+            {
+                "key": "custom_servers",
+                "label": "Custom servers",
+                "description": "One host@3478 per line. Only port 3478 can be redirected. Save to apply.",
+                "control": {"type": "text", "multiline": true, "rows": 6, "monospace": true, "commit": "change",
+                            "placeholder": "stun.example.com@3478", "default": ""}
+            },
+            {
+                "key": "save_custom_servers",
+                "label": "Save custom servers",
+                "control": {"type": "button", "text": "Save", "style": "accent", "icon": "download"}
+            },
+            {
+                "key": "source",
+                "label": "Server list source",
+                "control": {"type": "value", "default": "Built-in defaults"}
+            }
+        ]},
+        {"type": "group", "title": "Status", "settings": [
+            {
+                "key": "active_server",
+                "label": "Active STUN target",
+                "control": {"type": "value", "default": "Probing..."}
+            },
+            {
+                "key": "server_health",
+                "label": "Server health",
+                "control": {"type": "log", "default": "Waiting for first probe", "rows": 8}
+            },
+            {
+                "key": "probe_now",
+                "label": "Probe now",
+                "description": "Run an immediate round of latency probes across all servers.",
+                "control": {"type": "button", "text": "Probe", "icon": "refresh"}
+            }
+        ]}
     ]
 }"#;
 
@@ -1123,7 +1135,7 @@ impl Plugin for StunSwap {
         let _ = PROBE_WAKER.set(tx);
 
         if let Some(ui) = UiClient::new(cx) {
-            let _ = ui.register_section(STUN_UI_SCHEMA);
+            let _ = ui.register_page(STUN_UI_PAGE);
             if let Ok(state_guard) = state.lock() {
                 update_ui(cx, &state_guard);
                 update_ui_with_draft(cx, &state_guard);
@@ -1517,14 +1529,14 @@ mod tests {
 
     #[test]
     fn stun_swap_registers_ui_and_handles_actions() {
-        static REG_SCHEMA: Mutex<Option<String>> = Mutex::new(None);
+        static REG_PAGE: Mutex<Option<String>> = Mutex::new(None);
         static ACTION_CB: Mutex<Option<parsec_orbit_plugin_sdk::MessageCallback>> =
             Mutex::new(None);
         static ACTION_USER: Mutex<usize> = Mutex::new(0);
 
-        unsafe extern "system" fn test_reg(schema: *const u8, len: usize) -> i32 {
-            let s = String::from_utf8_lossy(core::slice::from_raw_parts(schema, len)).into_owned();
-            *REG_SCHEMA.lock().unwrap() = Some(s);
+        unsafe extern "system" fn test_reg(page: *const u8, len: usize) -> i32 {
+            let s = String::from_utf8_lossy(core::slice::from_raw_parts(page, len)).into_owned();
+            *REG_PAGE.lock().unwrap() = Some(s);
             0
         }
         unsafe extern "system" fn test_on_action(
@@ -1538,19 +1550,20 @@ mod tests {
             42
         }
 
-        static MOCK_UI: parsec_orbit_plugin_sdk::ParsecOrbitUiV1 =
-            parsec_orbit_plugin_sdk::ParsecOrbitUiV1 {
+        static MOCK_UI: parsec_orbit_plugin_sdk::ParsecOrbitUiV2 =
+            parsec_orbit_plugin_sdk::ParsecOrbitUiV2 {
                 header: parsec_orbit_plugin_sdk::ParsecOrbitInterfaceHeader::new(
-                    std::mem::size_of::<parsec_orbit_plugin_sdk::ParsecOrbitUiV1>(),
-                    1,
+                    std::mem::size_of::<parsec_orbit_plugin_sdk::ParsecOrbitUiV2>(),
+                    2,
                     0,
                 ),
                 show: None,
                 hide: None,
                 is_visible: None,
-                register_section: Some(test_reg),
-                unregister_section: None,
-                update_state: None,
+                navigate: None,
+                register_page: Some(test_reg),
+                unregister_page: None,
+                update_page: None,
                 on_action: Some(test_on_action),
                 off_action: None,
             };
@@ -1559,8 +1572,8 @@ mod tests {
         host.provide("parsec-orbit.ui", &MOCK_UI.header);
 
         let ui = UiClient::new(&host.context()).expect("ui client available");
-        assert!(ui.register_section(STUN_UI_SCHEMA).is_ok());
-        let reg = REG_SCHEMA.lock().unwrap().take().unwrap();
+        assert!(ui.register_page(STUN_UI_PAGE).is_ok());
+        let reg = REG_PAGE.lock().unwrap().take().unwrap();
         assert!(reg.contains("com.keiko233.stun-swap"));
         assert!(reg.contains("STUN Swap"));
 
@@ -1604,5 +1617,83 @@ mod tests {
 
         // Reset back
         UI_ENABLED.store(true, Ordering::Release);
+    }
+
+    fn page_state() -> parsec_orbit_ui_protocol::PageState {
+        parsec_orbit_ui_protocol::PageState::new(
+            parsec_orbit_ui_protocol::UiPage::parse(STUN_UI_PAGE, false)
+                .unwrap_or_else(|error| panic!("the page breaks the schema: {error}")),
+        )
+    }
+
+    fn server(display: &str, result: Option<(Ipv4Addr, Duration)>) -> ServerStatus {
+        let (host, port) = display.split_once('@').unwrap();
+        ServerStatus {
+            candidate: Candidate::new(display.to_string(), host.to_string(), port.parse().unwrap())
+                .unwrap(),
+            result,
+        }
+    }
+
+    /// Every patch the plugin can send must be accepted by the page it registered.
+    #[test]
+    fn state_patches_are_accepted_by_the_registered_page() {
+        let mut page = page_state();
+        let mut state = PluginState {
+            servers: vec![
+                server(
+                    "stun.a.example@3478",
+                    Some((Ipv4Addr::new(10, 0, 0, 1), Duration::from_millis(23))),
+                ),
+                server("stun.b.example@3478", None),
+            ],
+            ..PluginState::default()
+        };
+        let patch = |state: &PluginState| {
+            serde_json::from_value::<parsec_orbit_ui_protocol::UiPatch>(ui_patch(state)).unwrap()
+        };
+        page.apply_patch(patch(&state)).unwrap();
+        assert_eq!(
+            page.values["server_health"]
+                .as_str()
+                .unwrap()
+                .lines()
+                .count(),
+            2
+        );
+        assert_eq!(page.props["server"].enabled, Some(false));
+
+        // Manual mode enables the server choice; the chosen server stays selectable
+        // even after it dropped out of the list.
+        state.mode = SelectionMode::Manual;
+        state.manual_server = "stun.gone.example@3478".into();
+        page.apply_patch(patch(&state)).unwrap();
+        assert_eq!(page.props["server"].enabled, Some(true));
+        assert_eq!(page.values["server"], "stun.gone.example@3478");
+
+        // An interval from the environment can lie outside the slider's range.
+        for seconds in [1, 300, 86_400] {
+            state.interval_secs = seconds;
+            page.apply_patch(patch(&state)).unwrap();
+        }
+        assert_eq!(page.values["interval"], 600);
+
+        // A validation error is shown beside the custom servers and cleared later.
+        state.validation_error = "Rejected invalid server(s): nope.".into();
+        page.apply_patch(patch(&state)).unwrap();
+        assert_eq!(
+            page.props["custom_servers"].status().unwrap().text,
+            "Rejected invalid server(s): nope."
+        );
+        state.validation_error.clear();
+        page.apply_patch(patch(&state)).unwrap();
+        assert!(page.props["custom_servers"].status().is_none());
+
+        // The draft patch targets the custom servers text.
+        let draft: parsec_orbit_ui_protocol::UiPatch = serde_json::from_value(
+            serde_json::json!({"values": {"custom_servers": "a@3478\nb@3478"}}),
+        )
+        .unwrap();
+        page.apply_patch(draft).unwrap();
     }
 }

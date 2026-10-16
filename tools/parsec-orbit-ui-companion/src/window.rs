@@ -3,13 +3,12 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::task::Poll;
 
-use parsec_orbit_ui_protocol::{
-    ChildMessage, ParentMessage, SectionState, UiAction, UiItem, UiOption,
-};
+use parsec_orbit_ui_protocol::{ChildMessage, PageState, ParentMessage, UiAction, UiOption};
 use serde_json::Value;
 use winio::prelude::*;
 
 use crate::platform::{activate, WakeTarget};
+use crate::rows::{flatten, UiItem};
 use crate::{Inbound, Shared};
 
 pub(crate) enum OrbitUiMessage {
@@ -122,16 +121,12 @@ impl Row {
                     .set_text(format!("{}: {}", self.item.label, widget.pos()?))?;
             }
             Control::Select(widget) => {
-                let (selected, options) = select_state(&value);
-                if let Some(options) = options {
-                    widget.set_items(options.iter().map(|option| option.label.clone()))?;
-                    self.item.options = Some(options);
-                }
+                // Options come with the layout; a change of options rebuilds the page.
                 let options = self.item.options.as_deref().unwrap_or_default();
-                if let Some(index) = options.iter().position(|option| option.value == *selected) {
+                if let Some(index) = options.iter().position(|option| option.value == value) {
                     widget.set_selection(index)?;
                 }
-                self.value = selected.clone();
+                self.value = value.clone();
             }
             Control::Input(widget) => {
                 let text = display_value(&value);
@@ -243,19 +238,6 @@ impl Row {
     }
 }
 
-fn select_state(value: &Value) -> (&Value, Option<Vec<UiOption>>) {
-    if let (Some(selected), Some(options)) = (
-        value.get("value"),
-        value.get("options").and_then(Value::as_array),
-    ) {
-        if let Ok(options) = serde_json::from_value::<Vec<UiOption>>(Value::Array(options.clone()))
-        {
-            return (selected, Some(options));
-        }
-    }
-    (value, None)
-}
-
 fn display_value(value: &Value) -> String {
     match value {
         Value::Null => String::new(),
@@ -280,7 +262,7 @@ pub(crate) struct OrbitUi {
     restart_button: Child<Button>,
     overview: Child<TabViewItem>,
     overview_text: Child<Label>,
-    sections: Vec<SectionState>,
+    sections: Vec<PageState>,
     panels: Vec<Panel>,
     visible: bool,
     restart_visible: bool,
@@ -288,12 +270,12 @@ pub(crate) struct OrbitUi {
 }
 
 impl OrbitUi {
-    async fn rebuild(&mut self, sections: Vec<SectionState>) -> winio::Result<()> {
+    async fn rebuild(&mut self, sections: Vec<PageState>) -> winio::Result<()> {
         self.tabs.clear()?;
         self.panels.clear();
         let has_overview = sections
             .iter()
-            .any(|section| section.schema.id == "orbit.overview");
+            .any(|section| section.page.id == "orbit.overview");
         self.restart_visible = has_overview;
         self.restart_button.set_visible(has_overview)?;
         self.overview_text.set_visible(!has_overview)?;
@@ -310,13 +292,13 @@ impl OrbitUi {
         }
         for section in &sections {
             let mut tab = Child::<TabViewItem>::init(()).await?;
-            tab.set_text(&section.schema.title)?;
+            tab.set_text(&section.page.title)?;
             self.tabs.push(&tab)?;
             let mut scroll = Child::<ScrollView>::init(&tab).await?;
             scroll.set_vscroll(true)?;
             let mut rows = Vec::new();
-            for item in &section.schema.items {
-                if section.schema.id == "orbit.overview"
+            for item in &flatten(section) {
+                if section.page.id == "orbit.overview"
                     && item.item_type == "button"
                     && item.key == "restart"
                 {
@@ -331,7 +313,7 @@ impl OrbitUi {
                 rows.push(Row::new(&scroll, item.clone(), value).await?);
             }
             self.panels.push(Panel {
-                id: section.schema.id.clone(),
+                id: section.page.id.clone(),
                 tab,
                 scroll,
                 rows,
@@ -356,6 +338,20 @@ impl OrbitUi {
         Ok(true)
     }
 
+    fn navigate(&mut self, page: &str, revision: u64) -> winio::Result<bool> {
+        if revision < self.revision {
+            return Ok(false);
+        }
+        self.revision = revision;
+        // Without a registered Overview the placeholder tab comes first.
+        let offset = usize::from(!self.restart_visible);
+        let Some(index) = self.panels.iter().position(|panel| panel.id == page) else {
+            return Ok(false);
+        };
+        self.tabs.set_selection(index + offset)?;
+        Ok(true)
+    }
+
     fn request_visibility(&mut self, visible: bool, revision: u64) -> winio::Result<bool> {
         if revision < self.revision {
             return Ok(false);
@@ -371,7 +367,7 @@ impl OrbitUi {
 
     async fn apply_snapshot(
         &mut self,
-        sections: Vec<SectionState>,
+        sections: Vec<PageState>,
         visible: bool,
         revision: u64,
     ) -> winio::Result<bool> {
@@ -379,16 +375,49 @@ impl OrbitUi {
             return Ok(false);
         }
         self.revision = revision;
-        let same_schema = self
-            .sections
-            .iter()
-            .map(|section| &section.schema)
-            .eq(sections.iter().map(|section| &section.schema));
+        let layout = |sections: &[PageState]| {
+            sections
+                .iter()
+                .map(|section| {
+                    (
+                        section.page.id.clone(),
+                        section.page.title.clone(),
+                        // Select options change in place; everything else is layout.
+                        flatten(section)
+                            .into_iter()
+                            .map(|item| UiItem {
+                                options: None,
+                                ..item
+                            })
+                            .collect::<Vec<_>>(),
+                    )
+                })
+                .collect::<Vec<_>>()
+        };
+        let same_schema = layout(&self.sections) == layout(&sections);
         let mut changed = false;
         if same_schema {
             self.sections = sections;
             for (panel, section) in self.panels.iter_mut().zip(&self.sections) {
+                let items = flatten(section);
                 for row in &mut panel.rows {
+                    if let (Control::Select(widget), Some(item)) = (
+                        &mut row.control,
+                        items.iter().find(|item| item.key == row.item.key),
+                    ) {
+                        if item.options != row.item.options {
+                            row.item.options = item.options.clone();
+                            widget.set_items(
+                                item.options
+                                    .iter()
+                                    .flatten()
+                                    .map(|option| option.label.clone()),
+                            )?;
+                            // Setting the items cleared the selection; select again below.
+                            row.state_value = Value::Null;
+                            changed = true;
+                        }
+                    }
                     let value = section
                         .values
                         .get(&row.item.key)
@@ -440,7 +469,7 @@ impl OrbitUi {
             section.values.insert(key.clone(), value.clone());
         }
         self.context.write(ChildMessage::Action(UiAction {
-            section: section_id,
+            page: section_id,
             key,
             action_type: if clicked { "click" } else { "change" }.to_string(),
             value: Some(value),
@@ -565,11 +594,14 @@ impl Component for OrbitUi {
                             return Ok(false);
                         }
                         Inbound::Frame(ParentMessage::Snapshot {
-                            sections,
+                            pages,
                             visible,
                             revision,
                         }) => {
-                            changed |= self.apply_snapshot(sections, visible, revision).await?;
+                            changed |= self.apply_snapshot(pages, visible, revision).await?;
+                        }
+                        Inbound::Frame(ParentMessage::Navigate { page, revision }) => {
+                            changed |= self.navigate(&page, revision)?;
                         }
                         Inbound::Frame(ParentMessage::Visibility { visible, revision }) => {
                             changed |= self.request_visibility(visible, revision)?;
@@ -588,7 +620,7 @@ impl Component for OrbitUi {
             }
             OrbitUiMessage::RestartAndApply => {
                 self.context.write(ChildMessage::Action(UiAction {
-                    section: "orbit.overview".to_string(),
+                    page: "orbit.overview".to_string(),
                     key: "restart".to_string(),
                     action_type: "click".to_string(),
                     value: Some(Value::Null),
@@ -687,45 +719,5 @@ impl Component for OrbitUi {
             }
         }
         Ok(())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn select_state_carries_new_options_and_the_selected_value() {
-        let state = serde_json::json!({
-            "value": "new",
-            "options": [
-                {"label": "New", "value": "new"},
-                {"label": "Existing", "value": "existing"}
-            ]
-        });
-
-        let (value, options) = select_state(&state);
-        assert_eq!(value, "new");
-        assert_eq!(
-            options.unwrap(),
-            vec![
-                UiOption {
-                    label: "New".into(),
-                    value: Value::String("new".into()),
-                },
-                UiOption {
-                    label: "Existing".into(),
-                    value: Value::String("existing".into()),
-                },
-            ]
-        );
-    }
-
-    #[test]
-    fn ordinary_select_state_keeps_its_scalar_value_and_existing_options() {
-        let value = serde_json::json!(42);
-        let (selected, options) = select_state(&value);
-        assert_eq!(selected, 42);
-        assert_eq!(options, None);
     }
 }

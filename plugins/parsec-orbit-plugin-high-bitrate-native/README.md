@@ -9,8 +9,8 @@ interfaces. `encoder_bitrate` ("Bandwidth Limit"), for example, is an `int`
 with `min 0` / `max 2147483647`, but the native UI only offers the built-in
 ladder `3, 5, 7, 10, 15, 20, 25, 30, 35, 40, 45, 50 Mbps`. The default extra
 options are `60, 75, 100, 125, 150, 200, 250, 300, 400, 500 Mbps`; you can
-edit them in the Orbit UI under **High Bitrate → Additional bandwidth options**.
-Enter a JSON array of integer Mbps values above 50, such as `[60, 85, 125]`.
+edit them in the Orbit UI under **High Bitrate → Additional options**.
+Enter integer Mbps values above 50 separated by commas, such as `60, 85, 125`.
 The plugin sorts values and removes duplicates. It accepts up to 128 entries.
 Edits are saved by `parsec-orbit.config` and apply to both native and WebView
 dropdowns after restarting the client. The **Extend the bandwidth ladder**

@@ -1,10 +1,11 @@
 # Built-in UI settings
 
-The UI service owns the `orbit.overview` and `orbit.log` sections in its
-interactive instance. They use the ordinary `parsec-orbit.ui` JSON contract;
-the companion replaces its placeholder Overview when `orbit.overview` exists.
-The service's plugin-owned worker handles their actions. Session 0 does not
-start this worker or a window.
+The UI service owns the `orbit.overview` and `orbit.log` pages, in the `orbit`
+navigation group, in its interactive instance. They use the ordinary
+`parsec-orbit.ui` page schema ([UI service](ui-service.md)) and are the only
+pages that may use the reserved `orbit.` prefix. The service's plugin-owned
+worker handles their actions and shows each outcome as a status beside the
+setting that caused it. Session 0 does not start this worker or a window.
 
 ## Overview and restarting
 
@@ -19,7 +20,9 @@ and a `console` string. On Windows it is also written to the current user's
 `Environment\PARSEC_ORBIT_CONSOLE` registry value. Saving does not retroactively
 open or close the current process's console. The elevated restart helper merges
 the same variable into the Parsec service's `Environment` MULTI_SZ, preserving
-unrelated variables. Machine-wide environment variables are not changed.
+unrelated variables. Machine-wide environment variables are not changed. Saving a
+console choice sets the page's `restart_required` flag, which shows the window's
+restart notice ([UI service](ui-service.md#state-patches)).
 
 The Windows **Restart and apply** action launches the adjacent companion with
 `--restart-and-apply <console> <requesting-pid>` through `runas`. Maintenance

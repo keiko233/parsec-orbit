@@ -11,9 +11,7 @@ use std::sync::{mpsc, Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
-use parsec_orbit_ui_protocol::{
-    read_message, write_message, ChildMessage, ParentMessage, SectionState, UiAction, VERSION,
-};
+use parsec_orbit_ui_protocol::{read_message, write_message, ChildMessage, ParentMessage, VERSION};
 
 use crate::registry::{PendingAction, Registry};
 
@@ -39,6 +37,7 @@ pub struct Companion {
     stopped: Arc<AtomicBool>,
     pid: Arc<AtomicU32>,
     pending: Arc<AtomicBool>,
+    navigate: Arc<AtomicBool>,
     retry: Arc<AtomicBool>,
     revision: Arc<Mutex<u64>>,
     worker: Option<JoinHandle<()>>,
@@ -56,6 +55,7 @@ impl Companion {
         let stopped = Arc::new(AtomicBool::new(false));
         let pid = Arc::new(AtomicU32::new(0));
         let pending = Arc::new(AtomicBool::new(true));
+        let navigate = Arc::new(AtomicBool::new(false));
         let retry = Arc::new(AtomicBool::new(false));
         let revision = Arc::new(Mutex::new(0));
         let (actions, delivery) = mpsc::sync_channel::<PendingAction>(64);
@@ -72,14 +72,15 @@ impl Companion {
             let stopped = stopped.clone();
             let pid = pid.clone();
             let pending = pending.clone();
+            let navigate = navigate.clone();
             let retry = retry.clone();
             let revision = revision.clone();
             thread::Builder::new()
                 .name("orbit-ui-process".into())
                 .spawn(move || {
                     supervise(
-                        executable, registry, visible, stopped, pid, pending, retry, revision,
-                        events, receiver, actions, log,
+                        executable, registry, visible, stopped, pid, pending, navigate, retry,
+                        revision, events, receiver, actions, log,
                     );
                 })?
         };
@@ -89,6 +90,7 @@ impl Companion {
             stopped,
             pid,
             pending,
+            navigate,
             retry,
             revision,
             worker: Some(worker),
@@ -98,6 +100,13 @@ impl Companion {
     /// Requests a registry snapshot; a full queue already guarantees a wakeup.
     pub fn refresh(&self) {
         self.pending.store(true, Ordering::SeqCst);
+        let _ = self.events.try_send(Event::Refresh);
+    }
+
+    /// Asks the renderer to show the registry's selected page.
+    pub fn navigate(&self) {
+        *self.revision.lock().unwrap() += 1;
+        self.navigate.store(true, Ordering::SeqCst);
         let _ = self.events.try_send(Event::Refresh);
     }
 
@@ -285,6 +294,7 @@ fn supervise(
     stopped: Arc<AtomicBool>,
     pid: Arc<AtomicU32>,
     pending: Arc<AtomicBool>,
+    navigate: Arc<AtomicBool>,
     retry: Arc<AtomicBool>,
     revision: Arc<Mutex<u64>>,
     events: mpsc::SyncSender<Event>,
@@ -298,8 +308,10 @@ fn supervise(
     let mut next_launch = Instant::now();
     let mut dirty = true;
     let mut focus = false;
+    let mut navigating = false;
     while !stopped.load(Ordering::SeqCst) {
         dirty |= pending.swap(false, Ordering::SeqCst);
+        navigating |= navigate.swap(false, Ordering::SeqCst);
         if retry.swap(false, Ordering::SeqCst) {
             focus = true;
             attempts = 0;
@@ -337,6 +349,8 @@ fn supervise(
                     ChildMessage::Ready { version } if version == VERSION && !current.ready => {
                         current.ready = true;
                         dirty = true;
+                        // A new renderer starts on its first page; replay the selection.
+                        navigating = true;
                     }
                     ChildMessage::Ready { .. } => {
                         failed = Some("UI protocol handshake mismatch".into())
@@ -354,7 +368,7 @@ fn supervise(
                         }
                     }
                     ChildMessage::Action(action) => {
-                        if valid_action(&registry, &action) {
+                        if registry.accepts_action(&action) {
                             if let Some(action) = registry.prepare_action(&action) {
                                 if actions.try_send(action).is_err() {
                                     log("UI action queue full; action dropped");
@@ -404,18 +418,33 @@ fn supervise(
                     focus = false;
                 }
             }
+            if failed.is_none()
+                && current.ready
+                && current.writing.is_none()
+                && !dirty
+                && !focus
+                && navigating
+            {
+                navigating = false;
+                if let Some(page) = registry.selected() {
+                    let request_revision = revision.lock().unwrap();
+                    if current
+                        .writer
+                        .try_send(ParentMessage::Navigate {
+                            page,
+                            revision: *request_revision,
+                        })
+                        .is_ok()
+                    {
+                        current.writing = Some(Instant::now());
+                    }
+                }
+            }
             if failed.is_none() && current.ready && current.writing.is_none() && dirty {
-                let sections = registry
-                    .list_sections()
-                    .into_iter()
-                    .map(|schema| {
-                        let values = registry.get_state(&schema.id).unwrap_or_default();
-                        SectionState { schema, values }
-                    })
-                    .collect();
+                let pages = registry.list_pages();
                 let request_revision = revision.lock().unwrap();
                 let message = ParentMessage::Snapshot {
-                    sections,
+                    pages,
                     visible: visible.load(Ordering::SeqCst),
                     revision: *request_revision,
                 };
@@ -441,40 +470,4 @@ fn supervise(
     }
     drop(session);
     pid.store(0, Ordering::SeqCst);
-}
-
-fn valid_action(registry: &Registry, action: &UiAction) -> bool {
-    let sections = registry.list_sections();
-    let Some(item) = sections
-        .iter()
-        .find(|s| s.id == action.section)
-        .and_then(|s| s.items.iter().find(|i| i.key == action.key))
-    else {
-        return false;
-    };
-    if item.item_type == "button" {
-        return action.action_type == "click"
-            && action.value.as_ref().is_none_or(serde_json::Value::is_null);
-    }
-    if action.action_type != "change" {
-        return false;
-    }
-    let Some(value) = &action.value else {
-        return false;
-    };
-    match item.item_type.as_str() {
-        "toggle" => value.is_boolean(),
-        "text_input" => value.is_string(),
-        "number_input" | "slider" => value.as_f64().is_some_and(|number| {
-            number.is_finite()
-                && item.min.is_none_or(|min| number >= min)
-                && item.max.is_none_or(|max| number <= max)
-        }),
-        "select" => item
-            .options
-            .as_ref()
-            .is_some_and(|options| options.iter().any(|option| option.value == *value)),
-        "json_editor" => value.is_object() || value.is_array(),
-        _ => false,
-    }
 }

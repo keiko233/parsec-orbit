@@ -19,3 +19,4 @@ parsec-orbit-registry = { path = "../../crates/parsec-orbit-registry" }
 
 [dev-dependencies]
 parsec-orbit-plugin-sdk-testing = { path = "../../crates/parsec-orbit-plugin-sdk-testing" }
+parsec-orbit-ui-protocol = { path = "../../crates/parsec-orbit-ui-protocol" }

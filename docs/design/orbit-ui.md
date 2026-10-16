@@ -186,10 +186,13 @@ owns the native window and main-thread `winio` event loop.
     the hotkey/CLI activation channel. The System host can also run in the
     user's session and must not claim that user's shortcuts (ADR 0026).
 * **Styling**:
-  * Styled with a dark theme consistent with Parsec (background `#18181b`,
-    surface `#27272a`, border `#3f3f46`, text `#f4f4f5`, accent `#8b5cf6` or
-    Parsec crimson `#e01e5a`).
-  * **Built-in Tabs** (Overview and Log ship; Plugins and Configuration remain
+  * No palette of its own: the window follows the system theme, accent colour
+    and each platform's controls and materials
+    ([ADR 0029](decisions/0029-native-design-language.md)). On Windows the
+    shell is Fluent XAML hosted by winio
+    ([ADR 0027](decisions/0027-windows-fluent-xaml-shell.md)). The original
+    Parsec-coloured dark theme is superseded.
+  * **Built-in pages** (Overview and Log ship; Plugins and Configuration remain
     planned):
   1. **Overview**: Displays loader version, ABI level, Parsec version, loaded
      plugins count, and active UI mode.
@@ -210,20 +213,21 @@ owns the native window and main-thread `winio` event loop.
 Plugins do not write GUI code, compile widget trees, or link OS windowing
 libraries. Instead, plugins register declarative data structures.
 
-* **Declarative Schema (JSON)**:
-  * **Section**: Defines a group of settings (`id`, `title`, `description`, `order`).
-  * **Controls**:
-    * `toggle`: Boolean switch (e.g. enable high bitrate).
-    * `text_input` / `number_input`: Single-line inputs with validation bounds.
-    * `select`: Dropdown with fixed options.
-    * `button`: Triggers an action in the plugin.
-    * `json_editor`: Multiline raw JSON editor for complex state.
-    * `readonly_text`: Key-value status display.
+* **Declarative Schema (JSON, service version 2)**
+  ([ADR 0028](decisions/0028-ui-service-abi-v2.md)):
+  * **Page**: one navigation destination (`id`, `title`, `icon`, `group`,
+    `order`) holding ordered blocks.
+  * **Blocks**: `banner` (an inline notice), `group` (a titled run of settings)
+    and `actions` (a row of command buttons).
+  * **Setting**: a labelled thing the user can see or change, with one control:
+    `toggle`, `number`, `slider`, `select`, `text`, `json`, `button`, `value` or
+    `log`. Presentation (cards, rows, symbols) belongs to each renderer.
 * **Bidirectional Communication**:
-  * **Plugin -> UI**: `register_section` registers the schema; `update_state`
-    pushes updated values.
-  * **UI -> Plugin**: User interactions emit action events to the plugin's
-    registered callback (`on_action`).
+  * **Plugin -> UI**: `register_page` registers the schema; `update_page` applies
+    a patch of values, presentation properties (enabled, busy, status text,
+    options) and the page's restart-required flag.
+  * **UI -> Plugin**: User interactions emit `change` and `click` actions to the
+    plugin's registered callback (`on_action`).
 * **Full SDK Symmetry**:
   * **Rust SDK**: `cx.service::<Ui>()` exposes `UiClient`, allowing `#![no_std]`
     plugins to register settings with static string literals or lightweight

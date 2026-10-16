@@ -8,7 +8,8 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 
-use parsec_orbit_plugin_sdk::services::{ConfigClient, UiClient, WebViewClient};
+use parsec_orbit_plugin_sdk::services::ui::UiClient;
+use parsec_orbit_plugin_sdk::services::{ConfigClient, WebViewClient};
 use parsec_orbit_plugin_sdk::{Context, Level};
 
 use crate::engine::{self, Handle, PluginInfo, Spec};

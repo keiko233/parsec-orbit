@@ -963,7 +963,7 @@ fn host_config_uses_the_config_service_when_it_is_there() {
 
 static TEST_UI_SHOW: Mutex<bool> = Mutex::new(false);
 static TEST_UI_HIDE: Mutex<bool> = Mutex::new(false);
-static TEST_UI_SECTIONS: Mutex<Vec<String>> = Mutex::new(Vec::new());
+static TEST_UI_PAGES: Mutex<Vec<String>> = Mutex::new(Vec::new());
 
 unsafe extern "system" fn test_ui_show() -> i32 {
     *TEST_UI_SHOW.lock().unwrap() = true;
@@ -979,20 +979,24 @@ unsafe extern "system" fn test_ui_is_visible() -> i32 {
     1
 }
 
-unsafe extern "system" fn test_ui_register_section(schema: *const u8, len: usize) -> i32 {
+unsafe extern "system" fn test_ui_navigate(_: *const u8, _: usize) -> i32 {
+    0
+}
+
+unsafe extern "system" fn test_ui_register_page(schema: *const u8, len: usize) -> i32 {
     let slice = unsafe { core::slice::from_raw_parts(schema, len) };
-    TEST_UI_SECTIONS
+    TEST_UI_PAGES
         .lock()
         .unwrap()
         .push(String::from_utf8_lossy(slice).into_owned());
     0
 }
 
-unsafe extern "system" fn test_ui_unregister_section(_: *const u8, _: usize) -> i32 {
+unsafe extern "system" fn test_ui_unregister_page(_: *const u8, _: usize) -> i32 {
     0
 }
 
-unsafe extern "system" fn test_ui_update_state(
+unsafe extern "system" fn test_ui_update_page(
     _: *const u8,
     _: usize,
     _: *const u8,
@@ -1001,26 +1005,27 @@ unsafe extern "system" fn test_ui_update_state(
     0
 }
 
-static TEST_UI_SERVICE: parsec_orbit_plugin_sdk::ParsecOrbitUiV1 =
-    parsec_orbit_plugin_sdk::ParsecOrbitUiV1 {
+static TEST_UI_SERVICE: parsec_orbit_plugin_sdk::ParsecOrbitUiV2 =
+    parsec_orbit_plugin_sdk::ParsecOrbitUiV2 {
         header: parsec_orbit_plugin_sdk::ParsecOrbitInterfaceHeader::new(
-            std::mem::size_of::<parsec_orbit_plugin_sdk::ParsecOrbitUiV1>(),
-            1,
+            std::mem::size_of::<parsec_orbit_plugin_sdk::ParsecOrbitUiV2>(),
+            2,
             0,
         ),
         show: Some(test_ui_show),
         hide: Some(test_ui_hide),
         is_visible: Some(test_ui_is_visible),
-        register_section: Some(test_ui_register_section),
-        unregister_section: Some(test_ui_unregister_section),
-        update_state: Some(test_ui_update_state),
+        navigate: Some(test_ui_navigate),
+        register_page: Some(test_ui_register_page),
+        unregister_page: Some(test_ui_unregister_page),
+        update_page: Some(test_ui_update_page),
         on_action: None,
         off_action: None,
     };
 
 #[test]
 fn host_ui_uses_the_ui_service_when_it_is_there() {
-    use parsec_orbit_plugin_sdk::services::UiClient;
+    use parsec_orbit_plugin_sdk::services::ui::UiClient;
     let host = MockHost::new("com.parsec-orbit.js-runtime");
     host.provide("parsec-orbit.ui", &TEST_UI_SERVICE.header);
     let client = UiClient::new(&host.context()).unwrap();
@@ -1031,7 +1036,7 @@ fn host_ui_uses_the_ui_service_when_it_is_there() {
         r#"export default { async setup(host) {
           host.log.info("visible:", await host.ui.isVisible());
           await host.ui.show();
-          await host.ui.registerSection({ id: "my-section", title: "My Section", items: [] });
+          await host.ui.registerPage({ schema: 2, id: "my-section", title: "My Section", blocks: [] });
           await host.ui.hide();
         } };"#,
     );
@@ -1044,7 +1049,7 @@ fn host_ui_uses_the_ui_service_when_it_is_there() {
     assert!(said(&lines, "visible: true"));
     assert!(*TEST_UI_SHOW.lock().unwrap());
     assert!(*TEST_UI_HIDE.lock().unwrap());
-    assert!(TEST_UI_SECTIONS
+    assert!(TEST_UI_PAGES
         .lock()
         .unwrap()
         .iter()

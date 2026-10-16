@@ -17,7 +17,7 @@ pub mod hotkey;
 pub mod instance;
 
 use parsec_orbit_plugin_sdk::prelude::*;
-use parsec_orbit_plugin_sdk::services::Ui;
+use parsec_orbit_plugin_sdk::services::ui::Ui;
 
 #[derive(Default)]
 pub struct OrbitUiPlugin {
@@ -95,7 +95,7 @@ parsec_orbit_plugin_sdk::declare_plugin! {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use parsec_orbit_plugin_sdk::services::UiClient;
+    use parsec_orbit_plugin_sdk::services::ui::UiClient;
     use parsec_orbit_plugin_sdk::{ERR_EXISTS, ERR_INVALID, ERR_NOT_FOUND};
     use parsec_orbit_plugin_sdk_testing::MockHost;
     use std::ffi::c_void;
@@ -156,38 +156,65 @@ mod tests {
         assert!(client.hide().is_ok());
         assert_eq!(client.is_visible().unwrap(), false);
 
-        // Invalid schema
+        // Invalid page
         assert_eq!(
-            client.register_section("not json").unwrap_err().code(),
+            client.register_page("not json").unwrap_err().code(),
             ERR_INVALID
         );
 
-        // Valid section
-        let schema = r#"{
+        // Valid page
+        let page = r#"{
+            "schema": 2,
             "id": "consumer.tuning",
             "title": "Tuning",
-            "items": [
-                {"key": "fps", "type": "number_input", "label": "Max FPS", "default": 60}
-            ]
+            "blocks": [{"type": "group", "settings": [
+                {"key": "fps", "label": "Max FPS",
+                 "control": {"type": "number", "integer": true, "min": 1, "max": 240, "default": 60}}
+            ]}]
         }"#;
-        assert!(client.register_section(schema).is_ok());
+        assert!(client.register_page(page).is_ok());
 
         // Duplicate registration
+        assert_eq!(client.register_page(page).unwrap_err().code(), ERR_EXISTS);
+
+        // Reserved identifiers belong to the service
         assert_eq!(
-            client.register_section(schema).unwrap_err().code(),
-            ERR_EXISTS
+            client
+                .register_page(&page.replace("consumer.tuning", "orbit.fake"))
+                .unwrap_err()
+                .code(),
+            ERR_INVALID
         );
 
-        // Update state
+        // Navigation and patches
+        assert!(client.navigate("consumer.tuning").is_ok());
+        assert_eq!(
+            client.navigate("nonexistent").unwrap_err().code(),
+            ERR_NOT_FOUND
+        );
         assert!(client
-            .update_state("consumer.tuning", r#"{"fps": 120}"#)
+            .update_page("consumer.tuning", r#"{"values": {"fps": 120}}"#)
             .is_ok());
         assert_eq!(
             client
-                .update_state("nonexistent", r#"{"fps": 120}"#)
+                .update_page("consumer.tuning", r#"{"values": {"fps": 1000}}"#)
+                .unwrap_err()
+                .code(),
+            ERR_INVALID
+        );
+        assert_eq!(
+            client
+                .update_page("nonexistent", r#"{"values": {"fps": 120}}"#)
                 .unwrap_err()
                 .code(),
             ERR_NOT_FOUND
+        );
+        assert_eq!(
+            service::registry()
+                .get_page("consumer.tuning")
+                .unwrap()
+                .values["fps"],
+            serde_json::Value::from(120)
         );
 
         // Action subscription
@@ -199,7 +226,7 @@ mod tests {
         assert!(sub > 0);
 
         service::registry().dispatch_action(&schema::UiAction {
-            section: "consumer.tuning".to_string(),
+            page: "consumer.tuning".to_string(),
             key: "fps".to_string(),
             action_type: "change".to_string(),
             value: Some(serde_json::Value::from(144)),
@@ -217,11 +244,11 @@ mod tests {
         assert!(client.off_action(sub).is_ok());
         assert_eq!(client.off_action(sub).unwrap_err().code(), ERR_NOT_FOUND);
 
-        // Unregister section
-        assert!(client.unregister_section("consumer.tuning").is_ok());
+        // Unregister page
+        assert!(client.unregister_page("consumer.tuning").is_ok());
         assert_eq!(
             client
-                .unregister_section("consumer.tuning")
+                .unregister_page("consumer.tuning")
                 .unwrap_err()
                 .code(),
             ERR_NOT_FOUND
