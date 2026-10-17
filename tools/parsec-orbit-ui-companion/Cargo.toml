@@ -21,7 +21,7 @@ winio = { version = "0.12.0", default-features = false, features = ["winui"] }
 winio-winui3 = { version = "0.4.5", features = ["UI_Xaml"] }
 parsec-orbit-winui-bindings = { path = "../../crates/parsec-orbit-winui-bindings" }
 windows = { version = "0.62.2", features = ["Foundation", "System"] }
-windows-core = "0.62.2"
+windows-core = "0.100.0"
 windows-collections = "0.3.2"
 windows-sys = { version = "0.61.2", features = [
     "Win32_Foundation",
