@@ -1,12 +1,15 @@
-# Installs the loader and the official plugins into the Parsec client
-# directory. The script stops the Parsec service (which ends any running
-# client session), replaces bcrypt.dll, deploys the plugin folders and starts
-# the service again.
+# Installs the loader and all official plugins into the Parsec client
+# directory. This is the local-development installer: one run installs
+# everything from target\release, with no selection flags. The script stops
+# the Parsec service (which ends any running client session), replaces
+# bcrypt.dll, deploys the plugin folders and starts the service again.
 #
-#   powershell -ExecutionPolicy Bypass -File scripts\install.ps1 [-EnableWebViewUi] [-EnableStunSwap]
+#   powershell -ExecutionPolicy Bypass -File scripts\install.ps1
 #
-# When the optional UI plugin DLL is in target\release, its companion helper is
-# required and installed beside the plugin library.
+# -EnableStunSwap is a legacy no-op, kept so older invocations keep working:
+# stun-swap and its hooks dependency are now always installed. -EnableWebViewUi
+# still switches the client to the WebView2 UI. The UI companion helper is
+# required and installed beside the UI plugin library.
 #
 # It has to run elevated: it writes into the client directory and controls the
 # Parsec service. The previous bcrypt.dll is copied to
@@ -54,11 +57,34 @@ if (-not (Test-Path -LiteralPath $loader)) {
     throw "missing $loader - build it first (cargo build --release, or scripts\package.ps1)"
 }
 
+# Local development installs everything: libs first, then the plugins that
+# depend on them, then the market and the hello example.
 $plugins = @(
     @{
         Name = 'parsec-orbit-lib-webview-bridge'
         Source = Join-Path $root 'libs\parsec-orbit-lib-webview-bridge'
         Dll = 'parsec_orbit_lib_webview_bridge.dll'
+    },
+    @{
+        Name = 'parsec-orbit-lib-config'
+        Source = Join-Path $root 'libs\parsec-orbit-lib-config'
+        Dll = 'parsec_orbit_lib_config.dll'
+    },
+    @{
+        Name = 'parsec-orbit-lib-js-runtime'
+        Source = Join-Path $root 'libs\parsec-orbit-lib-js-runtime'
+        Dll = 'parsec_orbit_lib_js_runtime.dll'
+    },
+    @{
+        Name = 'parsec-orbit-lib-hooks'
+        Source = Join-Path $root 'libs\parsec-orbit-lib-hooks'
+        Dll = 'parsec_orbit_lib_hooks.dll'
+    },
+    @{
+        Name = 'parsec-orbit-lib-ui'
+        Source = Join-Path $root 'libs\parsec-orbit-lib-ui'
+        Dll = 'parsec_orbit_lib_ui.dll'
+        Companion = 'parsec-orbit-ui-companion.exe'
     },
     @{
         Name = 'parsec-orbit-plugin-high-bitrate-webview'
@@ -69,32 +95,23 @@ $plugins = @(
         Name = 'parsec-orbit-plugin-high-bitrate-native'
         Source = Join-Path $root 'plugins\parsec-orbit-plugin-high-bitrate-native'
         Dll = 'parsec_orbit_plugin_high_bitrate_native.dll'
+    },
+    @{
+        Name = 'parsec-orbit-plugin-stun-swap'
+        Source = Join-Path $root 'plugins\parsec-orbit-plugin-stun-swap'
+        Dll = 'parsec_orbit_plugin_stun_swap.dll'
+    },
+    @{
+        Name = 'parsec-orbit-plugin-market'
+        Source = Join-Path $root 'plugins\parsec-orbit-plugin-market'
+        Dll = 'parsec_orbit_plugin_market.dll'
+    },
+    @{
+        Name = 'parsec-orbit-plugin-hello'
+        Source = Join-Path $root 'examples\parsec-orbit-plugin-hello'
+        Dll = 'parsec_orbit_plugin_hello.dll'
     }
 )
-if (Test-Path -LiteralPath (Join-Path $release 'parsec_orbit_lib_ui.dll')) {
-    $plugins += @(
-        @{
-            Name = 'parsec-orbit-lib-ui'
-            Source = Join-Path $root 'libs\parsec-orbit-lib-ui'
-            Dll = 'parsec_orbit_lib_ui.dll'
-            Companion = 'parsec-orbit-ui-companion.exe'
-        }
-    )
-}
-if ($EnableStunSwap) {
-    $plugins += @(
-        @{
-            Name = 'parsec-orbit-lib-hooks'
-            Source = Join-Path $root 'libs\parsec-orbit-lib-hooks'
-            Dll = 'parsec_orbit_lib_hooks.dll'
-        },
-        @{
-            Name = 'parsec-orbit-plugin-stun-swap'
-            Source = Join-Path $root 'plugins\parsec-orbit-plugin-stun-swap'
-            Dll = 'parsec_orbit_plugin_stun_swap.dll'
-        }
-    )
-}
 foreach ($plugin in $plugins) {
     $dll = Join-Path $release $plugin.Dll
     if (-not (Test-Path -LiteralPath $dll)) {
