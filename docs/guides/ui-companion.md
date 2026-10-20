@@ -140,7 +140,11 @@ cargo run --locked -p parsec-orbit-lib-ui --example companion-host -- \
   "$PWD/target/debug/parsec-orbit-ui-companion"
 ```
 
-It shows all supported control types and prints returned action JSON. It exits
+It shows all supported control types and prints returned action JSON. On macOS
+the window is the AppKit split view of
+[ADR 0030](../design/decisions/0030-macos-appkit-split-view-shell.md); look at it in
+light and dark appearance, with Increase Contrast and Reduce Transparency, and
+resize it to its minimum size. It exits
 after 60 seconds and reaps its helper; set `ORBIT_UI_PROBE_SECONDS` to change the
 probe duration. This demonstrates the renderer and pipes in an owned host, not
 compatibility with a real signed-in client or the production sandbox.

@@ -1,12 +1,12 @@
+#[cfg(target_os = "macos")]
+mod appkit;
 #[cfg(windows)]
 mod fluent;
 mod maintenance;
-mod platform;
-// Only the macOS renderer draws rows; the tests of the reduction run everywhere.
+// The decisions the AppKit renderer shares; the tests run everywhere.
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
-mod rows;
-#[cfg(target_os = "macos")]
-mod window;
+mod model;
+mod platform;
 
 use std::io::{self, BufReader, BufWriter};
 use std::sync::mpsc::{self, SyncSender, TrySendError};
@@ -18,11 +18,11 @@ use parsec_orbit_ui_protocol::{
 };
 use winio::prelude::*;
 
+#[cfg(target_os = "macos")]
+use appkit::{OrbitUi, OrbitUiMessage};
 #[cfg(windows)]
 use fluent::{OrbitUi, OrbitUiMessage};
 use platform::WakeTarget;
-#[cfg(target_os = "macos")]
-use window::{OrbitUi, OrbitUiMessage};
 
 pub(crate) enum Inbound {
     Frame(ParentMessage),
