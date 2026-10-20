@@ -16,7 +16,7 @@ windows = { version = "0.62.2", features = [
     "UI_Core",
     "UI_Text",
 ] }
-windows-core = "0.62.2"
+windows-core = "0.100.0"
 windows-collections = "0.3.2"
 windows-future = "0.3.2"
 windows-numerics = "0.100.0"
