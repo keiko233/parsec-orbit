@@ -2040,7 +2040,7 @@ dependencies = [
  "parsec-orbit-winui-bindings",
  "serde_json",
  "windows",
- "windows-collections",
+ "windows-collections 0.100.0",
  "windows-core 0.62.2",
  "windows-sys 0.61.2",
  "winio",
@@ -2075,7 +2075,7 @@ name = "parsec-orbit-winui-bindings"
 version = "0.1.1"
 dependencies = [
  "windows",
- "windows-collections",
+ "windows-collections 0.100.0",
  "windows-core 0.62.2",
  "windows-future",
  "windows-numerics 0.100.0",
@@ -3159,7 +3159,7 @@ version = "0.62.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "527fadee13e0c05939a6a05d5bd6eec6cd2e3dbd648b9f8e447c6518133d8580"
 dependencies = [
- "windows-collections",
+ "windows-collections 0.3.2",
  "windows-core 0.62.2",
  "windows-future",
  "windows-numerics 0.3.1",
@@ -3184,6 +3184,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "23b2d95af1a8a14a3c7367e1ed4fc9c20e0a26e79551b1454d72583c97cc6610"
 dependencies = [
  "windows-core 0.62.2",
+]
+
+[[package]]
+name = "windows-collections"
+version = "0.100.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e884f6b14b3c101363efab151e89271b4da599d1e29d945023f92656b23020c2"
+dependencies = [
+ "windows-core 0.100.0",
 ]
 
 [[package]]
@@ -3678,7 +3687,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e55a2e2a45338a8465ccfe5fd8ae2ada606d4efe986a9f97baa81385c2e24d3f"
 dependencies = [
  "windows",
- "windows-collections",
+ "windows-collections 0.3.2",
  "windows-core 0.62.2",
  "windows-future",
  "windows-numerics 0.3.1",
